@@ -1,0 +1,28 @@
+[tool.poetry]
+name = "nonebot-plugin-htmlrender"
+version = "0.0.1"
+description = ""
+authors = ["kexue <xana278@foxmail.com>"]
+license = "MIT"
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+playwright = "^1.17.2"
+nonebot2 = "^2.0.0-alpha.16"
+nonebot-adapter-cqhttp = "^2.0.0-alpha.16"
+jinja2 = "^3.0.3"
+
+[tool.poetry.dev-dependencies]
+black = "^21.12b0"
+nonebot-plugin-test = "^0.3.0"
+
+
+[build-system]
+requires = ["poetry-core>=1.0.0"]
+build-backend = "poetry.core.masonry.api"
+
+[[tool.poetry.source]]
+name = "aliyun"
+url = "https://mirrors.aliyun.com/pypi/simple/"
+default = true
