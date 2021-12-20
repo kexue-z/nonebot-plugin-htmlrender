@@ -16,6 +16,7 @@ jinja2 = "^3.0.3"
 [tool.poetry.dev-dependencies]
 black = "^21.12b0"
 nonebot-plugin-test = "^0.3.0"
+pillow = "^8"
 
 
 [build-system]
