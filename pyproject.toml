@@ -12,6 +12,7 @@ playwright = "^1.17.2"
 nonebot2 = "^2.0.0-alpha.16"
 nonebot-adapter-cqhttp = "^2.0.0-alpha.16"
 jinja2 = "^3.0.3"
+markdown = "^3.3.6"
 
 [tool.poetry.dev-dependencies]
 black = "^21.12b0"
