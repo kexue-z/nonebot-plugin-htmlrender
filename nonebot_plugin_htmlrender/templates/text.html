@@ -1,0 +1,15 @@
+<head>
+  <meta charset="utf-8" />
+  {% if css %}
+  <style type="text/css">
+    {{ css }}
+  </style>
+  {% endif %}
+</head>
+<body>
+  <div id="main" class="main-box">
+    {% for text in text_list %}
+    <div class="text">{{ text }}</div>
+    {% endfor %}
+  </div>
+</body>
