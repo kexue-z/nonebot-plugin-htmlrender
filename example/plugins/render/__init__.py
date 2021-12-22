@@ -14,12 +14,13 @@ text_to_pic = require("nonebot_plugin_htmlrender").text_to_pic
 async def _text2pic(bot: Bot, event: MessageEvent):
     msg = str(event.get_message())
 
-    # css_path 可选
+    
     from pathlib import Path
-
-    pic = await text_to_pic(
-        text=msg, css_path=str(Path(__file__).parent / "templates" / "markdown.css")
-    )
+    
+    # css_path 可选
+    # pic = await text_to_pic(
+    #     text=msg, css_path=str(Path(__file__).parent / "templates" / "markdown.css")
+    # )
 
     pic = await text_to_pic(text=msg)
     a = Image.open(io.BytesIO(pic))
