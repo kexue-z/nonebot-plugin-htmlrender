@@ -15,9 +15,11 @@ env = jinja2.Environment(
 )
 
 
-async def create_image(html: str, wait: int = 0) -> bytes:
+async def create_image(
+    html: str, wait: int = 0, viewport: dict = {"width": 300, "height": 300}
+) -> bytes:
     logger.debug(f"html:\n{html}")
-    async with get_new_page(viewport={"width": 300, "height": 300}) as page:
+    async with get_new_page(viewport=viewport) as page:
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
         img_raw = await page.screenshot(full_page=True)
@@ -62,22 +64,26 @@ async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None) -
     if md:
         return await create_image(
             await template.render_async(
-                md=markdown.markdown(md),
+                md=markdown.markdown(md, extensions=["tables", "fenced_code"]),
                 css=await read_file(css_path)
                 if css_path
-                else await read_file(TEMPLATES_PATH + "/markdown.css"),
-            )
+                else await read_file(TEMPLATES_PATH + "/github-markdown-light.css"),
+            ),
+            viewport={"width": 1000, "height": 500},
         )
 
     elif md_path:
-        md = markdown.markdown(await read_file(md_path))
+        md = markdown.markdown(
+            await read_file(md_path), extensions=["tables", "fenced_code"]
+        )
         return await create_image(
             await template.render_async(
                 md=md,
                 css=await read_file(css_path)
                 if css_path
-                else await read_file(TEMPLATES_PATH + "/markdown.css"),
+                else await read_file(TEMPLATES_PATH + "/github-markdown-light.css"),
             ),
+            viewport={"width": 1000, "height": 500},
         )
 
     else:
