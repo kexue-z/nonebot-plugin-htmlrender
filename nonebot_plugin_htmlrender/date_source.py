@@ -58,15 +58,17 @@ async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None, w
         else:
             raise "必须输入 md 或 md_path"
 
-    md = markdown.markdown(md, extensions=["tables", "fenced_code"])
+    md = markdown.markdown(md, extensions=[
+        "tables", "fenced_code", "codehilite"
+    ])
+    if css_path:
+        css = await read_file(css_path)
+    else:
+        css = await read_file(TEMPLATES_PATH + "/github-markdown-light.css") + \
+            await read_file(TEMPLATES_PATH + "/pygments-default.css")
 
     return await html_to_pic(
-        await template.render_async(
-            md=md,
-            css=await read_file(css_path)
-            if css_path
-            else await read_file(TEMPLATES_PATH + "/github-markdown-light.css"),
-        ),
+        await template.render_async(md=md, css=css),
         viewport={"width": width, "height": 10}
     )
 
