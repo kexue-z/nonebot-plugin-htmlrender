@@ -33,7 +33,7 @@ async def text_to_pic(text: str, css_path: str = None, width: int = 500) -> byte
             text=text,
             css=await read_file(css_path)
             if css_path
-            else await read_file(TEMPLATES_PATH + "/text.css"),
+            else await read_tpl("text.css"),
         ),
         viewport={"width": width, "height": 10}
     )
@@ -58,17 +58,33 @@ async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None, w
         else:
             raise "必须输入 md 或 md_path"
 
-    md = markdown.markdown(md, extensions=[
-        "tables", "fenced_code", "codehilite"
-    ])
+    md = markdown.markdown(
+        md,
+        extensions=[
+            "tables", "fenced_code", "codehilite", "mdx_math"
+        ],
+        extension_configs={
+            "mdx_math": {"enable_dollar_delimiter": True}
+        }
+    )
+
+    extra = ""
+    if "math/tex" in md:
+        katex_css = await read_tpl("katex/katex.min.b64_fonts.css")
+        katex_js = await read_tpl("katex/katex.min.js")
+        mathtex_js = await read_tpl("katex/mathtex-script-type.min.js")
+        extra = f'<style type="text/css">{katex_css}</style>' \
+            f'<script defer>{katex_js}</script>' \
+            f'<script defer>{mathtex_js}</script>'
+
     if css_path:
         css = await read_file(css_path)
     else:
-        css = await read_file(TEMPLATES_PATH + "/github-markdown-light.css") + \
-            await read_file(TEMPLATES_PATH + "/pygments-default.css")
+        css = await read_tpl("github-markdown-light.css") + \
+            await read_tpl("pygments-default.css")
 
     return await html_to_pic(
-        await template.render_async(md=md, css=css),
+        await template.render_async(md=md, css=css, extra=extra),
         viewport={"width": width, "height": 10}
     )
 
@@ -82,6 +98,10 @@ async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None, w
 async def read_file(path: str) -> str:
     async with aiofiles.open(path, mode="r") as f:
         return await f.read()
+
+
+async def read_tpl(path: str) -> str:
+    return await read_file(f"{TEMPLATES_PATH}/{path}")
 
 
 async def template_to_html(

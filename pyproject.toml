@@ -14,6 +14,7 @@ nonebot-adapter-cqhttp = "^2.0.0-alpha.16"
 jinja2 = "^3.0.3"
 markdown = "^3.3.6"
 Pygments = "^2.10.0"
+python-markdown-math = "^0.8"
 
 [tool.poetry.dev-dependencies]
 black = "^21.12b0"
