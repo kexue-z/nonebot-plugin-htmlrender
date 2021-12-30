@@ -15,79 +15,78 @@ env = jinja2.Environment(
 )
 
 
-async def create_image(
-    html: str, wait: int = 0, viewport: dict = {"width": 300, "height": 300}
-) -> bytes:
-    logger.debug(f"html:\n{html}")
-    async with get_new_page(viewport=viewport) as page:
-        await page.set_content(html, wait_until="networkidle")
-        await page.wait_for_timeout(wait)
-        img_raw = await page.screenshot(full_page=True)
-    return img_raw
-
-
-async def text_to_pic(text: str, css_path: str = None) -> bytes:
+async def text_to_pic(text: str, css_path: str = None, width: int = 500) -> bytes:
     """多行文本转图片
 
     Args:
         text (str): 纯文本, 可多行
         css_path (str, optional): css文件
+        width (int, optional): 图片宽度，默认为 500
 
     Returns:
         bytes: 图片, 可直接发送
     """
     template = env.get_template("text.html")
-    text_list = text.split("\n")
 
-    return await create_image(
+    return await html_to_pic(
         await template.render_async(
-            text_list=text_list,
+            text=text,
             css=await read_file(css_path)
             if css_path
-            else await read_file(TEMPLATES_PATH + "/text.css"),
-        )
+            else await read_tpl("text.css"),
+        ),
+        viewport={"width": width, "height": 10}
     )
 
 
-async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None) -> bytes:
+async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None, width: int = 500) -> bytes:
     """markdown 转 图片
 
     Args:
-        md (str, optional): markdown 文件路径 或 markdown 格式文本
+        md (str, optional): markdown 格式文本
         md_path (str, optional): markdown 文件路径
         css_path (str,  optional): css文件路径. Defaults to None.
+        width (int, optional): 图片宽度，默认为 500
 
     Returns:
         bytes: 图片, 可直接发送
     """
     template = env.get_template("markdown.html")
-    if md:
-        return await create_image(
-            await template.render_async(
-                md=markdown.markdown(md, extensions=["tables", "fenced_code"]),
-                css=await read_file(css_path)
-                if css_path
-                else await read_file(TEMPLATES_PATH + "/github-markdown-light.css"),
-            ),
-            viewport={"width": 1000, "height": 500},
-        )
+    if not md:
+        if md_path:
+            md = await read_file(md_path)
+        else:
+            raise "必须输入 md 或 md_path"
 
-    elif md_path:
-        md = markdown.markdown(
-            await read_file(md_path), extensions=["tables", "fenced_code"]
-        )
-        return await create_image(
-            await template.render_async(
-                md=md,
-                css=await read_file(css_path)
-                if css_path
-                else await read_file(TEMPLATES_PATH + "/github-markdown-light.css"),
-            ),
-            viewport={"width": 1000, "height": 500},
-        )
+    md = markdown.markdown(
+        md,
+        extensions=[
+            "tables", "fenced_code", "codehilite", "mdx_math"
+        ],
+        extension_configs={
+            "mdx_math": {"enable_dollar_delimiter": True}
+        }
+    )
 
+    extra = ""
+    if "math/tex" in md:
+        katex_css = await read_tpl("katex/katex.min.b64_fonts.css")
+        katex_js = await read_tpl("katex/katex.min.js")
+        mathtex_js = await read_tpl("katex/mathtex-script-type.min.js")
+        extra = f'<style type="text/css">{katex_css}</style>' \
+            f'<script defer>{katex_js}</script>' \
+            f'<script defer>{mathtex_js}</script>'
+
+    if css_path:
+        css = await read_file(css_path)
     else:
-        raise "必须输入 md 或 md_path"
+        css = await read_tpl("github-markdown-light.css") + \
+            await read_tpl("pygments-default.css")
+
+    return await html_to_pic(
+        await template.render_async(md=md, css=css, extra=extra),
+        viewport={"width": width, "height": 10}
+    )
 
 
 # async def read_md(md_path: str) -> str:
@@ -99,6 +98,10 @@ async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None) -
 async def read_file(path: str) -> str:
     async with aiofiles.open(path, mode="r") as f:
         return await f.read()
+
+
+async def read_tpl(path: str) -> str:
+    return await read_file(f"{TEMPLATES_PATH}/{path}")
 
 
 async def template_to_html(
@@ -125,12 +128,12 @@ async def template_to_html(
     return await template.render_async(**kwargs)
 
 
-async def html_to_pic(html: str, wait: int = 10, **kwargs) -> bytes:
+async def html_to_pic(html: str, wait: int = 0, **kwargs) -> bytes:
     """html转图片
 
     Args:
         html (str): html文本
-        wait (int, optional): 等待时间. Defaults to 10.
+        wait (int, optional): 等待时间. Defaults to 0.
 
     Returns:
         bytes: 图片, 可直接发送
