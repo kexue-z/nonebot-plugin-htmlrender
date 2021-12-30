@@ -84,7 +84,9 @@ md_to_pic = require("nonebot_plugin_htmlrender").md_to_pic
 async def _md2pic(bot: Bot, event: MessageEvent):
     from pathlib import Path
 
-    msg = str(event.get_message())
+    # 如果是直接获取消息内容 需要 unescape
+    from nonebot.adapters.cqhttp import unescape
+    msg = unescape(str(event.get_message()))
 
     # css_path 可选
     # pic = await md_to_pic(

@@ -31,15 +31,15 @@ async def text_to_pic(text: str, css_path: str = None, width: int = 500) -> byte
     return await html_to_pic(
         await template.render_async(
             text=text,
-            css=await read_file(css_path)
-            if css_path
-            else await read_tpl("text.css"),
+            css=await read_file(css_path) if css_path else await read_tpl("text.css"),
         ),
-        viewport={"width": width, "height": 10}
+        viewport={"width": width, "height": 10},
     )
 
 
-async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None, width: int = 500) -> bytes:
+async def md_to_pic(
+    md: str = None, md_path: str = None, css_path: str = None, width: int = 500
+) -> bytes:
     """markdown 转 图片
 
     Args:
@@ -57,35 +57,41 @@ async def md_to_pic(md: str = None, md_path: str = None, css_path: str = None, w
             md = await read_file(md_path)
         else:
             raise "必须输入 md 或 md_path"
-
+    logger.debug(md)
     md = markdown.markdown(
         md,
         extensions=[
-            "tables", "fenced_code", "codehilite", "mdx_math"
+            "pymdownx.tasklist",
+            "tables",
+            "fenced_code",
+            "codehilite",
+            "mdx_math",
         ],
-        extension_configs={
-            "mdx_math": {"enable_dollar_delimiter": True}
-        }
+        extension_configs={"mdx_math": {"enable_dollar_delimiter": True}},
     )
 
+    logger.debug(md)
     extra = ""
     if "math/tex" in md:
         katex_css = await read_tpl("katex/katex.min.b64_fonts.css")
         katex_js = await read_tpl("katex/katex.min.js")
         mathtex_js = await read_tpl("katex/mathtex-script-type.min.js")
-        extra = f'<style type="text/css">{katex_css}</style>' \
-            f'<script defer>{katex_js}</script>' \
-            f'<script defer>{mathtex_js}</script>'
+        extra = (
+            f'<style type="text/css">{katex_css}</style>'
+            f"<script defer>{katex_js}</script>"
+            f"<script defer>{mathtex_js}</script>"
+        )
 
     if css_path:
         css = await read_file(css_path)
     else:
-        css = await read_tpl("github-markdown-light.css") + \
-            await read_tpl("pygments-default.css")
+        css = await read_tpl("github-markdown-light.css") + await read_tpl(
+            "pygments-default.css"
+        )
 
     return await html_to_pic(
         await template.render_async(md=md, css=css, extra=extra),
-        viewport={"width": width, "height": 10}
+        viewport={"width": width, "height": 10},
     )
 
 
@@ -138,7 +144,7 @@ async def html_to_pic(html: str, wait: int = 0, **kwargs) -> bytes:
     Returns:
         bytes: 图片, 可直接发送
     """
-    logger.debug(f"html:\n{html}")
+    # logger.debug(f"html:\n{html}")
     async with get_new_page(**kwargs) as page:
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
