@@ -1,13 +1,13 @@
 [tool.poetry]
 name = "nonebot-plugin-htmlrender"
-version = "0.0.3"
+version = "0.0.3.1"
 description = ""
 authors = ["kexue <xana278@foxmail.com>"]
 license = "MIT"
 readme = "README.md"
 
 [tool.poetry.dependencies]
-python = "^3.9"
+python = ">=3.7.3,<4.0"
 playwright = "^1.17.2"
 nonebot2 = "^2.0.0-alpha.16"
 nonebot-adapter-cqhttp = "^2.0.0-alpha.16"
