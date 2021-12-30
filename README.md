@@ -15,6 +15,14 @@
 
 参考[example/plugins/render/__init__.py](example/plugins/render/__init__.py)
 
+## markdown 转 图片
+
+- 使用 `GitHub-light` 样式
+- 支持绝大部分 md 语法
+- 代码高亮
+- latex 数学公式 （感谢@[MeetWq](https://github.com/MeetWq)）
+    - 使用 `$$...$$` 来输入独立公式
+    - 使用 `$...$` 来输入行内公式
 
 # 🌰 栗子
 
@@ -32,3 +40,6 @@
 ![](docs/template2pic2pic.png)
 
 
+# 特别感谢
+
+- [MeetWq](https://github.com/MeetWq) 提供数学公式支持代码和代码高亮
