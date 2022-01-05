@@ -1,10 +1,12 @@
-from jinja2.environment import Template
-from .browser import get_new_page
 from pathlib import Path
-import jinja2
-from nonebot.log import logger
-import markdown
+
 import aiofiles
+import jinja2
+import markdown
+from jinja2.environment import Template
+from nonebot.log import logger
+
+from .browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
 
@@ -134,10 +136,11 @@ async def template_to_html(
     return await template.render_async(**kwargs)
 
 
-async def html_to_pic(html: str, wait: int = 0, **kwargs) -> bytes:
+async def html_to_pic(pagename: str, html: str, wait: int = 0, **kwargs) -> bytes:
     """html转图片
 
     Args:
+        pagename (str): 模板路径
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
 
@@ -146,6 +149,7 @@ async def html_to_pic(html: str, wait: int = 0, **kwargs) -> bytes:
     """
     # logger.debug(f"html:\n{html}")
     async with get_new_page(**kwargs) as page:
+        await page.got(pagename)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
         img_raw = await page.screenshot(full_page=True)
