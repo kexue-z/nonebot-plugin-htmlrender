@@ -149,7 +149,7 @@ async def html_to_pic(pagename: str, html: str, wait: int = 0, **kwargs) -> byte
     """
     # logger.debug(f"html:\n{html}")
     async with get_new_page(**kwargs) as page:
-        await page.got(pagename)
+        await page.goto(pagename)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
         img_raw = await page.screenshot(full_page=True)
