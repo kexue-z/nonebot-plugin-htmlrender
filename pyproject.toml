@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "nonebot-plugin-htmlrender"
-version = "0.0.3.1"
-description = ""
+version = "0.0.4"
+description = "通过浏览器渲染图片"
 authors = ["kexue <xana278@foxmail.com>"]
 license = "MIT"
 readme = "README.md"
