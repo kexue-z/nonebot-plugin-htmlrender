@@ -32,7 +32,8 @@ async def text_to_pic(text: str, css_path: str = None, width: int = 500) -> byte
     template = env.get_template("text.html")
 
     return await html_to_pic(
-        await template.render_async(
+        template_path=f"file://{css_path if css_path else TEMPLATES_PATH}",
+        html=await template.render_async(
             text=text,
             css=await read_file(css_path) if css_path else await read_tpl("text.css"),
         ),
@@ -93,7 +94,8 @@ async def md_to_pic(
         )
 
     return await html_to_pic(
-        await template.render_async(md=md, css=css, extra=extra),
+        template_path=f"file://{css_path if css_path else TEMPLATES_PATH}",
+        html=await template.render_async(md=md, css=css, extra=extra),
         viewport={"width": width, "height": 10},
     )
 
@@ -137,11 +139,11 @@ async def template_to_html(
     return await template.render_async(**kwargs)
 
 
-async def html_to_pic(pagename: str, html: str, wait: int = 0, **kwargs) -> bytes:
+async def html_to_pic(template_path: str, html: str, wait: int = 0, **kwargs) -> bytes:
     """html转图片
 
     Args:
-        pagename (str): 模板路径
+        template_path (str): 模板路径 如 "file:///path/to/template/"
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
 
@@ -149,8 +151,10 @@ async def html_to_pic(pagename: str, html: str, wait: int = 0, **kwargs) -> byte
         bytes: 图片, 可直接发送
     """
     # logger.debug(f"html:\n{html}")
+    if "file:" not in template_path:
+        raise "template_path 应该为 file:///path/to/template"
     async with get_new_page(**kwargs) as page:
-        await page.goto(pagename)
+        await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
         img_raw = await page.screenshot(full_page=True)
@@ -184,8 +188,6 @@ async def template_to_pic(
         enable_async=True,
     )
     template = template_env.get_template(template_name)
-
-    # html =  await template.render_async(**templates)
 
     return await html_to_pic(
         template_path=template_path,
