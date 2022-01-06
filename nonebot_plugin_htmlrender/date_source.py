@@ -190,7 +190,7 @@ async def template_to_pic(
     template = template_env.get_template(template_name)
 
     return await html_to_pic(
-        template_path=template_path,
+        template_path=f"file://{template_path}",
         html=await template.render_async(**templates),
         wait=wait,
         **pages,
