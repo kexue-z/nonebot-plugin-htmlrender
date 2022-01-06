@@ -1,3 +1,4 @@
+from os import getcwd
 from pathlib import Path
 
 import aiofiles
@@ -154,3 +155,41 @@ async def html_to_pic(pagename: str, html: str, wait: int = 0, **kwargs) -> byte
         await page.wait_for_timeout(wait)
         img_raw = await page.screenshot(full_page=True)
     return img_raw
+
+
+async def template_to_pic(
+    template_path: str,
+    template_name: str,
+    templates: dict,
+    pages: dict = {
+        "viewport": {"width": 500, "height": 10},
+        "base_url": f"file://{getcwd()}",
+    },
+    wait: int = 0,
+) -> bytes:
+    """使用jinja2模板引擎通过html生成图片
+
+    Args:
+        template_path (str): 模板路径
+        template_name (str): 模板名
+        templates (dict): 模板内参数 如: {"name": "abc"}
+        pages (dict): 网页参数 Defaults to {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
+        wait (int, optional): 网页载入等待时间. Defaults to 0.
+    Returns:
+        bytes: 图片 可直接发送
+    """
+
+    template_env = jinja2.Environment(
+        loader=jinja2.FileSystemLoader(template_path),
+        enable_async=True,
+    )
+    template = template_env.get_template(template_name)
+
+    # html =  await template.render_async(**templates)
+
+    return await html_to_pic(
+        template_path=template_path,
+        html=await template.render_async(**templates),
+        wait=wait,
+        **pages,
+    )
