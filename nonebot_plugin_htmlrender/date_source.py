@@ -139,13 +139,15 @@ async def template_to_html(
     return await template.render_async(**kwargs)
 
 
-async def html_to_pic(template_path: str, html: str, wait: int = 0, **kwargs) -> bytes:
+async def html_to_pic(
+    html: str, wait: int = 0, template_path: str = f"file://{getcwd()}", **kwargs
+) -> bytes:
     """html转图片
 
     Args:
-        template_path (str): 模板路径 如 "file:///path/to/template/"
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
+        template_path (str, optional): 模板路径 如 "file:///path/to/template/"
 
     Returns:
         bytes: 图片, 可直接发送
