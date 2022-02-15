@@ -6,7 +6,7 @@ import jinja2
 import markdown
 from jinja2.environment import Template
 from nonebot.log import logger
-
+from typing import Optional
 from .browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
@@ -197,3 +197,12 @@ async def template_to_pic(
         wait=wait,
         **pages,
     )
+
+
+async def capture_element(
+    url: str, element: str, timeout: Optional[float] = 0, **kwargs
+) -> bytes:
+    async with get_new_page(**kwargs) as page:
+        await page.goto(url, timeout=timeout)
+        img_raw = await page.locator(element).screenshot()
+    return img_raw
