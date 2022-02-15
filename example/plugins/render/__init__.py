@@ -1,13 +1,16 @@
 import io
-
+from nonebot_plugin_htmlrender import (
+    text_to_pic,
+    md_to_pic,
+    template_to_pic,
+    get_new_page,
+)
 from nonebot import on_command
-from nonebot.adapters.cqhttp import Bot, MessageEvent, MessageSegment
-from nonebot.plugin import require
+from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from PIL import Image
 
 # 纯文本转图片
 text2pic = on_command("text2pic")
-text_to_pic = require("nonebot_plugin_htmlrender").text_to_pic
 
 
 @text2pic.handle()
@@ -28,7 +31,6 @@ async def _text2pic(bot: Bot, event: MessageEvent):
 
 # 加载本地 html 方法
 html2pic = on_command("html2pic")
-new_page = require("nonebot_plugin_htmlrender").get_new_page
 
 
 @html2pic.handle()
@@ -36,7 +38,7 @@ async def _html2pic(bot: Bot, event: MessageEvent):
     from pathlib import Path
 
     # html 可使用本地资源
-    async with new_page(viewport={"width": 300, "height": 300}) as page:
+    async with get_new_page(viewport={"width": 300, "height": 300}) as page:
         await page.goto(
             "file://" + (str(Path(__file__).parent / "html2pic.html")),
             wait_until="networkidle",
@@ -48,7 +50,6 @@ async def _html2pic(bot: Bot, event: MessageEvent):
 
 # 使用 template2pic 加载模板
 template2pic = on_command("template2pic")
-template_to_pic = require("nonebot_plugin_htmlrender").template_to_pic
 
 
 @template2pic.handle()
@@ -79,7 +80,6 @@ async def _template2pic(bot: Bot, event: MessageEvent):
 
 # 使用 md2pic
 md2pic = on_command("md2pic")
-md_to_pic = require("nonebot_plugin_htmlrender").md_to_pic
 
 
 @md2pic.handle()
@@ -87,7 +87,8 @@ async def _md2pic(bot: Bot, event: MessageEvent):
     from pathlib import Path
 
     # 如果是直接获取消息内容 需要 unescape
-    from nonebot.adapters.cqhttp import unescape
+    from nonebot.adapters.onebot.v11 import unescape
+
     msg = unescape(str(event.get_message()))
 
     # css_path 可选
