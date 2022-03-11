@@ -81,9 +81,9 @@ LC_ALL zh_CN.UTF-8
 - 参考[CentOS Dockerfile](https://github.com/kumaraditya303/playwright-centos/blob/master/Dockerfile)
 - 添加中文字体库
 - ~~最佳解决办法~~
-  - 使用 Docker 然后用 Python 镜像 安装上面 Ubuntu 的写 `dockerfile`
+  - 使用 Docker 然后用 Python 镜像 按照上面 Ubuntu 的写 `dockerfile`
 
-下面这个依赖运行一下 也行就可以用了
+下面这个依赖运行一下 也许就可以用了
 
 ```sh
 dnf install -y alsa-lib at-spi2-atk at-spi2-core atk cairo cups-libs dbus-libs expat flac-libs gdk-pixbuf2 glib2 glibc gtk3 libX11 libXcomposite libXdamage libXext libXfixes libXrandr libXtst libcanberra-gtk3 libdrm libgcc libstdc++ libxcb libxkbcommon libxshmfence libxslt mesa-libgbm nspr nss nss-util pango policycoreutils policycoreutils-python-utils zlib cairo-gobject centos-indexhtml dbus-glib fontconfig freetype gtk2 libXcursor libXi libXrender libXt liberation-fonts-common liberation-sans-fonts libffi mozilla-filesystem p11-kit-trust pipewire-libs harfbuzz-icu libglvnd-glx libglvnd-egl libnotify opus woff2 gstreamer1-plugins-base gstreamer1-plugins-bad-free openjpeg2 libwebp enchant libsecret hyphen libglvnd-gles
