@@ -13,7 +13,7 @@ __author__ = "yanyongyu"
 from contextlib import asynccontextmanager
 from typing import Optional, AsyncIterator
 from nonebot.log import logger
-from . import patch
+
 
 from playwright.async_api import Page, Browser, async_playwright, Error
 

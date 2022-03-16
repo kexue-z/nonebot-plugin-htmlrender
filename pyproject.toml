@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nonebot-plugin-htmlrender"
-version = "0.0.4.4"
+version = "0.0.4.5"
 description = "通过浏览器渲染图片"
 authors = ["kexue <xana278@foxmail.com>"]
 license = "MIT"
@@ -17,6 +17,8 @@ Pygments = "^2.10.0"
 python-markdown-math = "^0.8"
 pymdown-extensions = "^9.1"
 aiofiles = "^0.8.0"
+uvicorn = "^0.17.6"
+
 
 [tool.poetry.dev-dependencies]
 black = "^21.12b0"
