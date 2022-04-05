@@ -70,6 +70,7 @@ async def md_to_pic(
             "fenced_code",
             "codehilite",
             "mdx_math",
+            "pymdownx.tilde",
         ],
         extension_configs={"mdx_math": {"enable_dollar_delimiter": True}},
     )
