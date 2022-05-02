@@ -32,7 +32,7 @@ async def init(**kwargs):
 @driver.on_shutdown
 async def shutdown():
     await shutdown_browser()
-    logger.info("Browser Stoped.")
+    logger.info("Browser Stopped.")
 
 
 browser_init = init
