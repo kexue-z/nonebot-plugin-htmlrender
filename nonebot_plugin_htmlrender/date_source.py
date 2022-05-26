@@ -4,9 +4,7 @@ from pathlib import Path
 import aiofiles
 import jinja2
 import markdown
-from jinja2.environment import Template
 from nonebot.log import logger
-from typing import Optional
 from .browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
@@ -18,7 +16,7 @@ env = jinja2.Environment(
 )
 
 
-async def text_to_pic(text: str, css_path: str = None, width: int = 500) -> bytes:
+async def text_to_pic(text: str, css_path: str = "", width: int = 500) -> bytes:
     """多行文本转图片
 
     Args:
@@ -42,7 +40,7 @@ async def text_to_pic(text: str, css_path: str = None, width: int = 500) -> byte
 
 
 async def md_to_pic(
-    md: str = None, md_path: str = None, css_path: str = None, width: int = 500
+    md: str = "", md_path: str = "", css_path: str = "", width: int = 500
 ) -> bytes:
     """markdown 转 图片
 
@@ -60,7 +58,7 @@ async def md_to_pic(
         if md_path:
             md = await read_file(md_path)
         else:
-            raise "必须输入 md 或 md_path"
+            raise Exception("必须输入 md 或 md_path")
     logger.debug(md)
     md = markdown.markdown(
         md,
@@ -155,7 +153,7 @@ async def html_to_pic(
     """
     # logger.debug(f"html:\n{html}")
     if "file:" not in template_path:
-        raise "template_path 应该为 file:///path/to/template"
+        raise Exception("template_path 应该为 file:///path/to/template")
     async with get_new_page(**kwargs) as page:
         await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
@@ -201,7 +199,7 @@ async def template_to_pic(
 
 
 async def capture_element(
-    url: str, element: str, timeout: Optional[float] = 0, **kwargs
+    url: str, element: str, timeout: float = 0, **kwargs
 ) -> bytes:
     async with get_new_page(**kwargs) as page:
         await page.goto(url, timeout=timeout)

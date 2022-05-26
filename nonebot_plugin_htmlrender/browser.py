@@ -15,10 +15,10 @@ from typing import Optional, AsyncIterator
 from nonebot.log import logger
 
 
-from playwright.async_api import Page, Browser, async_playwright, Error
+from playwright.async_api import Page, Browser, async_playwright, Error, Playwright
 
 _browser: Optional[Browser] = None
-_playwright = None
+_playwright: Optional[Playwright] = None
 
 async def init(**kwargs) -> Browser:
     global _browser
@@ -33,6 +33,7 @@ async def init(**kwargs) -> Browser:
 
 
 async def launch_browser(**kwargs) -> Browser:
+    assert _playwright is not None, "Playwright is not initialized"
     return await _playwright.chromium.launch(**kwargs)
 
 
@@ -51,8 +52,10 @@ async def get_new_page(**kwargs) -> AsyncIterator[Page]:
 
 
 async def shutdown_browser():
-    await _browser.close()
-    await _playwright.stop()
+    if _browser:
+        await _browser.close()
+    if _playwright:
+        _playwright.stop()
 
 
 async def install_browser():
