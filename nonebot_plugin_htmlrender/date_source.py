@@ -1,10 +1,11 @@
 from os import getcwd
 from pathlib import Path
 
-import aiofiles
 import jinja2
+import aiofiles
 import markdown
 from nonebot.log import logger
+
 from .browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
@@ -178,7 +179,8 @@ async def template_to_pic(
         template_path (str): 模板路径
         template_name (str): 模板名
         templates (dict): 模板内参数 如: {"name": "abc"}
-        pages (dict): 网页参数 Defaults to {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
+        pages (dict): 网页参数 Defaults to 
+            {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
         wait (int, optional): 网页载入等待时间. Defaults to 0.
     Returns:
         bytes: 图片 可直接发送

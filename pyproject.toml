@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "nonebot-plugin-htmlrender"
-version = "0.0.4.8"
+version = "0.0.5"
 description = "通过浏览器渲染图片"
 authors = ["kexue <xana278@foxmail.com>"]
 license = "MIT"
@@ -24,6 +24,7 @@ pytest-asyncio = "^0.18.1"
 nonebug = { git = "https://github.com/nonebot/nonebug.git" }
 nonebot-adapter-onebot = "^2.0.0-beta.1"
 Pillow = "^9.1.1"
+flake8 = "^3"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

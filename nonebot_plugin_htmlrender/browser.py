@@ -10,12 +10,11 @@
 """
 __author__ = "yanyongyu"
 
-from contextlib import asynccontextmanager
 from typing import Optional, AsyncIterator
+from contextlib import asynccontextmanager
+
 from nonebot.log import logger
-
-
-from playwright.async_api import Page, Browser, async_playwright, Error, Playwright
+from playwright.async_api import Page, Error, Browser, Playwright, async_playwright
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
@@ -56,12 +55,13 @@ async def shutdown_browser():
     if _browser:
         await _browser.close()
     if _playwright:
-        await _playwright.stop()
+        await _playwright.stop()  # type: ignore
 
 
 async def install_browser():
     logger.info("正在安装 chromium")
     import sys
+
     from playwright.__main__ import main
 
     sys.argv = ["", "install", "chromium"]
