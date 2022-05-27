@@ -20,6 +20,7 @@ from playwright.async_api import Page, Browser, async_playwright, Error, Playwri
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
 
+
 async def init(**kwargs) -> Browser:
     global _browser
     global _playwright
@@ -62,7 +63,8 @@ async def install_browser():
     logger.info("正在安装 chromium")
     import sys
     from playwright.__main__ import main
-    sys.argv = ['', 'install', 'chromium']
+
+    sys.argv = ["", "install", "chromium"]
     try:
         main()
     except SystemExit:
