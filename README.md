@@ -2,6 +2,7 @@
 
 - 通过浏览器渲染图片
 - 可通过查看`example`参考使用实例
+- 如果有安装浏览器等问题，先查看文档最底下的`常见问题`再去看 issue 有没有已经存在的
 
 # ✨ 功能
 
@@ -12,6 +13,15 @@
 # 使用
 
 参考[example/plugins/render/**init**.py](example/plugins/render/__init__.py)
+
+# 配置
+
+```ini
+# 默认情况 可不写
+htmlrender_browser = "chromium"
+# 使用 firefox
+htmlrender_browser = "firefox"
+```
 
 ## markdown 转 图片
 
