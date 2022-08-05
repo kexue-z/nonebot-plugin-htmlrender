@@ -179,7 +179,7 @@ async def template_to_pic(
         template_path (str): 模板路径
         template_name (str): 模板名
         templates (dict): 模板内参数 如: {"name": "abc"}
-        pages (dict): 网页参数 Defaults to 
+        pages (dict): 网页参数 Defaults to
             {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
         wait (int, optional): 网页载入等待时间. Defaults to 0.
     Returns:

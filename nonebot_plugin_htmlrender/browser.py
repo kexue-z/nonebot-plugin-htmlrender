@@ -12,10 +12,19 @@ __author__ = "yanyongyu"
 
 from typing import Optional, AsyncIterator
 from contextlib import asynccontextmanager
-from sys import platform
 
+from nonebot import get_driver
 from nonebot.log import logger
 from playwright.async_api import Page, Error, Browser, Playwright, async_playwright
+
+from nonebot_plugin_htmlrender.config import Config
+
+
+class ConfigError(Exception):
+    pass
+
+
+htmlrender_browser = Config.parse_obj(get_driver().config.dict()).htmlrender_browser
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
@@ -35,10 +44,15 @@ async def init(**kwargs) -> Browser:
 
 async def launch_browser(**kwargs) -> Browser:
     assert _playwright is not None, "Playwright is not initialized"
-    if "win" in platform.lower():
-        return await _playwright.chromium.launch(**kwargs)
-    else:
+
+    if htmlrender_browser == "firefox":
+        logger.info("使用 firefox 启动")
         return await _playwright.firefox.launch(**kwargs)
+
+    else:
+        # 默认使用 chromium
+        logger.info("使用 chromium 启动")
+        return await _playwright.chromium.launch(**kwargs)
 
 
 async def get_browser(**kwargs) -> Browser:
@@ -63,15 +77,18 @@ async def shutdown_browser():
 
 
 async def install_browser():
-    import sys,os
+    import os
+    import sys
 
     from playwright.__main__ import main
-    if "win" in platform.lower():
-        logger.info("正在安装 chromium")
-        sys.argv = ["", "install", "chromium"]
-    else:
+
+    if htmlrender_browser == "firefox":
         logger.info("正在安装 firefox")
         sys.argv = ["", "install", "firefox"]
+    else:
+        # 默认使用 chromium
+        logger.info("正在安装 chromium")
+        sys.argv = ["", "install", "chromium"]
     try:
         logger.info("正在安装依赖")
         os.system("playwright install-deps")
