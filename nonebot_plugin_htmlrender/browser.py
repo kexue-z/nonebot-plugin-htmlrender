@@ -24,7 +24,7 @@ class ConfigError(Exception):
     pass
 
 
-htmlrender_browser = Config.parse_obj(get_driver().config.dict()).htmlrender_browser
+config = Config.parse_obj(get_driver().config.dict())
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
@@ -42,10 +42,11 @@ async def init(**kwargs) -> Browser:
     return _browser
 
 
-async def launch_browser(**kwargs) -> Browser:
-    assert _playwright is not None, "Playwright is not initialized"
-
-    if htmlrender_browser == "firefox":
+async def launch_browser(proxy=config.htmlrender_proxy_host, **kwargs) -> Browser:
+    assert _playwright is not None, "Playwright 没有安装"
+    if proxy:
+        kwargs["proxy"] = proxy
+    if config.htmlrender_browser == "firefox":
         logger.info("使用 firefox 启动")
         return await _playwright.firefox.launch(**kwargs)
 
@@ -82,7 +83,17 @@ async def install_browser():
 
     from playwright.__main__ import main
 
-    if htmlrender_browser == "firefox":
+    if host := Config.htmlrender_download_host:
+        logger.info("使用配置源进行下载")
+        os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = host
+    else:
+        logger.info("使用镜像源进行下载")
+        os.environ[
+            "PLAYWRIGHT_DOWNLOAD_HOST"
+        ] = "https://npmmirror.com/mirrors/playwright/"
+    success = False
+
+    if config.htmlrender_browser == "firefox":
         logger.info("正在安装 firefox")
         sys.argv = ["", "install", "firefox"]
     else:
@@ -93,5 +104,8 @@ async def install_browser():
         logger.info("正在安装依赖")
         os.system("playwright install-deps")
         main()
-    except SystemExit:
-        pass
+    except SystemExit as e:
+        if e.code == 0:
+            success = True
+    if not success:
+        logger.error("浏览器更新失败, 请检查网络连通性")
