@@ -83,7 +83,7 @@ async def install_browser():
 
     from playwright.__main__ import main
 
-    if host := Config.htmlrender_download_host:
+    if host := config.htmlrender_download_host:
         logger.info("使用配置源进行下载")
         os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = host
     else:
