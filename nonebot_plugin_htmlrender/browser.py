@@ -57,7 +57,7 @@ async def launch_browser(proxy=config.htmlrender_proxy_host, **kwargs) -> Browse
 
 
 async def get_browser(**kwargs) -> Browser:
-    return _browser or await init(**kwargs)
+    return _browser if _browser and _browser.is_connected() else await init(**kwargs)
 
 
 @asynccontextmanager
@@ -71,10 +71,14 @@ async def get_new_page(**kwargs) -> AsyncIterator[Page]:
 
 
 async def shutdown_browser():
+    global _browser
+    global _playwright
     if _browser:
         await _browser.close()
+        _browser = None
     if _playwright:
         await _playwright.stop()  # type: ignore
+        _playwright = None
 
 
 async def install_browser():
