@@ -8,6 +8,7 @@ import markdown
 from nonebot.log import logger
 
 from .browser import get_new_page
+from .qr_code import get_msg_qrcode_b64
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
 
@@ -56,6 +57,7 @@ async def md_to_pic(
     width: int = 500,
     type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
+    add_qr: bool = False,
 ) -> bytes:
     """markdown 转 图片
 
@@ -76,7 +78,6 @@ async def md_to_pic(
             md = await read_file(md_path)
         else:
             raise Exception("必须输入 md 或 md_path")
-    logger.debug(md)
     md = markdown.markdown(
         md,
         extensions=[
@@ -89,6 +90,9 @@ async def md_to_pic(
         ],
         extension_configs={"mdx_math": {"enable_dollar_delimiter": True}},
     )
+    if add_qr:
+        base64_img = await get_msg_qrcode_b64(md)
+        md += "\n\n----\n" f'<img src="data:image/png;base64,{base64_img}">'
 
     logger.debug(md)
     extra = ""
@@ -113,6 +117,8 @@ async def md_to_pic(
         template_path=f"file://{css_path if css_path else TEMPLATES_PATH}",
         html=await template.render_async(md=md, css=css, extra=extra),
         viewport={"width": width, "height": 10},
+        type=type,
+        quality=quality,
     )
 
 
@@ -134,8 +140,6 @@ async def read_tpl(path: str) -> str:
 async def template_to_html(
     template_path: str,
     template_name: str,
-    type: Literal["jpeg", "png"] = "png",
-    quality: Union[int, None] = None,
     **kwargs,
 ) -> str:
     """使用jinja2模板引擎通过html生成图片
@@ -234,6 +238,8 @@ async def template_to_pic(
         template_path=f"file://{template_path}",
         html=await template.render_async(**templates),
         wait=wait,
+        type=type,
+        quality=quality,
         **pages,
     )
 

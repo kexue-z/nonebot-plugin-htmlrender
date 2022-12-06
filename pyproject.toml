@@ -16,6 +16,9 @@ Pygments = "^2.10.0"
 python-markdown-math = "^0.8"
 pymdown-extensions = "^9.1"
 aiofiles = "^0.8.0"
+pyqrcode = "^1.2.1"
+httpx = "^0.23.1"
+socksio = "^1.0.0"
 
 [tool.poetry.dev-dependencies]
 black = "^22.1.0"
