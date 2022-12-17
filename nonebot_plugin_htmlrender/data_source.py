@@ -46,6 +46,8 @@ async def text_to_pic(
             css=await read_file(css_path) if css_path else await read_tpl("text.css"),
         ),
         viewport={"width": width, "height": 10},
+        type=type,
+        quality=quality,
     )
 
 
@@ -113,6 +115,8 @@ async def md_to_pic(
         template_path=f"file://{css_path if css_path else TEMPLATES_PATH}",
         html=await template.render_async(md=md, css=css, extra=extra),
         viewport={"width": width, "height": 10},
+        type=type,
+        quality=quality,
     )
 
 
@@ -134,8 +138,6 @@ async def read_tpl(path: str) -> str:
 async def template_to_html(
     template_path: str,
     template_name: str,
-    type: Literal["jpeg", "png"] = "png",
-    quality: Union[int, None] = None,
     **kwargs,
 ) -> str:
     """使用jinja2模板引擎通过html生成图片
@@ -143,8 +145,6 @@ async def template_to_html(
     Args:
         template_path (str): 模板路径
         template_name (str): 模板名
-        type (Literal["jpeg", "png"]): 图片类型, 默认 png
-        quality (int, optional): 图片质量 0-100 当为`png`时无效
         **kwargs: 模板内容
 
     Returns:
@@ -234,6 +234,8 @@ async def template_to_pic(
         template_path=f"file://{template_path}",
         html=await template.render_async(**templates),
         wait=wait,
+        type=type,
+        quality=quality,
         **pages,
     )
 
@@ -248,5 +250,8 @@ async def capture_element(
 ) -> bytes:
     async with get_new_page(**kwargs) as page:
         await page.goto(url, timeout=timeout)
-        img_raw = await page.locator(element).screenshot()
+        img_raw = await page.locator(element).screenshot(
+            type=type,
+            quality=quality,
+        )
     return img_raw
