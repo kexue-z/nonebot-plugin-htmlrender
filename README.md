@@ -14,6 +14,23 @@
 
 参考[example/plugins/render/**init**.py](example/plugins/render/__init__.py)
 
+```py
+from nonebot import require
+require("nonebot_plugin_htmlrender")
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+from nonebot_plugin_htmlrender import (
+    text_to_pic,
+    md_to_pic,
+    template_to_pic,
+    get_new_page,
+)
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+```
+
 # 配置
 
 ```ini
