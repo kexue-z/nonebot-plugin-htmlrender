@@ -1,13 +1,22 @@
-import io
+from nonebot import require
+require("nonebot_plugin_htmlrender")
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
 from nonebot_plugin_htmlrender import (
     text_to_pic,
     md_to_pic,
     template_to_pic,
     get_new_page,
 )
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from PIL import Image
+import io
 
 # 纯文本转图片
 text2pic = on_command("text2pic")
