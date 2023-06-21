@@ -61,9 +61,9 @@ async def get_browser(**kwargs) -> Browser:
 
 
 @asynccontextmanager
-async def get_new_page(**kwargs) -> AsyncIterator[Page]:
+async def get_new_page(device_scale_factor:float = 2,**kwargs) -> AsyncIterator[Page]:
     browser = await get_browser()
-    page = await browser.new_page(**kwargs)
+    page = await browser.new_page(device_scale_factor=device_scale_factor,**kwargs)
     try:
         yield page
     finally:

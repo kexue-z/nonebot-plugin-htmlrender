@@ -24,6 +24,7 @@ async def text_to_pic(
     width: int = 500,
     type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
+    device_scale_factor: float=2
 ) -> bytes:
     """多行文本转图片
 
@@ -33,7 +34,8 @@ async def text_to_pic(
         width (int, optional): 图片宽度，默认为 500
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        
     Returns:
         bytes: 图片, 可直接发送
     """
@@ -48,6 +50,7 @@ async def text_to_pic(
         viewport={"width": width, "height": 10},
         type=type,
         quality=quality,
+        device_scale_factor=device_scale_factor
     )
 
 
@@ -58,9 +61,10 @@ async def md_to_pic(
     width: int = 500,
     type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
+    device_scale_factor:float = 2
 ) -> bytes:
     """markdown 转 图片
-
+    
     Args:
         md (str, optional): markdown 格式文本
         md_path (str, optional): markdown 文件路径
@@ -68,7 +72,8 @@ async def md_to_pic(
         width (int, optional): 图片宽度，默认为 500
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        
     Returns:
         bytes: 图片, 可直接发送
     """
@@ -117,6 +122,7 @@ async def md_to_pic(
         viewport={"width": width, "height": 10},
         type=type,
         quality=quality,
+        device_scale_factor = device_scale_factor
     )
 
 
@@ -146,7 +152,6 @@ async def template_to_html(
         template_path (str): 模板路径
         template_name (str): 模板名
         **kwargs: 模板内容
-
     Returns:
         str: html
     """
@@ -166,6 +171,7 @@ async def html_to_pic(
     template_path: str = f"file://{getcwd()}",
     type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
+    device_scale_factor:float = 2,
     **kwargs,
 ) -> bytes:
     """html转图片
@@ -176,6 +182,7 @@ async def html_to_pic(
         template_path (str, optional): 模板路径 如 "file:///path/to/template/"
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
         **kwargs: 传入 page 的参数
 
     Returns:
@@ -184,7 +191,7 @@ async def html_to_pic(
     # logger.debug(f"html:\n{html}")
     if "file:" not in template_path:
         raise Exception("template_path 应该为 file:///path/to/template")
-    async with get_new_page(**kwargs) as page:
+    async with get_new_page(device_scale_factor,**kwargs) as page:
         await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
@@ -207,6 +214,7 @@ async def template_to_pic(
     wait: int = 0,
     type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
+    device_scale_factor:float = 2
 ) -> bytes:
     """使用jinja2模板引擎通过html生成图片
 
@@ -219,7 +227,7 @@ async def template_to_pic(
         wait (int, optional): 网页载入等待时间. Defaults to 0.
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
     Returns:
         bytes: 图片 可直接发送
     """
@@ -236,6 +244,7 @@ async def template_to_pic(
         wait=wait,
         type=type,
         quality=quality,
+        device_scale_factor=device_scale_factor,
         **pages,
     )
 
