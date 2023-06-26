@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - "master"
+      - "dev"
   pull_request:
     branches:
       - "master"
@@ -26,15 +27,19 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           architecture: "x64"
-      - uses: Gr1N/setup-poetry@v7
-      - uses: actions/cache@v2
+      - uses: pdm-project/setup-pdm@v3
+        name: Setup PDM
         with:
-          path: ~/.cache/pypoetry/virtualenvs
-          key: ${{ runner.os }}-poetry-${{ inputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
-      - run: poetry install
+          python-version: ${{ matrix.python-version }}
+      # TODO：修改 cache
+      # - uses: actions/cache@v2
+      #   with:
+      #     path: ~/.cache/pypoetry/virtualenvs
+      #     key: ${{ runner.os }}-poetry-${{ inputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+      - run: pdm install
         shell: bash
       - name: Run tests
-        run: poetry run pytest -s
+        run: pdm run pytest -s
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v2
         with:

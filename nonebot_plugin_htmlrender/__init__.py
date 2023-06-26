@@ -10,6 +10,16 @@ from .data_source import (
     template_to_pic,
     template_to_html,
 )
+from nonebot.plugin import PluginMetadata
+
+__plugin_meta__ = PluginMetadata(
+    name="nonebot-plugin-htmlrender",
+    description="通过浏览器渲染图片",
+    usage="提供多个易用API md_to_pic html_to_pic text_to_pic template_to_pic capture_element 等",
+    type="library",
+    homepage="https://github.com/kexue-z/nonebot-plugin-htmlrender",
+    extra={},
+)
 
 driver = nonebot.get_driver()
 config = driver.config

@@ -1,18 +1,10 @@
 import pytest
-from pathlib import Path
-from nonebug.app import App
+import nonebot
 
 
-@pytest.fixture
-async def app(
-    nonebug_init: None,
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> App:
-    import nonebot
-
-    nonebot.load_plugin("nonebot_plugin_htmlrender")
-
+@pytest.fixture(scope="session", autouse=True)
+def load_bot():
+    # 加载插件
     import nonebot_plugin_htmlrender
 
-    return App(monkeypatch)
+    nonebot.load_plugin("nonebot_plugin_htmlrender")

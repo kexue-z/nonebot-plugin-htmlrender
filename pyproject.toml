@@ -1,30 +1,40 @@
-[tool.poetry]
+[project]
 name = "nonebot-plugin-htmlrender"
-version = "0.2.0.3"
+version = "0.2.1"
 description = "通过浏览器渲染图片"
-authors = ["kexue <xana278@foxmail.com>"]
-license = "MIT"
+authors = [
+    {name = "kexue", email = "xana278@foxmail.com"},
+]
+dependencies = [
+    "playwright>=1.17.2",
+    "nonebot2[fastapi]>=2.0.0",
+    "jinja2>=3.0.3",
+    "markdown>=3.3.6",
+    "Pygments>=2.10.0",
+    "python-markdown-math>=0.8",
+    "pymdown-extensions>=9.1",
+    "aiofiles>=0.8.0",
+]
+requires-python = ">=3.8,<4.0"
 readme = "README.md"
+license = {file = "LICENSE"}
 
-[tool.poetry.dependencies]
-python = ">=3.8,<4.0"
-playwright = ">=1.17.2"
-nonebot2 = ">=2.0.0-beta.1"
-jinja2 = ">=3.0.3"
-markdown = ">=3.3.6"
-Pygments = ">=2.10.0"
-python-markdown-math = ">=0.8"
-pymdown-extensions = ">=9.1"
-aiofiles = ">=0.8.0"
+[project.urls]
+"Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
+"Bug Tracker" = "https://github.com/kexue-z/nonebot-plugin-htmlrender/issues"
 
-[tool.poetry.dev-dependencies]
-black = "^22.1.0"
-pytest-asyncio = "^0.18.1"
-nonebug = { git = "https://github.com/nonebot/nonebug.git" }
-nonebot-adapter-onebot = "^2.0.0-beta.1"
-Pillow = "^9.1.1"
-flake8 = "^3"
+[tool.pdm]
+[tool.pdm.dev-dependencies]
+dev = [
+    "pytest-asyncio<1.0.0,>=0.18.1",
+    "nonebug @ git+https://github.com/nonebot/nonebug.git",
+    "nonebot-adapter-onebot>=2.2.3",
+]
 
+[tool.pdm.build]
+includes = []
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["pdm-backend"]
+build-backend = "pdm.backend"
+
+
