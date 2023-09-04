@@ -42,10 +42,13 @@ async def init(**kwargs) -> Browser:
     return _browser
 
 
-async def launch_browser(proxy=config.htmlrender_proxy_host, **kwargs) -> Browser:
+async def launch_browser(**kwargs) -> Browser:
     assert _playwright is not None, "Playwright 没有安装"
-    if proxy:
-        kwargs["proxy"] = proxy
+
+    if config.htmlrender_proxy_host:
+        kwargs["proxy"] = {
+            "server": config.htmlrender_proxy_host,
+        }
     if config.htmlrender_browser == "firefox":
         logger.info("使用 firefox 启动")
         return await _playwright.firefox.launch(**kwargs)
@@ -61,9 +64,9 @@ async def get_browser(**kwargs) -> Browser:
 
 
 @asynccontextmanager
-async def get_new_page(device_scale_factor:float = 2,**kwargs) -> AsyncIterator[Page]:
+async def get_new_page(device_scale_factor: float = 2, **kwargs) -> AsyncIterator[Page]:
     browser = await get_browser()
-    page = await browser.new_page(device_scale_factor=device_scale_factor,**kwargs)
+    page = await browser.new_page(device_scale_factor=device_scale_factor, **kwargs)
     try:
         yield page
     finally:

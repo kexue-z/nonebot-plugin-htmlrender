@@ -5,7 +5,6 @@ nonebot.init()
 driver = nonebot.get_driver()
 driver.register_adapter(OneBotV11Adapter)
 
-nonebot.load_plugin("nonebot_plugin_htmlrender")
 nonebot.load_plugins("plugins")
 
 
