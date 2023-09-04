@@ -38,6 +38,12 @@ from nonebot_plugin_htmlrender import (
 htmlrender_browser = "chromium"
 # 使用 firefox
 htmlrender_browser = "firefox"
+
+# 下载 playwright 代理地址 可不写
+htmlrender_download_host = ""
+
+# 浏览器自定代理地址 可不写
+htmlrender_proxy_host = "http://127.0.0.1:7890"
 ```
 
 ## markdown 转 图片

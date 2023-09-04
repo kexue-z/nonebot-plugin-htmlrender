@@ -1,10 +1,8 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.2.1"
+version = "0.2.2"
 description = "通过浏览器渲染图片"
-authors = [
-    {name = "kexue", email = "xana278@foxmail.com"},
-]
+authors = [{ name = "kexue", email = "xana278@foxmail.com" }]
 dependencies = [
     "playwright>=1.17.2",
     "nonebot2[fastapi]>=2.0.0",
@@ -17,7 +15,7 @@ dependencies = [
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"
-license = {file = "LICENSE"}
+license = { file = "LICENSE" }
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
@@ -36,5 +34,3 @@ includes = []
 [build-system]
 requires = ["pdm-backend"]
 build-backend = "pdm.backend"
-
-
