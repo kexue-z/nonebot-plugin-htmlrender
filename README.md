@@ -44,6 +44,13 @@ htmlrender_download_host = ""
 
 # 浏览器自定代理地址 可不写
 htmlrender_proxy_host = "http://127.0.0.1:7890"
+
+# 浏览器 channel 支持以下
+# "chrome", "chrome-beta", "chrome-dev", "chrome-canary", 
+# "msedge", "msedge-beta", "msedge-dev", "msedge-canary"
+# 手动编辑可以直接使用系统自带浏览器而不用重新下载 chromium
+# 可不写
+htmlrender_browser_channel = ""
 ```
 
 ## markdown 转 图片

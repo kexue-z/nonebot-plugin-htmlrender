@@ -45,6 +45,9 @@ async def init(**kwargs) -> Browser:
 async def launch_browser(**kwargs) -> Browser:
     assert _playwright is not None, "Playwright 没有安装"
 
+    if config.htmlrender_browser_channel:
+        kwargs["channel"] = config.htmlrender_browser_channel
+
     if config.htmlrender_proxy_host:
         kwargs["proxy"] = {
             "server": config.htmlrender_proxy_host,
