@@ -1,10 +1,10 @@
 from typing import Optional
 
-from pydantic import Extra, BaseModel
+from pydantic import BaseModel, Field
 
 
-class Config(BaseModel, extra=Extra.ignore):
-    htmlrender_browser: Optional[str] = "chromium"
-    htmlrender_download_host: Optional[str]
-    htmlrender_proxy_host: Optional[str]
-    htmlrender_browser_channel: Optional[str]
+class Config(BaseModel):
+    htmlrender_browser: Optional[str] = Field(default="chromium")
+    htmlrender_download_host: Optional[str] = Field(default=None)
+    htmlrender_proxy_host: Optional[str] = Field(default=None)
+    htmlrender_browser_channel: Optional[str] = Field(default=None)
