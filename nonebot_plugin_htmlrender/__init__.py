@@ -1,16 +1,20 @@
 import nonebot
 from nonebot.log import logger
-
-from .browser import get_browser, get_new_page, shutdown_browser
-from .data_source import (
-    md_to_pic,
-    html_to_pic,
-    text_to_pic,
-    capture_element,
-    template_to_pic,
-    template_to_html,
-)
 from nonebot.plugin import PluginMetadata
+
+from .browser import (
+    get_browser as get_browser,
+    get_new_page as get_new_page,
+    shutdown_browser as shutdown_browser,
+)
+from .data_source import (
+    capture_element as capture_element,
+    html_to_pic as html_to_pic,
+    md_to_pic as md_to_pic,
+    template_to_html as template_to_html,
+    template_to_pic as template_to_pic,
+    text_to_pic as text_to_pic,
+)
 
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-htmlrender",
@@ -22,7 +26,6 @@ __plugin_meta__ = PluginMetadata(
 )
 
 driver = nonebot.get_driver()
-config = driver.config
 
 
 @driver.on_startup
@@ -45,13 +48,13 @@ async def shutdown():
 
 browser_init = init
 
-all = [
+__all__ = [
     "browser_init",
-    "text_to_pic",
+    "capture_element",
     "get_new_page",
+    "html_to_pic",
     "md_to_pic",
     "template_to_html",
     "template_to_pic",
-    "html_to_pic",
-    "capture_element",
+    "text_to_pic",
 ]

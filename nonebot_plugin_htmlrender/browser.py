@@ -10,21 +10,16 @@
 """
 __author__ = "yanyongyu"
 
-from typing import Optional, AsyncIterator
 from contextlib import asynccontextmanager
+from typing import AsyncIterator, Optional
 
-from nonebot import get_driver
+from nonebot import get_plugin_config
 from nonebot.log import logger
-from playwright.async_api import Page, Error, Browser, Playwright, async_playwright
+from playwright.async_api import Browser, Error, Page, Playwright, async_playwright
 
-from nonebot_plugin_htmlrender.config import Config
+from .config import Config
 
-
-class ConfigError(Exception):
-    pass
-
-
-config = Config.parse_obj(get_driver().config.dict())
+config = get_plugin_config(Config)
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
@@ -56,10 +51,9 @@ async def launch_browser(**kwargs) -> Browser:
         logger.info("使用 firefox 启动")
         return await _playwright.firefox.launch(**kwargs)
 
-    else:
-        # 默认使用 chromium
-        logger.info("使用 chromium 启动")
-        return await _playwright.chromium.launch(**kwargs)
+    # 默认使用 chromium
+    logger.info("使用 chromium 启动")
+    return await _playwright.chromium.launch(**kwargs)
 
 
 async def get_browser(**kwargs) -> Browser:
@@ -112,7 +106,7 @@ async def install_browser():
         sys.argv = ["", "install", "chromium"]
     try:
         logger.info("正在安装依赖")
-        os.system("playwright install-deps")
+        os.system("playwright install-deps")  # noqa: ASYNC102, S605, S607
         main()
     except SystemExit as e:
         if e.code == 0:
