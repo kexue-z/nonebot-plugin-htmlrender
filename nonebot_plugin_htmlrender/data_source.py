@@ -1,9 +1,9 @@
 from os import getcwd
-from typing import Union, Literal
 from pathlib import Path
+from typing import Literal, Optional, Union
 
-import jinja2
 import aiofiles
+import jinja2
 import markdown
 from nonebot.log import logger
 
@@ -11,7 +11,7 @@ from .browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
 
-env = jinja2.Environment(
+env = jinja2.Environment(  # noqa: S701
     extensions=["jinja2.ext.loopcontrols"],
     loader=jinja2.FileSystemLoader(TEMPLATES_PATH),
     enable_async=True,
@@ -22,9 +22,9 @@ async def text_to_pic(
     text: str,
     css_path: str = "",
     width: int = 500,
-    type: Literal["jpeg", "png"] = "png",
+    type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
-    device_scale_factor: float=2
+    device_scale_factor: float = 2,
 ) -> bytes:
     """多行文本转图片
 
@@ -35,7 +35,7 @@ async def text_to_pic(
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
-        
+
     Returns:
         bytes: 图片, 可直接发送
     """
@@ -50,7 +50,7 @@ async def text_to_pic(
         viewport={"width": width, "height": 10},
         type=type,
         quality=quality,
-        device_scale_factor=device_scale_factor
+        device_scale_factor=device_scale_factor,
     )
 
 
@@ -59,12 +59,12 @@ async def md_to_pic(
     md_path: str = "",
     css_path: str = "",
     width: int = 500,
-    type: Literal["jpeg", "png"] = "png",
+    type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
-    device_scale_factor:float = 2
+    device_scale_factor: float = 2,
 ) -> bytes:
     """markdown 转 图片
-    
+
     Args:
         md (str, optional): markdown 格式文本
         md_path (str, optional): markdown 文件路径
@@ -73,7 +73,7 @@ async def md_to_pic(
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
-        
+
     Returns:
         bytes: 图片, 可直接发送
     """
@@ -113,7 +113,7 @@ async def md_to_pic(
         css = await read_file(css_path)
     else:
         css = await read_tpl("github-markdown-light.css") + await read_tpl(
-            "pygments-default.css"
+            "pygments-default.css",
         )
 
     return await html_to_pic(
@@ -122,7 +122,7 @@ async def md_to_pic(
         viewport={"width": width, "height": 10},
         type=type,
         quality=quality,
-        device_scale_factor = device_scale_factor
+        device_scale_factor=device_scale_factor,
     )
 
 
@@ -156,7 +156,7 @@ async def template_to_html(
         str: html
     """
 
-    template_env = jinja2.Environment(
+    template_env = jinja2.Environment(  # noqa: S701
         loader=jinja2.FileSystemLoader(template_path),
         enable_async=True,
     )
@@ -168,10 +168,10 @@ async def template_to_html(
 async def html_to_pic(
     html: str,
     wait: int = 0,
-    template_path: str = f"file://{getcwd()}",
-    type: Literal["jpeg", "png"] = "png",
+    template_path: str = f"file://{getcwd()}",  # noqa: PTH109
+    type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
-    device_scale_factor:float = 2,
+    device_scale_factor: float = 2,
     **kwargs,
 ) -> bytes:
     """html转图片
@@ -191,30 +191,26 @@ async def html_to_pic(
     # logger.debug(f"html:\n{html}")
     if "file:" not in template_path:
         raise Exception("template_path 应该为 file:///path/to/template")
-    async with get_new_page(device_scale_factor,**kwargs) as page:
+    async with get_new_page(device_scale_factor, **kwargs) as page:
         await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
-        img_raw = await page.screenshot(
+        return await page.screenshot(
             full_page=True,
             type=type,
             quality=quality,
         )
-    return img_raw
 
 
 async def template_to_pic(
     template_path: str,
     template_name: str,
     templates: dict,
-    pages: dict = {
-        "viewport": {"width": 500, "height": 10},
-        "base_url": f"file://{getcwd()}",
-    },
+    pages: Optional[dict] = None,
     wait: int = 0,
-    type: Literal["jpeg", "png"] = "png",
+    type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
-    device_scale_factor:float = 2
+    device_scale_factor: float = 2,
 ) -> bytes:
     """使用jinja2模板引擎通过html生成图片
 
@@ -231,8 +227,13 @@ async def template_to_pic(
     Returns:
         bytes: 图片 可直接发送
     """
+    if pages is None:
+        pages = {
+            "viewport": {"width": 500, "height": 10},
+            "base_url": f"file://{getcwd()}",  # noqa: PTH109
+        }
 
-    template_env = jinja2.Environment(
+    template_env = jinja2.Environment(  # noqa: S701
         loader=jinja2.FileSystemLoader(template_path),
         enable_async=True,
     )
@@ -253,14 +254,13 @@ async def capture_element(
     url: str,
     element: str,
     timeout: float = 0,
-    type: Literal["jpeg", "png"] = "png",
+    type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     **kwargs,
 ) -> bytes:
     async with get_new_page(**kwargs) as page:
         await page.goto(url, timeout=timeout)
-        img_raw = await page.locator(element).screenshot(
+        return await page.locator(element).screenshot(
             type=type,
             quality=quality,
         )
-    return img_raw
