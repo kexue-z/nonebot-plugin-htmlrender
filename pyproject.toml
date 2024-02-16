@@ -12,7 +12,6 @@ dependencies = [
     "python-markdown-math>=0.8",
     "pymdown-extensions>=9.1",
     "aiofiles>=0.8.0",
-    "pydantic>=1.10.0,<3.0.0,!=2.5.0,!=2.5.1",
 ]
 requires-python = ">=3.8,<4.0"
 readme = "README.md"
