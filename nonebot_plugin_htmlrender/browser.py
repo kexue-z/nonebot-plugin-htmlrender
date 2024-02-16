@@ -13,7 +13,7 @@ __author__ = "yanyongyu"
 from typing import Optional, AsyncIterator
 from contextlib import asynccontextmanager
 
-from nonebot import get_driver
+from nonebot import get_driver, get_plugin_config
 from nonebot.log import logger
 from playwright.async_api import Page, Error, Browser, Playwright, async_playwright
 
@@ -24,7 +24,7 @@ class ConfigError(Exception):
     pass
 
 
-config = Config.parse_obj(get_driver().config.dict())
+config = get_plugin_config(get_driver().config.dict())
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
