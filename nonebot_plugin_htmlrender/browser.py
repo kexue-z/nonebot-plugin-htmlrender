@@ -79,7 +79,7 @@ async def shutdown_browser():
             await _browser.close()
         _browser = None
     if _playwright:
-        # await asyncio.wait_for(_playwright.stop(), timeout=3)
+        # await _playwright.stop()
         _playwright = None
 
 
