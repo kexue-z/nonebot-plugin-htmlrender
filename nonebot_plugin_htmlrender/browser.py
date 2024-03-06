@@ -18,6 +18,7 @@ from nonebot.log import logger
 from playwright.async_api import Browser, Error, Page, Playwright, async_playwright
 
 from .config import Config
+import asyncio
 
 config = get_plugin_config(Config)
 
@@ -78,7 +79,7 @@ async def shutdown_browser():
             await _browser.close()
         _browser = None
     if _playwright:
-        await _playwright.stop()  # type: ignore
+        # await asyncio.wait_for(_playwright.stop(), timeout=3)
         _playwright = None
 
 
