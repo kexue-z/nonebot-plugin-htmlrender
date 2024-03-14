@@ -18,6 +18,7 @@ from nonebot.log import logger
 from playwright.async_api import Browser, Error, Page, Playwright, async_playwright
 
 from .config import Config
+import asyncio
 
 config = get_plugin_config(Config)
 
@@ -74,10 +75,11 @@ async def shutdown_browser():
     global _browser
     global _playwright
     if _browser:
-        await _browser.close()
+        if _browser.is_connected():
+            await _browser.close()
         _browser = None
     if _playwright:
-        await _playwright.stop()  # type: ignore
+        # await _playwright.stop()
         _playwright = None
 
 
@@ -92,9 +94,9 @@ async def install_browser():
         os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = host
     else:
         logger.info("使用镜像源进行下载")
-        os.environ[
-            "PLAYWRIGHT_DOWNLOAD_HOST"
-        ] = "https://npmmirror.com/mirrors/playwright/"
+        os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = (
+            "https://npmmirror.com/mirrors/playwright/"
+        )
     success = False
 
     if config.htmlrender_browser == "firefox":
