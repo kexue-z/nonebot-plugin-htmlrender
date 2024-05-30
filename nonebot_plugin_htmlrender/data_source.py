@@ -192,6 +192,7 @@ async def html_to_pic(
     if "file:" not in template_path:
         raise Exception("template_path 应该为 file:///path/to/template")
     async with get_new_page(device_scale_factor, **kwargs) as page:
+        page.on("console", lambda msg: logger.debug(f"浏览器控制台: {msg.text}"))
         await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
@@ -259,6 +260,7 @@ async def capture_element(
     **kwargs,
 ) -> bytes:
     async with get_new_page(**kwargs) as page:
+        page.on("console", lambda msg: logger.debug(f"浏览器控制台: {msg.text}"))
         await page.goto(url, timeout=timeout)
         return await page.locator(element).screenshot(
             type=type,
