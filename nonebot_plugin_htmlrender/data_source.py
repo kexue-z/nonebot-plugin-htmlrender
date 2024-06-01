@@ -1,6 +1,6 @@
 from os import getcwd
 from pathlib import Path
-from typing import Literal, Optional, Union
+from typing import Any, Dict, Literal, Optional, Union
 
 import aiofiles
 import jinja2
@@ -206,8 +206,8 @@ async def html_to_pic(
 async def template_to_pic(
     template_path: str,
     template_name: str,
-    templates: dict,
-    pages: Optional[dict] = None,
+    templates: Dict[Any, Any],
+    pages: Optional[Dict[Any, Any]] = None,
     wait: int = 0,
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
@@ -218,8 +218,8 @@ async def template_to_pic(
     Args:
         template_path (str): 模板路径
         template_name (str): 模板名
-        templates (dict): 模板内参数 如: {"name": "abc"}
-        pages (dict): 网页参数 Defaults to
+        templates (Dict[Any, Any]): 模板内参数 如: {"name": "abc"}
+        pages (Optional[Dict[Any, Any]]): 网页参数 Defaults to
             {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
         wait (int, optional): 网页载入等待时间. Defaults to 0.
         type (Literal["jpeg", "png"]): 图片类型, 默认 png

@@ -8,6 +8,7 @@
 @Description    : None
 @GitHub         : https://github.com/yanyongyu
 """
+
 __author__ = "yanyongyu"
 
 from contextlib import asynccontextmanager
@@ -18,7 +19,6 @@ from nonebot.log import logger
 from playwright.async_api import Browser, Error, Page, Playwright, async_playwright
 
 from .config import Config
-import asyncio
 
 config = get_plugin_config(Config)
 

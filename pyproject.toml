@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.3.1"
+version = "0.3.2"
 description = "通过浏览器渲染图片"
 authors = [{ name = "kexue", email = "xana278@foxmail.com" }]
 dependencies = [
@@ -13,7 +13,7 @@ dependencies = [
     "pymdown-extensions>=9.1",
     "aiofiles>=0.8.0",
 ]
-requires-python = ">=3.8,<4.0"
+requires-python = ">=3.9,<4.0"
 readme = "README.md"
 license = { file = "LICENSE" }
 
