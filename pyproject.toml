@@ -1,11 +1,11 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.3.2"
+version = "0.3.3"
 description = "通过浏览器渲染图片"
 authors = [{ name = "kexue", email = "xana278@foxmail.com" }]
 dependencies = [
     "playwright>=1.17.2",
-    "nonebot2[fastapi]>=2.2.0",
+    "nonebot2>=2.2.0",
     "jinja2>=3.0.3",
     "markdown>=3.3.6",
     "Pygments>=2.10.0",
@@ -27,6 +27,7 @@ dev = [
     "pytest-asyncio<1.0.0,>=0.18.1",
     "nonebug @ git+https://github.com/nonebot/nonebug.git",
     "nonebot-adapter-onebot>=2.2.3",
+    "fastapi>=0.111.0",
 ]
 
 [tool.pdm.build]
