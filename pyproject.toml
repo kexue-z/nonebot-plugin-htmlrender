@@ -28,6 +28,7 @@ dev = [
     "nonebug @ git+https://github.com/nonebot/nonebug.git",
     "nonebot-adapter-onebot>=2.2.3",
     "fastapi>=0.111.0",
+    "pillow>=10.4.0",
 ]
 
 [tool.pdm.build]
