@@ -23,19 +23,11 @@ jobs:
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v3
-      - uses: actions/setup-python@v5.1.0
-        with:
-          python-version: ${{ matrix.python-version }}
-          architecture: "x64"
       - uses: pdm-project/setup-pdm@v4.1
         name: Setup PDM
         with:
           python-version: ${{ matrix.python-version }}
-      # TODO：修改 cache
-      # - uses: actions/cache@v2
-      #   with:
-      #     path: ~/.cache/pypoetry/virtualenvs
-      #     key: ${{ runner.os }}-poetry-${{ inputs.python-version }}-${{ hashFiles('**/poetry.lock') }}
+          cache: true
       - run: pdm install
         shell: bash
       - name: Run tests
