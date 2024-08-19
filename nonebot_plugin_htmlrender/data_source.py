@@ -144,6 +144,7 @@ async def read_tpl(path: str) -> str:
 async def template_to_html(
     template_path: str,
     template_name: str,
+    filters: Optional[Dict[str, Any]] = None,
     **kwargs,
 ) -> str:
     """使用jinja2模板引擎通过html生成图片
@@ -151,6 +152,7 @@ async def template_to_html(
     Args:
         template_path (str): 模板路径
         template_name (str): 模板名
+        filters (Optional[Dict[str, Any]]): 自定义过滤器
         **kwargs: 模板内容
     Returns:
         str: html
@@ -160,6 +162,12 @@ async def template_to_html(
         loader=jinja2.FileSystemLoader(template_path),
         enable_async=True,
     )
+
+    if filters:
+        for filter_name, filter_func in filters.items():
+            template_env.filters[filter_name] = filter_func
+            logger.debug(f"加载自定义过滤器 {filter_name}")
+    
     template = template_env.get_template(template_name)
 
     return await template.render_async(**kwargs)
@@ -207,6 +215,7 @@ async def template_to_pic(
     template_path: str,
     template_name: str,
     templates: Dict[Any, Any],
+    filters: Optional[Dict[str, Any]] = None,
     pages: Optional[Dict[Any, Any]] = None,
     wait: int = 0,
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
@@ -219,6 +228,7 @@ async def template_to_pic(
         template_path (str): 模板路径
         template_name (str): 模板名
         templates (Dict[Any, Any]): 模板内参数 如: {"name": "abc"}
+        filters (Optional[Dict[str, Any]]): 自定义过滤器
         pages (Optional[Dict[Any, Any]]): 网页参数 Defaults to
             {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
         wait (int, optional): 网页载入等待时间. Defaults to 0.
@@ -238,6 +248,12 @@ async def template_to_pic(
         loader=jinja2.FileSystemLoader(template_path),
         enable_async=True,
     )
+
+    if filters:
+        for filter_name, filter_func in filters.items():
+            template_env.filters[filter_name] = filter_func
+            logger.debug(f"加载自定义过滤器 {filter_name}")
+
     template = template_env.get_template(template_name)
 
     return await html_to_pic(

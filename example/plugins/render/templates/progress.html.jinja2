@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Example</title>
+
+    {# 使用 tailwindclss CDN（仅用于举例，不建议在生产环境中使用） #}
+    <script src="https://cdn.tailwindcss.com"></script> 
+</head>
+<body>
+  {% for count in counts %}
+    <div>
+      <div class="mb-2 flex justify-between items-center">
+          <h3 class="text-sm font-semibold text-black">Count: {{ count }}</h3>
+          <span class="text-sm text-black">{{ count | count_to_color }}</span>
+      </div>
+      <div class="flex w-full h-2 bg-gray-200 rounded-full overflow-hidden" role="progressbar" aria-valuenow="{{ count }}" aria-valuemin="0" aria-valuemax="100">
+        <div
+          class="flex flex-col justify-center rounded-full overflow-hidden text-xs text-white text-center whitespace-nowrap transition duration-500"
+          style="width: 50%; background-color: {{ count | count_to_color }};"
+        >
+        </div>
+    </div>
+  {% endfor %}
+</body>
+</html>

@@ -18,6 +18,8 @@ from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from PIL import Image
 import io
 
+from .utils import count_to_color
+
 # 纯文本转图片
 text2pic = on_command("text2pic")
 
@@ -85,6 +87,35 @@ async def _template2pic(bot: Bot, event: MessageEvent):
     a.save("template2pic.png", format="PNG")
 
     await template2pic.finish(MessageSegment.image(pic))
+
+
+# 使用自定义过滤器
+template_filter = on_command("template_filter")
+
+
+@template_filter.handle()
+async def _():
+    from pathlib import Path
+
+    count_list = ["1", "2", "3", "4"]
+    template_path = str(Path(__file__).parent / "templates")
+    template_name = "progress.html.jinja2"
+
+    pic = await template_to_pic(
+        template_path=template_path,
+        template_name=template_name,
+        templates={"counts": count_list},
+        filters={"count_to_color": count_to_color},
+        pages={
+            "viewport": {"width": 600, "height": 300},
+            "base_url": f"file://{template_path}",
+        }
+    )
+
+    a = Image.open(io.BytesIO(pic))
+    a.save("template_filter.png", format="PNG")
+
+    await template_filter.finish(MessageSegment.image(pic))
 
 
 # 使用 md2pic
