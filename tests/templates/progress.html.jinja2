@@ -7,7 +7,7 @@
 </head>
 <body>
   {% for count in counts %}
-    <p>Count: {{ count }}; Color: {{ count | count_to_color }}</p>
+    <p style="width: 10px; height: 10px; background-color: {{ count | count_to_color}};"></p>
   {% endfor %}
 </body>
 </html>
