@@ -180,6 +180,7 @@ async def html_to_pic(
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
+    element_path: Optional[str] = None,
     **kwargs,
 ) -> bytes:
     """html转图片
@@ -191,6 +192,7 @@ async def html_to_pic(
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        element_path: 截图元素路径, 如 "div#main"，为空则按照 viewport 截图。
         **kwargs: 传入 page 的参数
 
     Returns:
@@ -204,8 +206,15 @@ async def html_to_pic(
         await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
-        return await page.screenshot(
-            full_page=True,
+        if element_path is None:
+            return await page.screenshot(
+                full_page=True,
+                type=type,
+                quality=quality,
+            )
+
+        element = await page.query_selector(element_path)
+        return await element.screenshot(
             type=type,
             quality=quality,
         )
@@ -221,6 +230,7 @@ async def template_to_pic(
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
+    element_path: Optional[str] = None,
 ) -> bytes:
     """使用jinja2模板引擎通过html生成图片
 
@@ -235,6 +245,7 @@ async def template_to_pic(
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        element_path: 截图元素路径, 如 "div#main"，为空则按照 viewport 截图。
     Returns:
         bytes: 图片 可直接发送
     """
@@ -263,6 +274,7 @@ async def template_to_pic(
         type=type,
         quality=quality,
         device_scale_factor=device_scale_factor,
+        element_path=element_path,
         **pages,
     )
 
