@@ -102,10 +102,12 @@ async def md_to_pic(
     if "math/tex" in md:
         katex_css = await read_tpl("katex/katex.min.b64_fonts.css")
         katex_js = await read_tpl("katex/katex.min.js")
+        mhchem_js = await read_tpl("katex/mhchem.min.js")
         mathtex_js = await read_tpl("katex/mathtex-script-type.min.js")
         extra = (
             f'<style type="text/css">{katex_css}</style>'
             f"<script defer>{katex_js}</script>"
+            f"<script defer>{mhchem_js}</script>"
             f"<script defer>{mathtex_js}</script>"
         )
 
