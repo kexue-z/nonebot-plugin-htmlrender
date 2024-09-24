@@ -77,10 +77,12 @@ async def _template2pic(bot: Bot, event: MessageEvent):
         template_name=template_name,
         templates={"text_list": text_list},
         pages={
-            "viewport": {"width": 600, "height": 300},
+            "viewport": {"width": 300, "height": 300},
             "base_url": f"file://{template_path}",
         },
         wait=2,
+        element_path="div#main",
+        # 如需固定大小可通过调整 pages 参数
     )
 
     a = Image.open(io.BytesIO(pic))
