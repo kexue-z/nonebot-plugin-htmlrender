@@ -39,7 +39,7 @@ async def init(**kwargs) -> Browser:
 
 
 async def launch_browser(**kwargs) -> Browser:
-    assert _playwright is not None, "Playwright 没有安装"
+    assert _playwright is not None, "Playwright 未安装"
 
     if config.htmlrender_browser_channel:
         kwargs["channel"] = config.htmlrender_browser_channel
@@ -48,12 +48,22 @@ async def launch_browser(**kwargs) -> Browser:
         kwargs["proxy"] = {
             "server": config.htmlrender_proxy_host,
         }
-    if config.htmlrender_browser == "firefox":
-        logger.info("使用 firefox 启动")
-        return await _playwright.firefox.launch(**kwargs)
+
+    if config.htmlrender_browser_executable_path:
+        kwargs["executable_path"] = config.htmlrender_browser_executable_path
+    
+    if config.htmlrender_browser:
+        if config.htmlrender_browser.lower() == "firefox":
+            logger.info("使用 Firefox 启动")
+            return await _playwright.firefox.launch(**kwargs)
+        elif config.htmlrender_browser.lower() == "webkit":
+            logger.info("使用 Webkit 启动")
+            return await _playwright.webkit.launch(**kwargs)
+        else:
+            logger.warning("浏览器参数错误，无 {} 浏览器核心可用，使用 Chromium 启动")
 
     # 默认使用 chromium
-    logger.info("使用 chromium 启动")
+    logger.info("使用 Chromium 启动")
     return await _playwright.chromium.launch(**kwargs)
 
 
