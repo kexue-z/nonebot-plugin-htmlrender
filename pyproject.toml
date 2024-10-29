@@ -32,6 +32,11 @@ dev = [
     "nonebot2[fastapi]>=2.2.0"
 ]
 
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "session"
+addopts = ["--import-mode=importlib"]
+asyncio_mode = "auto"
+
 [tool.pdm.build]
 includes = []
 [build-system]
