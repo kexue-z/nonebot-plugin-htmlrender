@@ -52,9 +52,11 @@ htmlrender_proxy_host = "http://127.0.0.1:7890"
 # 可不写
 htmlrender_browser_channel = ""
 
+# 浏览器执行文件路径 可不写
+htmlrender_browser_executable_path = ""
+
 # 使用 cdp 连接现有浏览器
 # 使用方法，自行启动浏览，在启动浏览器时添加参数 --remote-debugging-port=1234
-# 
 # 可不写
 htmlrender_connect_over_cdp = "http://127.0.0.1:1234"
 ```
