@@ -48,6 +48,11 @@ async def launch_browser(**kwargs) -> Browser:
         kwargs["proxy"] = {
             "server": config.htmlrender_proxy_host,
         }
+
+    if config.htmlrender_connect_over_cdp:
+        logger.info("使用 chromium connect_over_cdp 启动")
+        return await _playwright.chromium.connect_over_cdp(**kwargs)
+
     if config.htmlrender_browser == "firefox":
         logger.info("使用 firefox 启动")
         return await _playwright.firefox.launch(**kwargs)
