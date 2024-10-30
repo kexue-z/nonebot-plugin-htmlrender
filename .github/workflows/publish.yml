@@ -39,10 +39,13 @@ jobs:
       - name: Build Package
         run: uv build
 
-      - name: Publish Package to PyPI
-        run: uv publish
+      - name: pypi-publish
+        uses: pypa/gh-action-pypi-publish@v1.11.0
 
-      - name: Publish Package to GitHub Release
-        run: gh release create ${{ steps.version.outputs.TAG_NAME }} dist/*.tar.gz dist/*.whl -t "🔖 ${{ steps.version.outputs.TAG_NAME }}" --generate-notes
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # - name: Publish Package to PyPI
+      #   run: uv publish
+
+      # - name: Publish Package to GitHub Release
+      #   run: gh release create ${{ steps.version.outputs.TAG_NAME }} dist/*.tar.gz dist/*.whl -t "🔖 ${{ steps.version.outputs.TAG_NAME }}" --generate-notes
+      #   env:
+      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
