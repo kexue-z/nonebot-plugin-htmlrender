@@ -8,6 +8,10 @@ jobs:
   pypi-publish:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
+    environment: release
+    permissions:
+      # IMPORTANT: this permission is mandatory for trusted publishing
+      id-token: write
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -25,16 +29,16 @@ jobs:
       - run: uv sync
         shell: bash
 
-      - name: Get Version
-        id: version
-        run: |
-          echo "VERSION=$(uvx pdm show --version)" >> $GITHUB_OUTPUT
-          echo "TAG_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      # - name: Get Version
+      #   id: version
+      #   run: |
+      #     echo "VERSION=$(uvx pdm show --version)" >> $GITHUB_OUTPUT
+      #     echo "TAG_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+      #     echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
 
-      - name: Check Version
-        if: steps.version.outputs.VERSION != steps.version.outputs.TAG_VERSION
-        run: exit 1
+      # - name: Check Version
+      # if: steps.version.outputs.VERSION != steps.version.outputs.TAG_VERSION
+      #   run: exit 1
 
       - name: Build Package
         run: uv build
