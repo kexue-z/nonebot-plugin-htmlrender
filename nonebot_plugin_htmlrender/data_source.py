@@ -25,10 +25,12 @@ async def text_to_pic(
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
+    screenshot_timeout: Optional[float] = 30_000,
 ) -> bytes:
     """多行文本转图片
 
     Args:
+        screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         text (str): 纯文本, 可多行
         css_path (str, optional): css文件
         width (int, optional): 图片宽度，默认为 500
@@ -51,6 +53,7 @@ async def text_to_pic(
         type=type,
         quality=quality,
         device_scale_factor=device_scale_factor,
+        screenshot_timeout=screenshot_timeout,
     )
 
 
@@ -62,10 +65,12 @@ async def md_to_pic(
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
+    screenshot_timeout: Optional[float] = 30_000,
 ) -> bytes:
     """markdown 转 图片
 
     Args:
+        screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         md (str, optional): markdown 格式文本
         md_path (str, optional): markdown 文件路径
         css_path (str,  optional): css文件路径. Defaults to None.
@@ -125,6 +130,7 @@ async def md_to_pic(
         type=type,
         quality=quality,
         device_scale_factor=device_scale_factor,
+        screenshot_timeout=screenshot_timeout,
     )
 
 
@@ -182,11 +188,13 @@ async def html_to_pic(
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
+    screenshot_timeout: Optional[float] = 30_000,
     **kwargs,
 ) -> bytes:
     """html转图片
 
     Args:
+        screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
         template_path (str, optional): 模板路径 如 "file:///path/to/template/"
@@ -210,6 +218,7 @@ async def html_to_pic(
             full_page=True,
             type=type,
             quality=quality,
+            timeout=screenshot_timeout,
         )
 
 
@@ -223,10 +232,12 @@ async def template_to_pic(
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
+    screenshot_timeout: Optional[float] = 30_000,
 ) -> bytes:
     """使用jinja2模板引擎通过html生成图片
 
     Args:
+        screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         template_path (str): 模板路径
         template_name (str): 模板名
         templates (Dict[Any, Any]): 模板内参数 如: {"name": "abc"}
@@ -265,6 +276,7 @@ async def template_to_pic(
         type=type,
         quality=quality,
         device_scale_factor=device_scale_factor,
+        screenshot_timeout=screenshot_timeout,
         **pages,
     )
 
@@ -275,6 +287,7 @@ async def capture_element(
     timeout: float = 0,
     type: Literal["jpeg", "png"] = "png",  # noqa: A002
     quality: Union[int, None] = None,
+    screenshot_timeout: Optional[float] = 30_000,
     **kwargs,
 ) -> bytes:
     async with get_new_page(**kwargs) as page:
@@ -283,4 +296,5 @@ async def capture_element(
         return await page.locator(element).screenshot(
             type=type,
             quality=quality,
+            timeout=screenshot_timeout,
         )

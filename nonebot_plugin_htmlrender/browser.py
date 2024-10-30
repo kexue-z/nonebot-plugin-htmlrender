@@ -62,6 +62,10 @@ async def launch_browser(**kwargs) -> Browser:
         else:
             logger.warning("浏览器参数错误，无 {} 浏览器核心可用，使用 Chromium 启动")
 
+    if config.htmlrender_connect_over_cdp:
+        logger.info("使用 chromium connect_over_cdp 启动")
+        return await _playwright.chromium.connect_over_cdp(**kwargs)
+
     # 默认使用 chromium
     logger.info("使用 Chromium 启动")
     return await _playwright.chromium.launch(**kwargs)
