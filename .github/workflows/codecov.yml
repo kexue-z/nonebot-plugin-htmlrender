@@ -15,23 +15,28 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12"]
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
         os: [ubuntu-latest, windows-latest, macos-latest]
       fail-fast: false
     env:
       OS: ${{ matrix.os }}
       PYTHON_VERSION: ${{ matrix.python-version }}
     steps:
-      - uses: actions/checkout@v3
-      - uses: pdm-project/setup-pdm@v4.1
-        name: Setup PDM
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@v3
         with:
+          enable-cache: true
           python-version: ${{ matrix.python-version }}
-          cache: true
-      - run: pdm install
+
+      - run: uv sync
         shell: bash
+
       - name: Run tests
-        run: pdm run pytest -s
+        run: uv run pytest -s
+
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v2
         with:
