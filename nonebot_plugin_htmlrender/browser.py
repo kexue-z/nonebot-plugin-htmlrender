@@ -328,7 +328,7 @@ async def install_browser(
         bool: 如果安装成功返回 True，否则返回 False
     """
     mirrors = [
-        # MirrorSource("淘宝", "https://npmmirror.com/mirrors/playwright/", 1),
+        MirrorSource("淘宝", "https://npmmirror.com/mirrors/playwright/", 1),
     ]
     async with download_host_context(mirrors):
         install_cmd = ["playwright", "install", "--with-deps", browser_type]
