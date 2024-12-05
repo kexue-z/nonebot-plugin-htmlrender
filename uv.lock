@@ -612,7 +612,7 @@ wheels = [
 
 [[package]]
 name = "nonebot-plugin-htmlrender"
-version = "0.3.5"
+version = "0.4.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiofiles" },
@@ -650,7 +650,7 @@ requires-dist = [
 dev = [
     { name = "nonebot-adapter-onebot", specifier = ">=2.4.6" },
     { name = "nonebot2", extras = ["fastapi"], specifier = ">=2.3.3" },
-    { name = "nonebug", specifier = ">=0.4.1" },
+    { name = "nonebug", specifier = ">=0.4.2" },
     { name = "pillow", specifier = ">=11.0.0" },
     { name = "pytest-asyncio", specifier = ">=0.24.0" },
 ]
@@ -681,7 +681,7 @@ fastapi = [
 
 [[package]]
 name = "nonebug"
-version = "0.4.1"
+version = "0.4.2"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "asgiref" },
@@ -690,9 +690,9 @@ dependencies = [
     { name = "pytest" },
     { name = "typing-extensions" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/d1/57/4300262bbf6f8b7b69a75e8d827a32b1503fe9322210440ad785fd6bf3d0/nonebug-0.4.1.tar.gz", hash = "sha256:1bb96d715ec415351f2c7b871a86c64fdba533fb1a105e9a01cc1e250d37d52b", size = 11789 }
+sdist = { url = "https://files.pythonhosted.org/packages/29/56/01eb465dc135787e463423bf4762b883159a639d02c3a577ab4efc8f9d56/nonebug-0.4.2.tar.gz", hash = "sha256:002dac00fed1fbff97574f3dffab2237fc41473b3bf3e73d2730ae34895bc137", size = 12118 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/ce/e0/e8d6e0db6cbff3edbb034284bd9451e9e380dde6c580fd22f1d6c2a91687/nonebug-0.4.1-py3-none-any.whl", hash = "sha256:553bfc408337fb33a19fcc936e24f4cc43200e4550a828f21e7f4406e93b62db", size = 14659 },
+    { url = "https://files.pythonhosted.org/packages/a0/4a/7592e899cd5074a9b70df007afe9b6f8bbaa02b8e9c1ce7f5c5498634cb7/nonebug-0.4.2-py3-none-any.whl", hash = "sha256:83d9229ec899819e9f5786eabc0c27b9dd0cd5d6e2e7438f59923ab822d5c555", size = 15030 },
 ]
 
 [[package]]

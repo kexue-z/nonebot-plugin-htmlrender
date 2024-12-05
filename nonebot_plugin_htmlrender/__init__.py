@@ -6,6 +6,7 @@ from .browser import (
     get_browser as get_browser,
     get_new_page as get_new_page,
     shutdown_browser as shutdown_browser,
+    init_browser as init_browser,
 )
 from .data_source import (
     capture_element as capture_element,
@@ -35,9 +36,8 @@ async def init(**kwargs):
     Returns:
         Browser: Browser
     """
-    browser = await get_browser(**kwargs)
-    logger.info("Browser Started.")
-    return browser
+    logger.info("Browser Starting.")
+    return await init_browser(**kwargs)
 
 
 @driver.on_shutdown
