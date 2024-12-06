@@ -14,8 +14,27 @@ from playwright.async_api import Browser, Error, Page, Playwright, async_playwri
 
 from .config import plugin_config
 
+
+@dataclass
+class MirrorSource:
+    name: str
+    url: str
+    priority: int
+
+
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
+BrowserType = Literal["chromium", "firefox", "webkit"]
+MIRRORS = [
+    MirrorSource("官方", "https://playwright.azureedge.net/builds/", 0),
+    MirrorSource("淘宝", "https://npmmirror.com/mirrors/playwright", 1),
+]
+
+
+class PlaywrightInstallError(Exception):
+    """Playwright 安装错误"""
+
+    pass
 AllowedBrowser = Literal["chromium", "firefox", "webkit"]
 
 
@@ -43,9 +62,11 @@ async def init_browser(**kwargs) -> Browser:
     """初始化全局 playwright 浏览器实例并返回浏览器实例。"""
     try:
         return await start_browser(**kwargs)
-    except Error:
-        await install_browser()
-        return await start_browser(**kwargs)
+    except Error as e:
+        logger.error("浏览器初始化失败，尝试安装浏览器中")
+        if await install_browser():
+            return await start_browser(**kwargs)
+        raise RuntimeError("浏览器初始化失败") from e
 
 
 async def start_browser(**kwargs) -> Browser:
@@ -125,13 +146,6 @@ async def shutdown_browser() -> None:
             await _playwright.stop()
 
 
-@dataclass
-class MirrorSource:
-    name: str
-    url: str
-    priority: int
-
-
 async def check_mirror_connectivity(
     mirrors: list[MirrorSource], timeout: int = 5
 ) -> Optional[MirrorSource]:
@@ -179,6 +193,7 @@ async def check_mirror_connectivity(
     if not available_mirrors:
         return None
 
+    logger.debug(f"可用镜像源: {available_mirrors}")
     return min(available_mirrors, key=lambda x: (x[1], -x[0].priority))[0]
 
 
@@ -221,6 +236,7 @@ class MessageType(Enum):
     PROGRESS = "progress"
     DOWNLOAD = "download"
     INFO = "info"
+    ERROR = "error"
 
 
 async def read_stream(stream, out: TextIO = sys.stdout) -> None:
@@ -251,6 +267,8 @@ async def read_stream(stream, out: TextIO = sys.stdout) -> None:
             return MessageType.PROGRESS
         elif _.startswith("Downloading "):
             return MessageType.DOWNLOAD
+        elif _.startswith("Error:"):
+            return MessageType.ERROR
         return MessageType.INFO
 
     while True:
@@ -303,10 +321,12 @@ async def execute_install_command(
         await process.wait()
         return (
             process.returncode == 0,
-            "安装完成" if process.returncode == 0 else "安装失败",
+            "安装完成" if process.returncode == 0 else f"返回码 {process.returncode}",
         )
     except asyncio.TimeoutError:
         return False, "安装超时"
+    except PlaywrightInstallError as e:
+        return False, str(e)
     finally:
         if process and process.returncode is None:
             process.kill()
@@ -327,10 +347,14 @@ async def install_browser(
     Returns:
         bool: 如果安装成功返回 True，否则返回 False
     """
-    mirrors = [
-        MirrorSource("淘宝", "https://npmmirror.com/mirrors/playwright/", 1),
-    ]
-    async with download_host_context(mirrors):
+
+    def _switch_to_official_mirror() -> None:
+        """切换至官方源，移除自定义下载地址环境变量"""
+        logger.info("切换至官方源重试...")
+        if "PLAYWRIGHT_DOWNLOAD_HOST" in os.environ:
+            del os.environ["PLAYWRIGHT_DOWNLOAD_HOST"]
+
+    async with download_host_context(MIRRORS):
         install_cmd = ["playwright", "install", "--with-deps", browser_type]
 
         for attempt in range(1, retries + 1):
@@ -343,8 +367,16 @@ async def install_browser(
                 if success:
                     logger.success(f"{browser_type} 安装成功")
                     return True
-                else:
-                    logger.error(f"安装失败：{message}")
+                logger.error(f"安装失败：{message}")
+                if "404" in message:
+                    _switch_to_official_mirror()
+                    continue
+
+            except FileNotFoundError:
+                logger.error(
+                    "未找到 playwright 可执行文件，请确保已安装 playwright，或正确进入虚拟环境"
+                )
+                return False
 
             except Exception as e:
                 logger.error(f"安装过程中出现异常：{str(e)}")
