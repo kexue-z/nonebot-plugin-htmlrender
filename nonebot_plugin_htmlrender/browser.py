@@ -6,16 +6,17 @@ from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
 from enum import Enum
 from typing import Optional, Literal, AsyncIterator, TextIO
+from typing_extensions import TypeGuard
 from urllib.parse import urlparse
 
 from nonebot.log import logger
-from playwright.async_api import Browser, Error, Page, Playwright, async_playwright
+from playwright.async_api import Browser, Error, Page, Playwright, async_playwright, BrowserType
 
 from .config import plugin_config
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
-BrowserType = Literal["chromium", "firefox", "webkit"]
+AllowedBrowser = Literal["chromium", "firefox", "webkit"]
 
 
 @contextmanager
@@ -25,6 +26,17 @@ def _suppress_and_log():
         yield
     except Exception as e:
         logger.opt(exception=e).warning("关闭 playwright 时发生错误。")
+
+def is_allowed_browser(browser_type: str) -> TypeGuard[AllowedBrowser]:
+    """检查浏览器类型是否有效。"""
+    return browser_type in ["chromium", "firefox", "webkit"]
+
+async def _launch(browser_type: AllowedBrowser, **kwargs) -> Browser:
+    logger.info(f"使用 {browser_type.capitalize()} 启动中...")
+    _browser_cls: BrowserType = getattr(_playwright, browser_type)
+    _browser = await _browser_cls.launch(**kwargs)
+    logger.debug(f"{browser_type.capitalize()} 路径: {_browser_cls.executable_path}")
+    return _browser
 
 
 async def init_browser(**kwargs) -> Browser:
@@ -51,6 +63,8 @@ async def start_browser(**kwargs) -> Browser:
         if plugin_config.htmlrender_browser
         else "chromium"
     )
+    if not is_allowed_browser(browser_type):
+        raise ValueError(f"不支持的浏览器类型: {browser_type}")
 
     if plugin_config.htmlrender_browser_channel:
         kwargs["channel"] = plugin_config.htmlrender_browser_channel
@@ -62,37 +76,24 @@ async def start_browser(**kwargs) -> Browser:
 
     _playwright = await async_playwright().start()
 
-    match browser_type:
-        case "firefox":
-            logger.info("使用 Firefox 启动中...")
-            _browser = await _playwright.firefox.launch(**kwargs)
-            logger.debug(f"Firefox 路径: {_playwright.firefox.executable_path}")
-
-        case "webkit":
-            logger.info("使用 WebKit 启动中...")
-            _browser = await _playwright.webkit.launch(**kwargs)
-            logger.debug(f"WebKit 路径: {_playwright.webkit.executable_path}")
-
-        case "chromium":
-            if plugin_config.htmlrender_connect_over_cdp:
-                logger.info("使用 Chromium CDP 连接中...")
-                return await _playwright.chromium.connect_over_cdp(**kwargs)
-
-            logger.info("使用 Chromium 启动中...")
-            _browser = await _playwright.chromium.launch(**kwargs)
-            logger.debug(f"Chromium 路径: {_playwright.chromium.executable_path}")
-
-        case _:
-            raise ValueError(f"不支持的浏览器类型: {browser_type}")
+    if browser_type == "chromium" and plugin_config.htmlrender_connect_over_cdp:
+        logger.info("使用 Chromium CDP 连接中...")
+        _browser = await _playwright.chromium.connect_over_cdp(**kwargs)
+    else:
+        _browser = await _launch(browser_type)
 
     return _browser
 
 
-def get_browser() -> Browser:
-    """"""
-    if not _browser:
-        raise RuntimeError("playwright is not initalized")
-    return _browser
+async def get_browser(**kwargs) -> Browser:
+    """获取 Browser 实例，不存在则初始化"""
+    if _browser and _browser.is_connected():
+        return _browser
+
+    try:
+        return await init_browser(**kwargs)
+    except Exception as e:
+        raise RuntimeError("无法初始化浏览器实例") from e
 
 
 @asynccontextmanager
@@ -106,7 +107,7 @@ async def get_new_page(device_scale_factor: float = 2, **kwargs) -> AsyncIterato
     Returns:
         AsyncIterator[Page]: 页面对象。
     """
-    ctx = get_browser()
+    ctx = await get_browser()
     page = await ctx.new_page(device_scale_factor=device_scale_factor, **kwargs)
     try:
         yield page
@@ -263,14 +264,13 @@ async def read_stream(stream, out: TextIO = sys.stdout) -> None:
 
         msg_type = get_message_type(text)
 
-        match msg_type:
-            case MessageType.PROGRESS:
+        if msg_type is MessageType.PROGRESS:
                 progress_text = text.split("|", 1)[1].strip()
                 write_progress(progress_text)
                 last_progress = text
-            case _:
-                ensure_newline()
-                logger.info(text)
+        else:
+            ensure_newline()
+            logger.info(text)
 
 
 async def execute_install_command(
