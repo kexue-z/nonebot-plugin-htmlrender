@@ -1,20 +1,20 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.5.0"
+version = "0.5.1"
 description = "通过浏览器渲染图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
 requires-python = ">=3.9,<4.0"
 license = { file = "LICENSE" }
 dependencies = [
-    "aiofiles>=0.8.0",
-    "jinja2>=3.0.3",
-    "markdown>=3.3.6",
-    "nonebot2>=2.2.0",
-    "playwright>=1.48.0",
-    "pygments>=2.10.0",
-    "pymdown-extensions>=9.1",
-    "python-markdown-math>=0.8",
+  "aiofiles>=0.8.0",
+  "jinja2>=3.0.3",
+  "markdown>=3.3.6",
+  "nonebot2>=2.2.0",
+  "playwright>=1.48.0",
+  "pygments>=2.10.0",
+  "pymdown-extensions>=9.1",
+  "python-markdown-math>=0.8",
 ]
 
 [project.urls]
@@ -28,11 +28,11 @@ asyncio_mode = "auto"
 
 [dependency-groups]
 dev = [
-    "nonebot-adapter-onebot>=2.4.6",
-    "nonebot2[fastapi]>=2.3.3",
-    "nonebug>=0.4.2",
-    "pillow>=11.0.0",
-    "pytest-asyncio>=0.24.0",
+  "nonebot-adapter-onebot>=2.4.6",
+  "nonebot2[fastapi]>=2.3.3",
+  "nonebug>=0.4.2",
+  "pillow>=11.0.0",
+  "pytest-asyncio>=0.24.0",
 ]
 
 [tool.pyright]
