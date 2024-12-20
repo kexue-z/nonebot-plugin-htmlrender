@@ -35,6 +35,21 @@ dev = [
     "pytest-asyncio>=0.24.0",
 ]
 
+[tool.pyright]
+pythonVersion = "3.9"
+pythonPlatform = "All"
+defineConstant = { PYDANTIC_V2 = true }
+executionEnvironments = [
+  { root = "./tests", extraPaths = [
+    "./",
+  ] },
+  { root = "./" },
+]
+
+typeCheckingMode = "standard"
+reportShadowedImports = false
+disableBytesTypePromotions = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
