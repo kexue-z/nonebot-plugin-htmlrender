@@ -49,7 +49,7 @@ jobs:
           path: dist/ # or path/to/artifact
 
       - name: pypi-publish
-        uses: pypa/gh-action-pypi-publish@v1.11.0
+        uses: pypa/gh-action-pypi-publish@v1.12.3
 
       # - name: Publish Package to PyPI
       #   run: uv publish
