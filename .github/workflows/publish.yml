@@ -43,6 +43,11 @@ jobs:
       - name: Build Package
         run: uv build
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: artifact
+          path: dist/ # or path/to/artifact
+
       - name: pypi-publish
         uses: pypa/gh-action-pypi-publish@v1.11.0
 
