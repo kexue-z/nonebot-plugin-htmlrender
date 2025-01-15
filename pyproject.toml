@@ -26,13 +26,16 @@ dev = [
     "nonebot-adapter-onebot>=2.4.6",
     "nonebot2[fastapi]>=2.3.3",
     "nonebug>=0.4.2",
+    "pytest-cov>=5.0",
+    "pytest-xdist>=3.6",
+    "pytest-mock>=3.6",
     "pillow>=11.0.0",
     "pytest-asyncio>=0.24.0",
 ]
 
 [tool.pytest.ini_options]
 asyncio_default_fixture_loop_scope = "session"
-addopts = ["--import-mode=importlib"]
+#addopts = "--cov=nonebot_plugin_htmlrender --cov-report=term-missing"
 asyncio_mode = "auto"
 
 [tool.ruff]
@@ -97,3 +100,6 @@ disableBytesTypePromotions = true
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.nonebot]
+plugins = ["nonebot_plugin_htmlrender"]
