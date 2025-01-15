@@ -1,8 +1,8 @@
-import pytest
-
 from io import BytesIO
+
 from nonebug import App
 from PIL import Image, ImageChops
+import pytest
 
 from .utils import count_to_color
 
@@ -36,9 +36,9 @@ async def test_html_to_pic(app: App):
 
 @pytest.mark.asyncio
 async def test_template_to_pic(app: App):
-    from nonebot_plugin_htmlrender import template_to_pic
-
     from pathlib import Path
+
+    from nonebot_plugin_htmlrender import template_to_pic
 
     text_list = ["1", "2", "3", "4"]
     template_path = str(Path(__file__).parent / "templates")
@@ -61,6 +61,7 @@ async def test_template_to_pic(app: App):
 @pytest.mark.asyncio
 async def test_template_filter(app: App):
     from pathlib import Path
+
     from nonebot_plugin_htmlrender import template_to_pic
 
     count_list = ["1", "2", "3", "4"]
@@ -75,7 +76,7 @@ async def test_template_filter(app: App):
         pages={
             "viewport": {"width": 600, "height": 300},
             "base_url": f"file://{template_path}",
-        }
+        },
     )
 
     test_image_path = Path(__file__).parent / "test_template_filter.png"
@@ -83,4 +84,3 @@ async def test_template_filter(app: App):
     image = Image.open(BytesIO(initial_bytes=image_byte))
     diff = ImageChops.difference(image, test_image)
     assert diff.getbbox() is None
-
