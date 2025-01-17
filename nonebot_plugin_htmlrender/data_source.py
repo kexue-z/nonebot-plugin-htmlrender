@@ -1,6 +1,6 @@
 from os import getcwd
 from pathlib import Path
-from typing import Any, Dict, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 import aiofiles
 import jinja2
@@ -11,7 +11,7 @@ from .browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
 
-env = jinja2.Environment(  # noqa: S701
+env = jinja2.Environment(
     extensions=["jinja2.ext.loopcontrols"],
     loader=jinja2.FileSystemLoader(TEMPLATES_PATH),
     enable_async=True,
@@ -22,7 +22,7 @@ async def text_to_pic(
     text: str,
     css_path: str = "",
     width: int = 500,
-    type: Literal["jpeg", "png"] = "png",  # noqa: A002
+    type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
     screenshot_timeout: Optional[float] = 30_000,
@@ -36,7 +36,7 @@ async def text_to_pic(
         width (int, optional): 图片宽度，默认为 500
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰
 
     Returns:
         bytes: 图片, 可直接发送
@@ -44,7 +44,7 @@ async def text_to_pic(
     template = env.get_template("text.html")
 
     return await html_to_pic(
-        template_path=f"file://{css_path if css_path else TEMPLATES_PATH}",
+        template_path=f"file://{css_path or TEMPLATES_PATH}",
         html=await template.render_async(
             text=text,
             css=await read_file(css_path) if css_path else await read_tpl("text.css"),
@@ -62,7 +62,7 @@ async def md_to_pic(
     md_path: str = "",
     css_path: str = "",
     width: int = 500,
-    type: Literal["jpeg", "png"] = "png",  # noqa: A002
+    type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
     screenshot_timeout: Optional[float] = 30_000,
@@ -77,7 +77,7 @@ async def md_to_pic(
         width (int, optional): 图片宽度，默认为 500
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰
 
     Returns:
         bytes: 图片, 可直接发送
@@ -124,7 +124,7 @@ async def md_to_pic(
         )
 
     return await html_to_pic(
-        template_path=f"file://{css_path if css_path else TEMPLATES_PATH}",
+        template_path=f"file://{css_path or TEMPLATES_PATH}",
         html=await template.render_async(md=md, css=css, extra=extra),
         viewport={"width": width, "height": 10},
         type=type,
@@ -141,7 +141,7 @@ async def md_to_pic(
 
 
 async def read_file(path: str) -> str:
-    async with aiofiles.open(path, mode="r") as f:
+    async with aiofiles.open(path) as f:
         return await f.read()
 
 
@@ -152,7 +152,7 @@ async def read_tpl(path: str) -> str:
 async def template_to_html(
     template_path: str,
     template_name: str,
-    filters: Optional[Dict[str, Any]] = None,
+    filters: Optional[dict[str, Any]] = None,
     **kwargs,
 ) -> str:
     """使用jinja2模板引擎通过html生成图片
@@ -166,7 +166,7 @@ async def template_to_html(
         str: html
     """
 
-    template_env = jinja2.Environment(  # noqa: S701
+    template_env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_path),
         enable_async=True,
     )
@@ -175,7 +175,7 @@ async def template_to_html(
         for filter_name, filter_func in filters.items():
             template_env.filters[filter_name] = filter_func
             logger.debug(f"加载自定义过滤器 {filter_name}")
-    
+
     template = template_env.get_template(template_name)
 
     return await template.render_async(**kwargs)
@@ -184,8 +184,8 @@ async def template_to_html(
 async def html_to_pic(
     html: str,
     wait: int = 0,
-    template_path: str = f"file://{getcwd()}",  # noqa: PTH109
-    type: Literal["jpeg", "png"] = "png",  # noqa: A002
+    template_path: str = f"file://{getcwd()}",
+    type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
     screenshot_timeout: Optional[float] = 30_000,
@@ -200,7 +200,7 @@ async def html_to_pic(
         template_path (str, optional): 模板路径 如 "file:///path/to/template/"
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰
         **kwargs: 传入 page 的参数
 
     Returns:
@@ -225,11 +225,11 @@ async def html_to_pic(
 async def template_to_pic(
     template_path: str,
     template_name: str,
-    templates: Dict[Any, Any],
-    filters: Optional[Dict[str, Any]] = None,
-    pages: Optional[Dict[Any, Any]] = None,
+    templates: dict[Any, Any],
+    filters: Optional[dict[str, Any]] = None,
+    pages: Optional[dict[Any, Any]] = None,
     wait: int = 0,
-    type: Literal["jpeg", "png"] = "png",  # noqa: A002
+    type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
     screenshot_timeout: Optional[float] = 30_000,
@@ -247,17 +247,17 @@ async def template_to_pic(
         wait (int, optional): 网页载入等待时间. Defaults to 0.
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
-        device_scale_factor: 缩放比例,类型为float,值越大越清晰(真正想让图片清晰更优先请调整此选项)
+        device_scale_factor: 缩放比例,类型为float,值越大越清晰
     Returns:
         bytes: 图片 可直接发送
     """
     if pages is None:
         pages = {
             "viewport": {"width": 500, "height": 10},
-            "base_url": f"file://{getcwd()}",  # noqa: PTH109
+            "base_url": f"file://{getcwd()}",
         }
 
-    template_env = jinja2.Environment(  # noqa: S701
+    template_env = jinja2.Environment(
         loader=jinja2.FileSystemLoader(template_path),
         enable_async=True,
     )
@@ -285,7 +285,7 @@ async def capture_element(
     url: str,
     element: str,
     timeout: float = 0,
-    type: Literal["jpeg", "png"] = "png",  # noqa: A002
+    type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
     screenshot_timeout: Optional[float] = 30_000,
     **kwargs,
