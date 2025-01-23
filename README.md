@@ -16,6 +16,7 @@
 
 ```py
 from nonebot import require
+
 require("nonebot_plugin_htmlrender")
 # 注意顺序，先require再 from ... import ...
 # 注意顺序，先require再 from ... import ...
@@ -33,32 +34,44 @@ from nonebot_plugin_htmlrender import (
 
 # 配置
 
-```ini
-# 默认情况 可不写
-htmlrender_browser = "chromium"
-# 使用 firefox
-htmlrender_browser = "firefox"
+## .env 配置项说明
 
-# 下载 playwright 代理地址 可不写
+```ini
+# Playwright 浏览器引擎类型
+# 可不填，默认为 "chromium"
+htmlrender_browser = "chromium"
+
+# Playwright 浏览器下载地址
+# 可选，用于自定义浏览器下载源
 htmlrender_download_host = ""
 
-# 浏览器自定代理地址 可不写
-htmlrender_proxy_host = "http://127.0.0.1:7890"
+# Playwright 浏览器下载代理
+# 可选，用于配置下载浏览器时的代理
+htmlrender_download_proxy = ""
 
-# 浏览器 channel 支持以下
-# "chrome", "chrome-beta", "chrome-dev", "chrome-canary",
-# "msedge", "msedge-beta", "msedge-dev", "msedge-canary"
-# 手动编辑可以直接使用系统自带浏览器而不用重新下载 chromium
-# 可不写
+# Playwright 浏览器代理地址
+# 可选，用于配置浏览器访问时的代理
+# 示例: htmlrender_proxy_host = "http://127.0.0.1:7890"
+
+# Playwright 浏览器代理绕过地址
+# 可选，指定不使用代理的地址
+htmlrender_proxy_host_bypass = ""
+
+# Playwright 浏览器通道
+# 可选，支持以下值:
+# - Chrome: "chrome", "chrome-beta", "chrome-dev", "chrome-canary"
+# - Edge: "msedge", "msedge-beta", "msedge-dev", "msedge-canary"
+# 配置后可直接使用系统浏览器，无需下载 Chromium
 htmlrender_browser_channel = ""
 
-# 浏览器执行文件路径 可不写
+# Playwright 浏览器可执行文件路径
+# 可选，用于指定浏览器程序位置
 htmlrender_browser_executable_path = ""
 
-# 使用 cdp 连接现有浏览器
-# 使用方法，自行启动浏览，在启动浏览器时添加参数 --remote-debugging-port=1234
-# 可不写
-htmlrender_connect_over_cdp = "http://127.0.0.1:1234"
+# CDP 远程调试地址
+# 可选，用于连接已运行的浏览器实例
+# 使用时需要在启动浏览器时添加参数 --remote-debugging-port=端口号
+htmlrender_connect_over_cdp = "http://127.0.0.1:9222"
 ```
 
 ## markdown 转 图片
@@ -67,8 +80,8 @@ htmlrender_connect_over_cdp = "http://127.0.0.1:1234"
 - 支持绝大部分 md 语法
 - 代码高亮
 - latex 数学公式 （感谢@[MeetWq](https://github.com/MeetWq)）
-  - 使用 `$$...$$` 来输入独立公式
-  - 使用 `$...$` 来输入行内公式
+    - 使用 `$$...$$` 来输入独立公式
+    - 使用 `$...$` 来输入行内公式
 - 图片需要使用外部连接并使用`html`格式 否则文末会超出截图范围
 - 图片可使用 md 语法 路径可为 `绝对路径`(建议), 或 `相对于template_path` 的路径
 
@@ -126,10 +139,11 @@ LC_ALL zh_CN.UTF-8
 ### CentOS 使用 `yum`
 
 - ~~小心 CentOS~~
-- 参考[CentOS Dockerfile](https://github.com/kumaraditya303/playwright-centos/blob/master/Dockerfile)
+-
+参考[CentOS Dockerfile](https://github.com/kumaraditya303/playwright-centos/blob/master/Dockerfile)
 - 添加中文字体库
 - ~~最佳解决办法~~
-  - 使用 Docker 然后用 Python 镜像 按照上面 Ubuntu 的写 `dockerfile`
+    - 使用 Docker 然后用 Python 镜像 按照上面 Ubuntu 的写 `dockerfile`
 
 下面这个依赖运行一下 也许就可以用了
 
