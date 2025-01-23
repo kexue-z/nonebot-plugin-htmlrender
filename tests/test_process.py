@@ -19,7 +19,7 @@ def unix_env(mocker: MockerFixture):
 @pytest.fixture
 async def long_running_process():
     # Use appropriate command based on platform
-    command = "timeout /t 10" if os.name == "nt" else "sleep 10"
+    command = "timeout /t 15" if os.name == "nt" else "sleep 15"
     proc = await asyncio.create_subprocess_shell(
         command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
@@ -169,9 +169,9 @@ async def test_ensure_process_terminated_decorator():
     await asyncio.sleep(1.0)
 
     assert proc is not None, "Process was not created."
-    assert isinstance(proc, asyncio.subprocess.Process), (
-        "Process is not of expected type."
-    )
+    assert isinstance(
+        proc, asyncio.subprocess.Process
+    ), "Process is not of expected type."
     assert proc.returncode is None, "Process already terminated prematurely."
 
     task.cancel()
