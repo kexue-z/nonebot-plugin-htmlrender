@@ -7,7 +7,7 @@ import jinja2
 import markdown
 from nonebot.log import logger
 
-from .browser import get_new_page
+from nonebot_plugin_htmlrender.browser import get_new_page
 
 TEMPLATES_PATH = str(Path(__file__).parent / "templates")
 
