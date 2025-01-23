@@ -9,8 +9,12 @@ import subprocess
 from typing import IO, Any, Callable, Optional, Union
 from typing_extensions import ParamSpec
 
-from .consts import WINDOWS
-from .signal import register_signal_handler, remove_signal_handler, shield_signals
+from nonebot_plugin_htmlrender.consts import WINDOWS
+from nonebot_plugin_htmlrender.signal import (
+    register_signal_handler,
+    remove_signal_handler,
+    shield_signals,
+)
 
 P = ParamSpec("P")
 
@@ -18,6 +22,17 @@ P = ParamSpec("P")
 def ensure_process_terminated(
     func: Callable[P, Coroutine[Any, Any, asyncio.subprocess.Process]],
 ) -> Callable[P, Coroutine[Any, Any, asyncio.subprocess.Process]]:
+    """
+    确保在函数退出时进程被终止的装饰器。
+
+    Args:
+        func: 需要被包装的函数。
+
+    Examples:
+        >>> @ensure_process_terminated
+        ... async def func():
+        ...     return await create_process("ls")
+    """
     tasks: set[asyncio.Task] = set()
 
     @wraps(func)
@@ -61,6 +76,26 @@ async def create_process(
     stdout: Optional[Union[IO[Any], int]] = None,
     stderr: Optional[Union[IO[Any], int]] = None,
 ) -> asyncio.subprocess.Process:
+    """
+    创建一个新进程。
+
+    Args:
+        *args: 进程的命令和参数。
+        cwd: 工作目录。默认为 None。
+        stdin: 标准输入。默认为 None。
+        stdout: 标准输出。默认为 None。
+        stderr: 标准错误。默认为 None。
+
+    Returns:
+        asyncio.subprocess.Process: 新进程。
+
+    Examples:
+        >>> async def func():
+        ...     return await create_process("ls")
+
+        >>> async def func():
+        ...     return await create_process("ls", cwd="/")
+    """
     return await asyncio.create_subprocess_exec(
         *args,
         cwd=cwd,
@@ -79,6 +114,26 @@ async def create_process_shell(
     stdout: Optional[Union[IO[Any], int]] = None,
     stderr: Optional[Union[IO[Any], int]] = None,
 ) -> asyncio.subprocess.Process:
+    """
+    使用 shell 创建一个新进程。
+
+    Args:
+        command: 要运行的命令。
+        cwd: 工作目录。默认为 None。
+        stdin: 标准输入。默认为 None。
+        stdout: 标准输出。默认为 None。
+        stderr: 标准错误。默认为 None。
+
+    Returns:
+        asyncio.subprocess.Process: 新进程。
+
+    Examples:
+        >>> async def func():
+        ...     return await create_process_shell("ls")
+
+        >>> async def func():
+        ...     return await create_process_shell("ls", cwd="/")
+    """
     return await asyncio.create_subprocess_shell(
         command,
         cwd=cwd,
@@ -90,6 +145,12 @@ async def create_process_shell(
 
 
 async def terminate_process(process: asyncio.subprocess.Process) -> None:
+    """
+    终止一个进程。
+
+    Args:
+        process: 要终止的进程。
+    """
     if process.returncode is not None:
         return
 
