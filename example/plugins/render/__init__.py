@@ -1,22 +1,24 @@
 from nonebot import require
+
 require("nonebot_plugin_htmlrender")
 # 注意顺序，先require再 from ... import ...
 # 注意顺序，先require再 from ... import ...
 # 注意顺序，先require再 from ... import ...
-from nonebot_plugin_htmlrender import (
-    text_to_pic,
-    md_to_pic,
-    template_to_pic,
-    get_new_page,
-)
-# 注意顺序，先require再 from ... import ...
-# 注意顺序，先require再 from ... import ...
-# 注意顺序，先require再 from ... import ...
+import io
 
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
+# 注意顺序，先require再 from ... import ...
 from nonebot import on_command
 from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
 from PIL import Image
-import io
+
+from nonebot_plugin_htmlrender import (
+    get_new_page,
+    md_to_pic,
+    template_to_pic,
+    text_to_pic,
+)
 
 from .utils import count_to_color
 
@@ -109,7 +111,7 @@ async def _():
         pages={
             "viewport": {"width": 600, "height": 300},
             "base_url": f"file://{template_path}",
-        }
+        },
     )
 
     a = Image.open(io.BytesIO(pic))
@@ -124,7 +126,7 @@ md2pic = on_command("md2pic")
 
 @md2pic.handle()
 async def _md2pic(bot: Bot, event: MessageEvent):
-    from pathlib import Path
+    # from pathlib import Path
 
     # 如果是直接获取消息内容 需要 unescape
     from nonebot.adapters.onebot.v11 import unescape
