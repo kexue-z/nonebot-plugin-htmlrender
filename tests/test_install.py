@@ -111,7 +111,7 @@ async def test_execute_install_command_timeout(mocker: MockerFixture, mock_strea
     success, message = await execute_install_command(timeout=1)
 
     assert not success
-    assert message == "Installation timed out after 1 seconds"
+    assert message == "安装超时 (1s)"
     mock_terminate.assert_called_once_with(mock_process)
 
 
