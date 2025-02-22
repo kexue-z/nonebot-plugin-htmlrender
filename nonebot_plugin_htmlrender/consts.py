@@ -19,8 +19,8 @@ WINDOWS = sys.platform.startswith("win") or (sys.platform == "cli" and os.name =
 # MINGW = sysconfig.get_platform().startswith("mingw")
 # MACOS = sys.platform == "darwin"
 MIRRORS = [
-    MirrorSource("官方", "https://playwright.azureedge.net", 1),
-    MirrorSource("淘宝", "https://registry.npmmirror.com/-/binary/playwright", 2),
+    MirrorSource("Default", "https://playwright.azureedge.net", 1),
+    MirrorSource("Taobao", "https://registry.npmmirror.com/-/binary/playwright", 2),
 ]
 BROWSER_ENGINE_TYPES = ["chromium", "firefox", "webkit"]
 BROWSER_CHANNEL_TYPES = [

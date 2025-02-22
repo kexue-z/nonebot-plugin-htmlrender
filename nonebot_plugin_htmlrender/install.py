@@ -77,19 +77,19 @@ async def download_context() -> AsyncIterator[None]:
     if plugin_config.htmlrender_download_proxy:
         proxy = plugin_config.htmlrender_download_proxy
         if proxy.startswith("http://") and not os.environ.get("HTTP_PROXY"):
-            logger.info(f"已设置 HTTP 代理: {proxy}")
+            logger.info(f"Using http Proxy: {proxy}")
             os.environ["HTTP_PROXY"] = proxy
         elif proxy.startswith("https://") and not os.environ.get("HTTPS_PROXY"):
-            logger.info(f"已设置 HTTPS 代理: {proxy}")
+            logger.info(f"Using https Proxy: {proxy}")
             os.environ["HTTPS_PROXY"] = proxy
 
     try:
         best_mirror = await check_mirror_connectivity()
         if best_mirror is not None:
-            logger.info(f"使用镜像源: {best_mirror.name} ({best_mirror.url})")
+            logger.info(f"Using Mirror source: {best_mirror.name} ({best_mirror.url})")
             os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = best_mirror.url
         else:
-            logger.info("未找到可用的镜像源，将使用官方源")
+            logger.info("Mirror source not available, using default")
 
         yield
 
@@ -143,7 +143,7 @@ async def read_stream(
             if "|" in text and "%" in text:
                 if text != last_progress:
                     if callback:
-                        await callback(f"下载进度: {text}")
+                        await callback(f"Progress: {text}")
                     last_progress = text
             else:
                 if callback:
@@ -153,7 +153,7 @@ async def read_stream(
         except asyncio.IncompleteReadError:
             break
         except Exception as e:
-            logger.opt(exception=True).error(f"读取流时发生错误: {e!s}")
+            logger.opt(exception=True).error(f"Error reading stream: {e!s}")
             break
 
     return "\n".join(output)
@@ -196,18 +196,18 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
             )
         except asyncio.TimeoutError:
             await terminate_process(process)
-            return False, f"安装超时 ({timeout}s)"
+            return False, f"Timed out ({timeout}s)"
 
         await process.wait()
         returncode = process.returncode
 
         if returncode != 0:
-            return False, f"安装失败 (exit code: {returncode})"
+            return False, f"Exited with code {returncode}"
 
-        return True, "安装完成"
+        return True, "Installation completed"
 
     except Exception as e:
-        return False, f"安装失败: {e!s}"
+        return False, f"An error occurred during installation: {e!s}"
 
 
 async def install_browser(timeout: int = 300) -> bool:
@@ -220,11 +220,20 @@ async def install_browser(timeout: int = 300) -> bool:
         bool: 是否安装成功。
     """
     async with download_context():
-        logger.info(f"开始安装 <cyan>{plugin_config.htmlrender_browser}</cyan>")
+        logger.opt(colors=True).info(
+            f"Checking <cyan>{plugin_config.htmlrender_browser}</cyan> installation..."
+        )
         installed, message = await execute_install_command(timeout)
         if installed:
-            logger.info("安装成功")
+            logger.info("Installation succeeded")
             return True
         else:
-            logger.error(f"安装失败: {message}")
-            return False
+            logger.warning("Installation failed, retrying with official mirror...")
+            del os.environ["PLAYWRIGHT_DOWNLOAD_HOST"]
+            installed, message = await execute_install_command(timeout)
+            if installed:
+                logger.info("Installation succeeded")
+                return True
+            else:
+                logger.error(f"Installation failed with: {message}")
+                return False
