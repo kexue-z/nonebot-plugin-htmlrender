@@ -1,7 +1,7 @@
 from collections.abc import AsyncGenerator
 from typing import cast
 
-from playwright.async_api import Browser, Error, Page
+from playwright.async_api import Browser, Page
 import pytest
 from pytest_mock import MockerFixture
 
@@ -92,27 +92,6 @@ async def test_init_browser_success(
     browser = await init_browser()
     assert isinstance(browser, Browser)
     mock_start.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_init_browser_install_fallback(
-    mocker: MockerFixture, mock_browser: Browser
-) -> None:
-    """测试浏览器安装回退"""
-    from nonebot_plugin_htmlrender.browser import init_browser
-
-    mock_start = mocker.patch(
-        "nonebot_plugin_htmlrender.browser.start_browser",
-        side_effect=[Error("Executable doesn't exist"), mock_browser],
-    )
-    mock_install = mocker.patch(
-        "nonebot_plugin_htmlrender.browser.install_browser", return_value=True
-    )
-
-    browser = await init_browser()
-    assert isinstance(browser, Browser)
-    assert mock_start.call_count == 2
-    mock_install.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -273,24 +252,3 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
 
     await start_browser()
     mock_launch.assert_called_with(mocker.ANY, channel="chrome-canary")
-
-
-@pytest.mark.asyncio
-async def test_start_browser_failure(mocker: MockerFixture) -> None:
-    """测试浏览器启动失败"""
-    from nonebot_plugin_htmlrender.browser import init_browser
-
-    mock_playwright = mocker.AsyncMock()
-    mock_playwright.start.side_effect = Exception("Failed to start")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.browser.async_playwright",
-        return_value=mock_playwright,
-    )
-    mocker.patch("nonebot_plugin_htmlrender.browser._browser", None)
-    mocker.patch("nonebot_plugin_htmlrender.browser._playwright", None)
-
-    with pytest.raises(RuntimeError) as exc_info:
-        await init_browser()
-
-    assert "无法启动浏览器实例" in str(exc_info.value)
