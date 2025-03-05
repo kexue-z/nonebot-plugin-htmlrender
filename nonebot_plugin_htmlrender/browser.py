@@ -11,7 +11,7 @@ from playwright.async_api import (
     async_playwright,
 )
 
-from nonebot_plugin_htmlrender.config import BrowserEngineType, plugin_config
+from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.install import install_browser
 from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log
 
@@ -19,12 +19,12 @@ _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
 
 
-async def _launch(browser_type: BrowserEngineType, **kwargs) -> Browser:
+async def _launch(browser_type: str, **kwargs) -> Browser:
     """
     启动浏览器实例。
 
     Args:
-        browser_type (BrowserEngineType): 浏览器类型。
+        browser_type (str): 浏览器类型。
         **kwargs: 传递给`playwright.launch`的关键字参数。
 
     Returns:

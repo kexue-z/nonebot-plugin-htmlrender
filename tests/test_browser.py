@@ -65,14 +65,13 @@ async def test_suppress_and_log(mocker: MockerFixture, exception: Exception) -> 
 async def test_launch(mocker: MockerFixture, browser_config: dict[str, str]) -> None:
     """测试浏览器启动"""
     from nonebot_plugin_htmlrender.browser import _launch
-    from nonebot_plugin_htmlrender.config import BrowserEngineType
 
     mock_browser_type = mocker.AsyncMock()
     mock_playwright = mocker.MagicMock()
     setattr(mock_playwright, "chromium", mock_browser_type)
 
     mocker.patch("nonebot_plugin_htmlrender.browser._playwright", mock_playwright)
-    await _launch(cast(BrowserEngineType, browser_config["browser"]))
+    await _launch(browser_config["browser"])
 
     mock_browser_type.launch.assert_called_once()
 
