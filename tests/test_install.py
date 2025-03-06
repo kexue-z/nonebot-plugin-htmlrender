@@ -86,7 +86,7 @@ async def test_execute_install_command(mocker: MockerFixture, mock_stream):
 
     success, message = await execute_install_command(timeout=5)
     assert success
-    assert "安装完成" in message
+    assert "Installation completed" in message
 
 
 @pytest.mark.asyncio
@@ -111,7 +111,7 @@ async def test_execute_install_command_timeout(mocker: MockerFixture, mock_strea
     success, message = await execute_install_command(timeout=1)
 
     assert not success
-    assert message == "安装超时 (1s)"
+    assert message == "Timed out (1s)"
     mock_terminate.assert_called_once_with(mock_process)
 
 
