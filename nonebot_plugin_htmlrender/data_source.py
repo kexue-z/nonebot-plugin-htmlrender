@@ -284,17 +284,32 @@ async def template_to_pic(
 async def capture_element(
     url: str,
     element: str,
-    timeout: float = 0,
-    type: Literal["jpeg", "png"] = "png",
-    quality: Union[int, None] = None,
-    screenshot_timeout: Optional[float] = 30_000,
-    **kwargs,
+    page_kwargs: Optional[dict] = None,
+    goto_kwargs: Optional[dict] = None,
+    screenshot_kwargs: Optional[dict] = None,
 ) -> bytes:
-    async with get_new_page(**kwargs) as page:
-        page.on("console", lambda msg: logger.debug(f"浏览器控制台: {msg.text}"))
-        await page.goto(url, timeout=timeout)
-        return await page.locator(element).screenshot(
-            type=type,
-            quality=quality,
-            timeout=screenshot_timeout,
+    """捕获网页中指定元素的截图, 通过CSS选择器或XPath表达式指定元素。
+
+    Args:
+        url: 目标网页URL
+        element: CSS选择器或XPath表达式
+        page_kwargs: 传递给get_new_page的参数
+        goto_kwargs: 传递给page.goto方法的额外参数
+        screenshot_kwargs: 传递给screenshot方法的额外参数
+
+    Returns:
+        bytes: 元素截图数据
+    """
+    page_kwargs = page_kwargs or {}
+    goto_kwargs = goto_kwargs or {}
+    screenshot_kwargs = screenshot_kwargs or {}
+
+    async with get_new_page(**page_kwargs) as page:
+        page.on(
+            "console",
+            lambda msg: logger.opt(colors=True).debug(
+                f"<cyan>[Browser Console]</cyan> {msg.text}"
+            ),
         )
+        await page.goto(url, **goto_kwargs)
+        return await page.locator(element).screenshot(**screenshot_kwargs)
