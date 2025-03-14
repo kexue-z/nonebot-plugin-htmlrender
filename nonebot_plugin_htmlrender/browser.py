@@ -6,13 +6,12 @@ from nonebot.log import logger
 from playwright.async_api import (
     Browser,
     BrowserType,
-    Error,
     Page,
     Playwright,
     async_playwright,
 )
 
-from nonebot_plugin_htmlrender.config import BrowserEngineType, plugin_config
+from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.install import install_browser
 from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log
 
@@ -20,12 +19,12 @@ _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
 
 
-async def _launch(browser_type: BrowserEngineType, **kwargs) -> Browser:
+async def _launch(browser_type: str, **kwargs) -> Browser:
     """
     启动浏览器实例。
 
     Args:
-        browser_type (BrowserEngineType): 浏览器类型。
+        browser_type (str): 浏览器类型。
         **kwargs: 传递给`playwright.launch`的关键字参数。
 
     Returns:
@@ -54,18 +53,9 @@ async def init_browser(**kwargs) -> Browser:
     Raises:
         RuntimeError: 如果浏览器无法启动或安装失败。
     """
-    try:
-        return await start_browser(**kwargs)
-    except (Error, Exception) as e:
-        if "Executable doesn't exist" not in str(e):
-            raise RuntimeError("无法启动浏览器实例") from e
-        try:
-            if await install_browser():
-                return await start_browser(**kwargs)
-            else:
-                raise RuntimeError("无法启动浏览器实例且尝试安装失败") from e
-        except Exception as e:
-            raise RuntimeError("无法启动浏览器实例") from e
+    await install_browser()  # update playwright when start
+    await check_playwright_env()
+    return await start_browser(**kwargs)
 
 
 @asynccontextmanager
@@ -167,3 +157,16 @@ async def shutdown_browser() -> None:
     if _playwright:
         with suppress_and_log():
             await _playwright.stop()
+
+
+async def check_playwright_env():
+    """Check Playwright environment."""
+    logger.info("Checking Playwright environment...")
+    try:
+        async with async_playwright() as p:
+            await p.chromium.launch()
+    except Exception as e:
+        raise RuntimeError(
+            "Playwright environment is not set up correctly. "
+            "Refer to https://playwright.dev/python/docs/intro#system-requirements"
+        ) from e

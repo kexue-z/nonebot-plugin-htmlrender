@@ -30,16 +30,16 @@ driver = nonebot.get_driver()
 
 @driver.on_startup
 async def init(**kwargs):
-    logger.info("htmlrender启动中...")
+    logger.info("HTMLRender Starting...")
     await init_browser(**kwargs)
-    logger.info("htmlrender已启动.")
+    logger.info("HTMLRender Started.")
 
 
 @driver.on_shutdown
 async def shutdown():
-    logger.info("htmlrender关闭中...")
+    logger.info("HTMLRender Shutting down...")
     await shutdown_browser()
-    logger.info("htmlrender已关闭.")
+    logger.info("HTMLRender Shut down.")
 
 
 __all__ = [
