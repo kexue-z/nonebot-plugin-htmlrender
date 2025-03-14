@@ -71,7 +71,7 @@ async def init_browser(**kwargs) -> Browser:
 @asynccontextmanager
 async def get_new_page(device_scale_factor: float = 2, **kwargs) -> AsyncIterator[Page]:
     """
-    获取一个新的页面的上下文管理器。
+    获取一个新的页面的上下文管理器, 这里的 page 默认使用设备缩放因子为 2。
 
     Args:
         device_scale_factor (float): 设备缩放因子。
