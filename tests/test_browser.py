@@ -39,6 +39,7 @@ def browser_config() -> dict[str, str]:
     return {
         "browser": "chromium",
         "cdp": "ws://localhost:9222",
+        "pwp": "ws://localhost:3000/chromium/playwright",
     }
 
 
@@ -163,6 +164,29 @@ async def test_connect_via_cdp(
     mocker.patch(
         "nonebot_plugin_htmlrender.browser.plugin_config.htmlrender_connect_over_cdp",
         browser_config["cdp"],
+    )
+
+    browser = await start_browser()
+    assert browser == mock_browser
+
+
+@pytest.mark.asyncio
+async def test_connect(
+    mocker: MockerFixture, mock_browser: Browser, browser_config: dict[str, str]
+) -> None:
+    """测试通过Playwright协议连接浏览器"""
+    from nonebot_plugin_htmlrender.browser import start_browser
+
+    mocker.patch(
+        "nonebot_plugin_htmlrender.browser._connect", return_value=mock_browser
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.browser.plugin_config.htmlrender_browser",
+        browser_config["browser"],
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.browser.plugin_config.htmlrender_connect",
+        browser_config["pwp"],
     )
 
     browser = await start_browser()
