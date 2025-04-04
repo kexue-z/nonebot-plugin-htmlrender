@@ -53,8 +53,6 @@ async def init_browser(**kwargs) -> Browser:
     Raises:
         RuntimeError: 如果浏览器无法启动或安装失败。
     """
-    await install_browser()  # update playwright when start
-    await check_playwright_env()
     return await start_browser(**kwargs)
 
 
@@ -172,6 +170,12 @@ async def start_browser(**kwargs) -> Browser:
 
     if plugin_config.htmlrender_browser_executable_path:
         kwargs["executable_path"] = plugin_config.htmlrender_browser_executable_path
+    else:
+        try:
+            await check_playwright_env()
+        except RuntimeError:
+            await install_browser()
+            await check_playwright_env()
 
     _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
     return _browser
@@ -192,7 +196,7 @@ async def check_playwright_env():
     logger.info("Checking Playwright environment...")
     try:
         async with async_playwright() as p:
-            await p.chromium.launch()
+            await getattr(p, plugin_config.htmlrender_browser).launch()
     except Exception as e:
         raise RuntimeError(
             "Playwright environment is not set up correctly. "
