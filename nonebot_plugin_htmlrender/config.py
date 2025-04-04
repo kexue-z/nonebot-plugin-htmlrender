@@ -36,6 +36,9 @@ class Config(BaseModel):
     htmlrender_connect_over_cdp: Optional[str] = Field(
         default=None, description="通过 CDP 连接Playwright浏览器的端点地址。"
     )
+    htmlrender_connect: Optional[str] = Field(
+        default=None, description="通过Playwright协议连接Playwright浏览器的端点地址。"
+    )
 
     @model_validator(mode="after")
     def check_browser_channel(self) -> Self:

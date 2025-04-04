@@ -117,6 +117,31 @@ async def _connect_via_cdp(**kwargs) -> Browser:
         raise RuntimeError("Playwright 未初始化")
 
 
+async def _connect(browser_type: str, **kwargs) -> Browser:
+    """
+    通过 Playwright 协议连接浏览器。
+
+    Args:
+        browser_type (str): 浏览器类型。
+        **kwargs: 传递给`playwright.connect`的关键字参数。
+
+    Returns:
+        Browser: 启动的浏览器实例。
+
+    Raises:
+        RuntimeError: 如果 Playwright 未初始化。
+    """
+    _browser_cls: BrowserType = getattr(_playwright, browser_type)
+    kwargs["ws_endpoint"] = plugin_config.htmlrender_connect
+    logger.info(
+        f"正在使用 Playwright 协议连接 {browser_type}({plugin_config.htmlrender_connect})"
+    )
+    if _playwright is not None:
+        return await _browser_cls.connect(**kwargs)
+    else:
+        raise RuntimeError("Playwright 未初始化")
+
+
 async def start_browser(**kwargs) -> Browser:
     """
     启动 Playwright 浏览器实例。
@@ -135,6 +160,9 @@ async def start_browser(**kwargs) -> Browser:
         and plugin_config.htmlrender_connect_over_cdp
     ):
         return await _connect_via_cdp(**kwargs)
+
+    if plugin_config.htmlrender_connect:
+        return await _connect(plugin_config.htmlrender_browser, **kwargs)
 
     if plugin_config.htmlrender_browser_channel:
         kwargs["channel"] = plugin_config.htmlrender_browser_channel
