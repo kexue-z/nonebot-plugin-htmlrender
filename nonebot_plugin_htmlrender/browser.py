@@ -1,3 +1,4 @@
+from asyncio import Lock
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Optional
@@ -17,6 +18,7 @@ from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
+_get_browser_lock = Lock()
 
 
 async def _launch(browser_type: str, **kwargs) -> Browser:
@@ -86,10 +88,11 @@ async def get_browser(**kwargs) -> Browser:
     Returns:
         Browser: 浏览器实例。
     """
-    if _browser and _browser.is_connected():
-        return _browser
+    async with _get_browser_lock:
+        if _browser and _browser.is_connected():
+            return _browser
 
-    return await init_browser(**kwargs)
+        return await init_browser(**kwargs)
 
 
 async def _connect_via_cdp(**kwargs) -> Browser:
