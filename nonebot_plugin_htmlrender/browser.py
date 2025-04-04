@@ -13,7 +13,7 @@ from playwright.async_api import (
 
 from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.install import install_browser
-from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log
+from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log, with_lock
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
@@ -76,6 +76,7 @@ async def get_new_page(device_scale_factor: float = 2, **kwargs) -> AsyncIterato
         await page.close()
 
 
+@with_lock
 async def get_browser(**kwargs) -> Browser:
     """
     获取浏览器实例。
@@ -140,6 +141,7 @@ async def _connect(browser_type: str, **kwargs) -> Browser:
         raise RuntimeError("Playwright 未初始化")
 
 
+@with_lock
 async def start_browser(**kwargs) -> Browser:
     """
     启动 Playwright 浏览器实例。

@@ -1,3 +1,5 @@
+from asyncio import Lock
+from collections.abc import Awaitable
 from contextlib import contextmanager
 from functools import wraps
 import re
@@ -146,3 +148,14 @@ def proxy_settings(proxy_host: Optional[str]) -> Optional[dict]:
         proxy["bypass"] = plugin_config.htmlrender_proxy_host_bypass
 
     return proxy
+
+
+def with_lock(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
+    lock = Lock()
+
+    @wraps(func)
+    async def wrapper(*args, **kwargs) -> R:
+        async with lock:
+            return await func(*args, **kwargs)
+
+    return wrapper
