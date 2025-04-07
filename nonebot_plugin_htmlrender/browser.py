@@ -70,10 +70,8 @@ async def get_new_page(device_scale_factor: float = 2, **kwargs) -> AsyncIterato
     """
     ctx = await get_browser()
     page = await ctx.new_page(device_scale_factor=device_scale_factor, **kwargs)
-    try:
+    async with page:
         yield page
-    finally:
-        await page.close()
 
 
 @with_lock
@@ -153,33 +151,35 @@ async def start_browser(**kwargs) -> Browser:
         Browser: 启动的浏览器实例。
     """
     global _browser, _playwright
+
+    await shutdown_browser()
     _playwright = await async_playwright().start()
 
     if (
         plugin_config.htmlrender_browser == "chromium"
         and plugin_config.htmlrender_connect_over_cdp
     ):
-        return await _connect_via_cdp(**kwargs)
-
-    if plugin_config.htmlrender_connect:
-        return await _connect(plugin_config.htmlrender_browser, **kwargs)
-
-    if plugin_config.htmlrender_browser_channel:
-        kwargs["channel"] = plugin_config.htmlrender_browser_channel
-
-    if plugin_config.htmlrender_proxy_host:
-        kwargs["proxy"] = proxy_settings(plugin_config.htmlrender_proxy_host)
-
-    if plugin_config.htmlrender_browser_executable_path:
-        kwargs["executable_path"] = plugin_config.htmlrender_browser_executable_path
+        _browser = await _connect_via_cdp(**kwargs)
+    elif plugin_config.htmlrender_connect:
+        _browser = await _connect(plugin_config.htmlrender_browser, **kwargs)
     else:
-        try:
-            await check_playwright_env()
-        except RuntimeError:
-            await install_browser()
-            await check_playwright_env()
+        if plugin_config.htmlrender_browser_channel:
+            kwargs["channel"] = plugin_config.htmlrender_browser_channel
 
-    _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
+        if plugin_config.htmlrender_proxy_host:
+            kwargs["proxy"] = proxy_settings(plugin_config.htmlrender_proxy_host)
+
+        if plugin_config.htmlrender_browser_executable_path:
+            kwargs["executable_path"] = plugin_config.htmlrender_browser_executable_path
+        else:
+            try:
+                await check_playwright_env()
+            except RuntimeError:
+                await install_browser()
+                await check_playwright_env()
+
+        _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
+
     return _browser
 
 
