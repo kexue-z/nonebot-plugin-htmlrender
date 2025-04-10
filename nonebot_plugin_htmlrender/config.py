@@ -1,10 +1,9 @@
-from typing import Optional
-from typing_extensions import Self
+from typing import Any, Optional
 
 from nonebot import get_driver, get_plugin_config
+from nonebot.compat import model_validator
 from pydantic import BaseModel, Field
 
-from nonebot_plugin_htmlrender.compat import model_validator
 from nonebot_plugin_htmlrender.consts import BROWSER_CHANNEL_TYPES, BROWSER_ENGINE_TYPES
 
 
@@ -41,23 +40,34 @@ class Config(BaseModel):
     )
 
     @model_validator(mode="after")
-    def check_browser_channel(self) -> Self:
-        if (
-            self.htmlrender_browser_channel is not None
-            and self.htmlrender_browser_channel not in BROWSER_CHANNEL_TYPES
-        ):
+    @classmethod
+    def check_browser_channel(cls, data: Any) -> Any:
+        browser_channel = (
+            data.get("htmlrender_browser_channel")
+            if isinstance(data, dict)
+            else getattr(data, "htmlrender_browser_channel", None)
+        )
+
+        if browser_channel is not None and browser_channel not in BROWSER_CHANNEL_TYPES:
             raise ValueError(
                 f"Invalid browser channel type. Must be one of {BROWSER_CHANNEL_TYPES}"
             )
-        return self
+        return data
 
     @model_validator(mode="after")
-    def check_browser(self) -> Self:
-        if self.htmlrender_browser not in BROWSER_ENGINE_TYPES:
+    @classmethod
+    def check_browser(cls, data: Any) -> Any:
+        browser = (
+            data.get("htmlrender_browser", "chromium")
+            if isinstance(data, dict)
+            else getattr(data, "htmlrender_browser", "chromium")
+        )
+
+        if browser not in BROWSER_ENGINE_TYPES:
             raise ValueError(
                 f"Invalid browser type. Must be one of {BROWSER_ENGINE_TYPES}"
             )
-        return self
+        return data
 
 
 global_config = get_driver().config
