@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.6.4"
+version = "0.6.5"
 description = "通过浏览器渲染图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
