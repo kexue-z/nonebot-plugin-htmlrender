@@ -1,0 +1,67 @@
+name: Build and upload docker image
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group:
+    ${{ github.workflow }}-${{ github.ref_name }}-${{
+    github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: "build image"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build and export
+        uses: docker/build-push-action@v6
+        with:
+          tags: nonebot2-playwrght-uv:latest
+          cache-from: type=gha,scope=nonebot2-playwrght-uv
+          cache-to: type=gha,mode=min,scope=nonebot2-playwrght-uv
+          outputs: type=docker,dest=/tmp/nonebot2-playwrght-uv.tar
+
+      # - name: Build and export (multistage)
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     file: multistage.Dockerfile
+      #     tags: nonebot2-playwrght-uv-multistage:latest
+      #     cache-from: type=gha,scope=nonebot2-playwrght-uv-multistage
+      #     cache-to: type=gha,mode=min,scope=nonebot2-playwrght-uv-multistage
+      #     outputs: type=docker,dest=/tmp/nonebot2-playwrght-uv-multistage.tar
+
+      # - name: Build and export (standalone)
+      #   uses: docker/build-push-action@v6
+      #   with:
+      #     file: standalone.Dockerfile
+      #     tags: nonebot2-playwrght-uv-standalone:latest
+      #     cache-from: type=gha,scope=nonebot2-playwrght-uv-standalone
+      #     cache-to: type=gha,mode=min,scope=nonebot2-playwrght-uv-standalone
+      #     outputs: type=docker,dest=/tmp/nonebot2-playwrght-uv-standalone.tar
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nonebot2-playwrght-uv
+          path: /tmp/nonebot2-playwrght-uv.tar
+
+      # - name: Upload artifact (multistage)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: nonebot2-playwrght-uv-multistage
+      #     path: /tmp/nonebot2-playwrght-uv-multistage.tar
+
+      # - name: Upload artifact (standalone)
+      #   uses: actions/upload-artifact@v4
+      #   with:
+      #     name: nonebot2-playwrght-uv-standalone
+      #     path: /tmp/nonebot2-playwrght-uv-standalone.tar
