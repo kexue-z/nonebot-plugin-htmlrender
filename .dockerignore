@@ -1,0 +1,10 @@
+.github/
+docs/
+example/
+nonebot_plugin_htmlrender/
+tests/
+.gitignore
+.pre-commit-config.yaml
+docker-compose.yaml
+LICENSE
+*.md

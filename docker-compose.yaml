@@ -1,0 +1,22 @@
+services:
+  nonebot:
+    image: kexue-z/nonebot2-playwrght-uv
+    env_file:
+      - .env.prod
+    ports:
+      # nonebot2 监听端口
+      - "9012:9012"
+    volumes:
+      - .:/app
+
+      # 如果使用 plugin-localstore，你应该同时挂载下面几个路径
+      # - plugin-localstore-cache:/root/.cache/nonebot2
+      # - plugin-localstore-data:/root/.local/share/nonebot2
+      # - plugin-localstore-config:/root/.config/nonebot2
+
+
+# 如果使用 plugin-localstore，你应该同时挂载下面几个路径
+# volumes:
+#   plugin-localstore-cache:
+#   plugin-localstore-data:
+#   plugin-localstore-config:
