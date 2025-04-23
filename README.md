@@ -4,13 +4,13 @@
 - 可通过查看`example`参考使用实例
 - 如果有安装浏览器等问题，先查看文档最底下的`常见问题`再去看 issue 有没有已经存在的
 
-# ✨ 功能
+## ✨ 功能
 
 - 通过 html 和浏览器生成图片
 - 支持`纯文本` `markdown` 和 `jinja2` 模板输入
 - 通过 CSS 来控制样式
 
-# 使用
+## 使用
 
 参考[example/plugins/render/**init**.py](example/plugins/render/__init__.py)
 
@@ -32,9 +32,9 @@ from nonebot_plugin_htmlrender import (
 # 注意顺序，先require再 from ... import ...
 ```
 
-# 配置
+## 配置
 
-## .env 配置项说明
+### .env 配置项说明
 
 ```ini
 # Playwright 浏览器引擎类型
@@ -74,7 +74,23 @@ htmlrender_browser_executable_path = ""
 htmlrender_connect_over_cdp = "http://127.0.0.1:9222"
 ```
 
-## markdown 转 图片
+## 部署
+
+### （建议）使用 docker 进行部署
+
+> 前提条件：你的项目使用 uv 管理 或 `pyproject.toml` 的 `dependencies` 中已经包含你的依赖
+
+1. 将 `docker-compose.yaml` & `entrypoint.sh` 复制到你自己的项目根目录下
+2. （可选）准备中文字体文件，镜像中已经包含系统默认字体，如需添加自定义字体，请将 `("ttc" "ttf" "otf" "woff" "woff2")` 后缀的文件放到 `app/fonts/<fontname>/` 文件夹中
+3. 根据你的需要调整 `docker-compose.yaml` & `entrypoint.sh`
+4. 拉取镜像 `docker compose pull`
+5. 启动容器 `docker compose up -d`
+
+> - 查看日志 `docker compose logs -f`
+> - 停止/重启容器 `docker compose`
+
+## 说明
+### markdown 转 图片
 
 - 使用 `GitHub-light` 样式
 - 支持绝大部分 md 语法
@@ -85,38 +101,38 @@ htmlrender_connect_over_cdp = "http://127.0.0.1:9222"
 - 图片需要使用外部连接并使用`html`格式 否则文末会超出截图范围
 - 图片可使用 md 语法 路径可为 `绝对路径`(建议), 或 `相对于template_path` 的路径
 
-## 模板 转 图片
+### 模板 转 图片
 
 - 使用 jinja2 模板引擎
 - 页面参数可自定义
 
-# 🌰 栗子
+## 🌰 栗子
 
 [example.md](docs/example.md)
 
-## 文本转图片（同时文本里面可以包括 html 图片）
+### 文本转图片（同时文本里面可以包括 html 图片）
 
 ![](docs/text2pic.png)
 
-## markdown 转图片（同时文本里面可以包括 html 图片）
+### markdown 转图片（同时文本里面可以包括 html 图片）
 
 ![](docs/md2pic.png)
 
-## 纯 html 转图片
+### 纯 html 转图片
 
 ![](docs/html2pic.png)
 
-## jinja2 模板转图片
+### jinja2 模板转图片
 
 ![](docs/template2pic.png)
 
-# 特别感谢
+## 特别感谢
 
 - [MeetWq](https://github.com/MeetWq) 提供数学公式支持代码和代码高亮
 
-# 常见疑难杂症
+## 常见疑难杂症
 
-## `playwright._impl._api_types.Error:` 初次运行时报错
+### `playwright._impl._api_types.Error:` 初次运行时报错
 
 - 一般为缺少必要的运行环境，如中文字体等
 
@@ -134,19 +150,4 @@ apt update && apt install -y locales locales-all fonts-noto libnss3-dev libxss1 
 LANG zh_CN.UTF-8
 LANGUAGE zh_CN.UTF-8
 LC_ALL zh_CN.UTF-8
-```
-
-### CentOS 使用 `yum`
-
-- ~~小心 CentOS~~
--
-参考[CentOS Dockerfile](https://github.com/kumaraditya303/playwright-centos/blob/master/Dockerfile)
-- 添加中文字体库
-- ~~最佳解决办法~~
-    - 使用 Docker 然后用 Python 镜像 按照上面 Ubuntu 的写 `dockerfile`
-
-下面这个依赖运行一下 也许就可以用了
-
-```sh
-dnf install -y alsa-lib at-spi2-atk at-spi2-core atk cairo cups-libs dbus-libs expat flac-libs gdk-pixbuf2 glib2 glibc gtk3 libX11 libXcomposite libXdamage libXext libXfixes libXrandr libXtst libcanberra-gtk3 libdrm libgcc libstdc++ libxcb libxkbcommon libxshmfence libxslt mesa-libgbm nspr nss nss-util pango policycoreutils policycoreutils-python-utils zlib cairo-gobject centos-indexhtml dbus-glib fontconfig freetype gtk2 libXcursor libXi libXrender libXt liberation-fonts-common liberation-sans-fonts libffi mozilla-filesystem p11-kit-trust pipewire-libs harfbuzz-icu libglvnd-glx libglvnd-egl libnotify opus woff2 gstreamer1-plugins-base gstreamer1-plugins-bad-free openjpeg2 libwebp enchant libsecret hyphen libglvnd-gles
 ```

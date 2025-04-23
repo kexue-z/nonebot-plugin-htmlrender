@@ -1,0 +1,24 @@
+[project]
+name = "example"
+version = "0.1.0"
+description = "example"
+readme = "README.md"
+requires-python = ">=3.9, <4.0"
+dependencies = [
+    "nonebot-adapter-onebot>=2.4.6",
+    "nonebot-plugin-htmlrender>=0.6.5",
+    "nonebot2[fastapi]>=2.4.2",
+    "pillow>=11.2.1",
+]
+
+[tool.nonebot]
+adapters = [
+    { name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" },
+]
+plugins = [""]
+plugin_dirs = ["plugins"]
+builtin_plugins = ["echo"]
+
+[[tool.uv.index]]
+url = "https://mirrors.aliyun.com/pypi/simple"
+default = true
