@@ -19,49 +19,31 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build and export
+      - name: Extract metadata for Docker
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository }}/nonebot2-playwrght-uv
+          tags: |
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=long
+
+      - name: Build and push
         uses: docker/build-push-action@v6
         with:
-          tags: nonebot2-playwrght-uv:latest
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=nonebot2-playwrght-uv
           cache-to: type=gha,mode=min,scope=nonebot2-playwrght-uv
-          outputs: type=docker,dest=/tmp/nonebot2-playwrght-uv.tar
-
-      # - name: Build and export (multistage)
-      #   uses: docker/build-push-action@v6
-      #   with:
-      #     file: multistage.Dockerfile
-      #     tags: nonebot2-playwrght-uv-multistage:latest
-      #     cache-from: type=gha,scope=nonebot2-playwrght-uv-multistage
-      #     cache-to: type=gha,mode=min,scope=nonebot2-playwrght-uv-multistage
-      #     outputs: type=docker,dest=/tmp/nonebot2-playwrght-uv-multistage.tar
-
-      # - name: Build and export (standalone)
-      #   uses: docker/build-push-action@v6
-      #   with:
-      #     file: standalone.Dockerfile
-      #     tags: nonebot2-playwrght-uv-standalone:latest
-      #     cache-from: type=gha,scope=nonebot2-playwrght-uv-standalone
-      #     cache-to: type=gha,mode=min,scope=nonebot2-playwrght-uv-standalone
-      #     outputs: type=docker,dest=/tmp/nonebot2-playwrght-uv-standalone.tar
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: nonebot2-playwrght-uv
-          path: /tmp/nonebot2-playwrght-uv.tar
-
-      # - name: Upload artifact (multistage)
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: nonebot2-playwrght-uv-multistage
-      #     path: /tmp/nonebot2-playwrght-uv-multistage.tar
-
-      # - name: Upload artifact (standalone)
-      #   uses: actions/upload-artifact@v4
-      #   with:
-      #     name: nonebot2-playwrght-uv-standalone
-      #     path: /tmp/nonebot2-playwrght-uv-standalone.tar
