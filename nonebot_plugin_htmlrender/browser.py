@@ -173,10 +173,10 @@ async def start_browser(**kwargs) -> Browser:
             kwargs["executable_path"] = plugin_config.htmlrender_browser_executable_path
         else:
             try:
-                await check_playwright_env()
+                await check_playwright_env(**kwargs)
             except RuntimeError:
                 await install_browser()
-                await check_playwright_env()
+                await check_playwright_env(**kwargs)
 
         _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
 
@@ -193,12 +193,12 @@ async def shutdown_browser() -> None:
             await _playwright.stop()
 
 
-async def check_playwright_env():
+async def check_playwright_env(**kwargs):
     """Check Playwright environment."""
     logger.info("Checking Playwright environment...")
     try:
         async with async_playwright() as p:
-            await getattr(p, plugin_config.htmlrender_browser).launch()
+            await getattr(p, plugin_config.htmlrender_browser).launch(**kwargs)
     except Exception as e:
         raise RuntimeError(
             "Playwright environment is not set up correctly. "
