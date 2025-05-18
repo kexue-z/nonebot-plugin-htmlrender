@@ -14,6 +14,11 @@ services:
       # - plugin-localstore-data:/root/.local/share/nonebot2
       # - plugin-localstore-config:/root/.config/nonebot2
 
+      # 挂载浏览器目录，持久化存储，同时修改下方环境变量
+      # - /path/to/your/host/browsers:/pw-browsers
+
+    # environment:
+    #   - PLAYWRIGHT_BROWSERS_PATH=/pw-browsers
 
 # 如果使用 plugin-localstore，你应该同时挂载下面几个路径
 # volumes:

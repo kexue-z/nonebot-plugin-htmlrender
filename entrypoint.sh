@@ -60,6 +60,11 @@ else
     echo "Error: Font directory $FONT_SRC_DIR does not exist, skipping installation. Note: Playwright might lack Chinese fonts"
 fi
 
+# Playwright browsers
+echo "Install Playwright browsers..."
+playwright install --only-shell --with-deps chromium \
+    && rm -rf /var/lib/apt/lists/*
+
 # Install your project deps
 uv sync --frozen --no-install-project --no-dev
 

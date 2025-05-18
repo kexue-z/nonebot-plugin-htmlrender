@@ -26,8 +26,9 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends fontconfig \
     && rm -rf /tmp/sarasa /tmp/sarasa.7z /var/lib/apt/lists/*
 
-RUN playwright install --only-shell --with-deps chromium \
-    && rm -rf /var/lib/apt/lists/*
+# RUN playwright install --only-shell --with-deps chromium \
+#     && rm -rf /var/lib/apt/lists/*
+
 
 # Set workdir `/app`
 WORKDIR /app
