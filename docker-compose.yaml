@@ -1,6 +1,6 @@
 services:
   nonebot:
-    image: kexue-z/nonebot2-playwrght-uv
+    image: ghcr.io/kexue-z/nonebot-plugin-htmlrender/nonebot2-playwrght-uv
     env_file:
       - .env.prod
     ports:
@@ -17,8 +17,18 @@ services:
       # 挂载浏览器目录，持久化存储，同时修改下方环境变量
       # - /path/to/your/host/browsers:/pw-browsers
 
-    # environment:
-    #   - PLAYWRIGHT_BROWSERS_PATH=/pw-browsers
+    environment:
+      - HTMLRENDER_CONNECT="ws://playwright:3000"
+      # - PLAYWRIGHT_BROWSERS_PATH=/pw-browsers
+
+  playwright:
+    image: mcr.microsoft.com/playwright:v1.52.0-noble
+    container_name: playwright
+    entrypoint: ["/bin/sh", "-c", "npx -y playwright@1.52.0 run-server --port 3000 --host 0.0.0.0"]
+    volumes:
+      # 挂载 nonebot 的文件路径，以便本地资源文件可以访问
+      - .:/app
+
 
 # 如果使用 plugin-localstore，你应该同时挂载下面几个路径
 # volumes:

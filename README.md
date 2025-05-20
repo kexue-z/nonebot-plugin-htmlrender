@@ -72,22 +72,49 @@ htmlrender_browser_executable_path = ""
 # 可选，用于连接已运行的浏览器实例
 # 使用时需要在启动浏览器时添加参数 --remote-debugging-port=端口号
 htmlrender_connect_over_cdp = "http://127.0.0.1:9222"
+
+# Playwright ws 连接地址
+# 可选，用于连接 playwright 的 docker 容器
+# https://playwright.dev/docs/docker
+# 配套的 docker-compose.yaml 中，已经填好了
+htmlrender_connect="ws://playwright:3000"
 ```
 
 ## 部署
 
-### （建议）使用 docker 进行部署
+### （建议）使用 docker compose 进行部署
 
 > 前提条件：你的项目使用 uv 管理 或 `pyproject.toml` 的 `dependencies` 中已经包含你的依赖
+>
+> 此方法会将 nonebot2 和 playwright 分开两个容器
 
 1. 将 `docker-compose.yaml` & `entrypoint.sh` 复制到你自己的项目根目录下
-2. （可选）准备中文字体文件，镜像中已经包含系统默认字体，如需添加自定义字体，请将 `("ttc" "ttf" "otf" "woff" "woff2")` 后缀的文件放到 `app/fonts/<fontname>/` 文件夹中
-3. 根据你的需要调整 `docker-compose.yaml` & `entrypoint.sh`
-4. 拉取镜像 `docker compose pull`
-5. 启动容器 `docker compose up -d`
+2. 根据你的需要调整 `docker-compose.yaml` & `entrypoint.sh`
+3. 拉取镜像 `docker compose pull`
+4. 启动容器 `docker compose up -d`
 
 > - 查看日志 `docker compose logs -f`
 > - 停止/重启容器 `docker compose`
+
+### docker 单容器部署
+
+> 前提条件：你的项目使用 uv 管理 或 `pyproject.toml` 的 `dependencies` 中已经包含你的依赖
+>
+> 此方法会将 nonebot2 和 playwright 运行在同一个容器中
+>
+> 而且你还有需要清楚你要干什么
+
+1. 将 `docker-compose.yaml` & `entrypoint.sh` 复制到你自己的项目根目录下
+2. 根据你的情况，调整指令
+
+```bash
+docker run -d \
+--name nonebot2 \
+-v $(pwd):/app \
+-p 9012:9012 \
+-e "PLAYWRIGHT_BROWSERS_PATH=/app/pw-browsers" \
+ghcr.io/kexue-z/nonebot-plugin-htmlrender/nonebot2-playwrght-uv sh -c "./entrypoint.sh"
+```
 
 ## 说明
 ### markdown 转 图片
