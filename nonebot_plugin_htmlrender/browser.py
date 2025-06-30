@@ -169,6 +169,9 @@ async def start_browser(**kwargs) -> Browser:
         if plugin_config.htmlrender_proxy_host:
             kwargs["proxy"] = proxy_settings(plugin_config.htmlrender_proxy_host)
 
+        if plugin_config.htmlrender_browser_args:
+            kwargs["args"] = plugin_config.htmlrender_browser_args.split()
+
         if plugin_config.htmlrender_browser_executable_path:
             kwargs["executable_path"] = plugin_config.htmlrender_browser_executable_path
         else:

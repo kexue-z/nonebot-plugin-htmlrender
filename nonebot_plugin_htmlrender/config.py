@@ -39,6 +39,10 @@ class Config(BaseModel):
         default=None, description="通过Playwright协议连接Playwright浏览器的端点地址。"
     )
 
+    htmlrender_browser_args: Optional[str] = Field(
+        default=None, description="Playwright 浏览器启动参数。"
+    )
+
     @model_validator(mode="after")
     @classmethod
     def check_browser_channel(cls, data: Any) -> Any:
