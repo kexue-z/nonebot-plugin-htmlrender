@@ -189,6 +189,7 @@ async def html_to_pic(
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
     screenshot_timeout: Optional[float] = 30_000,
+    full_page: Optional[bool] = True,
     **kwargs,
 ) -> bytes:
     """html转图片
@@ -215,7 +216,7 @@ async def html_to_pic(
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
         return await page.screenshot(
-            full_page=True,
+            full_page=full_page,
             type=type,
             quality=quality,
             timeout=screenshot_timeout,
