@@ -141,7 +141,7 @@ async def md_to_pic(
 
 
 async def read_file(path: str) -> str:
-    async with aiofiles.open(path) as f:
+    async with aiofiles.open(path, encoding="UTF8") as f:
         return await f.read()
 
 
