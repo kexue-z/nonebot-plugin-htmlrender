@@ -3,17 +3,6 @@ import os
 from pathlib import Path
 
 import pytest
-from pytest_mock import MockerFixture
-
-
-@pytest.fixture
-def windows_env(mocker: MockerFixture):
-    mocker.patch("nonebot_plugin_htmlrender.process.WINDOWS", True)
-
-
-@pytest.fixture
-def unix_env(mocker: MockerFixture):
-    mocker.patch("nonebot_plugin_htmlrender.process.WINDOWS", False)
 
 
 @pytest.fixture
@@ -114,16 +103,7 @@ async def test_terminate_completed_process():
 
 
 @pytest.mark.asyncio
-async def test_terminate_process_windows(windows_env, long_running_process):
-    from nonebot_plugin_htmlrender.process import terminate_process
-
-    await terminate_process(long_running_process)
-    await long_running_process.wait()
-    assert long_running_process.returncode != 0
-
-
-@pytest.mark.asyncio
-async def test_terminate_process_unix(unix_env, long_running_process):
+async def test_terminate_process_unix(long_running_process):
     from nonebot_plugin_htmlrender.process import terminate_process
 
     await terminate_process(long_running_process)

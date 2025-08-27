@@ -1,5 +1,5 @@
 from collections.abc import AsyncGenerator
-from typing import cast
+from unittest.mock import AsyncMock
 
 from playwright.async_api import Browser, Page
 import pytest
@@ -16,11 +16,11 @@ def mock_browser(mocker: MockerFixture) -> Browser:
 
 
 @pytest.fixture
-def mock_page(mocker: MockerFixture) -> Page:
+def mock_page(mocker: MockerFixture) -> AsyncMock:
     """模拟的页面实例 fixture"""
     mock = mocker.AsyncMock(spec=Page)
     mock.close = mocker.AsyncMock()
-    return cast(Page, mock)
+    return mock
 
 
 @pytest.fixture
@@ -98,13 +98,19 @@ async def test_init_browser_success(
 async def test_get_new_page(
     mocker: MockerFixture,
     mock_browser: Browser,
-    mock_page: Page,
+    mock_page: AsyncMock,
 ) -> None:
     """测试获取新页面"""
     from nonebot_plugin_htmlrender.browser import get_new_page
 
     close_mock = mocker.AsyncMock()
     mock_page.close = close_mock
+    mock_page.__aenter__.return_value = mock_page
+
+    async def _aexit(*args):
+        await mock_page.close()
+
+    mock_page.__aexit__ = mocker.AsyncMock(side_effect=_aexit)
 
     new_page_mock = mocker.AsyncMock(return_value=mock_page)
     mocker.patch.object(mock_browser, "new_page", new_page_mock)
@@ -263,6 +269,7 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
     """测试带配置启动浏览器"""
     from nonebot_plugin_htmlrender.browser import start_browser
 
+    mocker.patch("nonebot_plugin_htmlrender.browser.check_playwright_env")
     mock_launch = mocker.patch(
         "nonebot_plugin_htmlrender.browser._launch",
         return_value=mocker.MagicMock(spec=Browser),
