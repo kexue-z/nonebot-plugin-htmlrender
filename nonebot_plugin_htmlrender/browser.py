@@ -189,11 +189,18 @@ async def start_browser(**kwargs) -> Browser:
 async def shutdown_browser() -> None:
     """关闭浏览器和 Playwright 实例。"""
     if _browser:
-        with suppress_and_log():
-            await _browser.close()
+        if not _browser.is_connected():
+            logger.info("Browser was already disconnected, skipping close.")
+        else:
+            with suppress_and_log():
+                logger.debug("Disconnecting browser...")
+                await _browser.close()
+                logger.info("Disconnected browser.")
     if _playwright:
         with suppress_and_log():
+            logger.debug("Stopping Playwright...")
             await _playwright.stop()
+            logger.info("Playwright stopped.")
 
 
 async def check_playwright_env(**kwargs):
