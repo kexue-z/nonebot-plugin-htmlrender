@@ -106,12 +106,12 @@ async def _connect_via_cdp(**kwargs) -> Browser:
     """
     kwargs["endpoint_url"] = plugin_config.htmlrender_connect_over_cdp
     logger.info(
-        f"正在使用 CDP 连接 Chromium({plugin_config.htmlrender_connect_over_cdp})"
+        f"Connecting to Chromium via CDP ({plugin_config.htmlrender_connect_over_cdp})"
     )
     if _playwright is not None:
         return await _playwright.chromium.connect_over_cdp(**kwargs)
     else:
-        raise RuntimeError("Playwright 未初始化")
+        raise RuntimeError("Playwright is not initialized")
 
 
 async def _connect(browser_type: str, **kwargs) -> Browser:
@@ -131,7 +131,8 @@ async def _connect(browser_type: str, **kwargs) -> Browser:
     _browser_cls: BrowserType = getattr(_playwright, browser_type)
     kwargs["ws_endpoint"] = plugin_config.htmlrender_connect
     logger.info(
-        f"正在使用 Playwright 协议连接 {browser_type}({plugin_config.htmlrender_connect})"
+        f"Connecting to {browser_type.capitalize()} via "
+        f"WebSocket endpoint: {plugin_config.htmlrender_connect}"
     )
     if _playwright is not None:
         return await _browser_cls.connect(**kwargs)

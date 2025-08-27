@@ -103,7 +103,7 @@ def suppress_and_log():
         yield
     except Exception as e:
         # 捕获异常并记录日志
-        logger.opt(exception=e).warning("关闭 playwright 时发生错误。")
+        logger.opt(exception=e).warning("Error occurred while closing playwright.")
 
 
 def proxy_settings(proxy_host: Optional[str]) -> Optional[dict]:
