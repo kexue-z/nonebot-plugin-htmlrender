@@ -87,7 +87,7 @@ async def md_to_pic(
         if md_path:
             md = await read_file(md_path)
         else:
-            raise Exception("必须输入 md 或 md_path")
+            raise Exception("md or md_path must be provided")
     logger.debug(md)
     md = markdown.markdown(
         md,
@@ -174,7 +174,7 @@ async def template_to_html(
     if filters:
         for filter_name, filter_func in filters.items():
             template_env.filters[filter_name] = filter_func
-            logger.debug(f"加载自定义过滤器 {filter_name}")
+            logger.debug(f"Custom filter loaded: {filter_name}")
 
     template = template_env.get_template(template_name)
 
@@ -209,9 +209,9 @@ async def html_to_pic(
     """
     # logger.debug(f"html:\n{html}")
     if "file:" not in template_path:
-        raise Exception("template_path 应该为 file:///path/to/template")
+        raise Exception("template_path should be file:///path/to/template")
     async with get_new_page(device_scale_factor, **kwargs) as page:
-        page.on("console", lambda msg: logger.debug(f"浏览器控制台: {msg.text}"))
+        page.on("console", lambda msg: logger.debug(f"[Browser Console]: {msg.text}"))
         await page.goto(template_path)
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
@@ -266,7 +266,7 @@ async def template_to_pic(
     if filters:
         for filter_name, filter_func in filters.items():
             template_env.filters[filter_name] = filter_func
-            logger.debug(f"加载自定义过滤器 {filter_name}")
+            logger.debug(f"Custom filter loaded: {filter_name}")
 
     template = template_env.get_template(template_name)
 

@@ -96,13 +96,21 @@ async def create_process(
         >>> async def func():
         ...     return await create_process("ls", cwd="/")
     """
+    if WINDOWS:
+        creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
+        preexec_fn = None
+    else:
+        creation_flags = 0
+        preexec_fn = os.setsid
+
     return await asyncio.create_subprocess_exec(
         *args,
         cwd=cwd,
         stdin=stdin,
         stdout=stdout,
         stderr=stderr,
-        creationflags=subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0,
+        creationflags=creation_flags,
+        preexec_fn=preexec_fn,
     )
 
 
@@ -160,6 +168,19 @@ async def terminate_process(process: asyncio.subprocess.Process) -> None:
         if WINDOWS:
             os.kill(process.pid, signal.CTRL_BREAK_EVENT)
         else:
-            process.terminate()
+            try:
+                os.killpg(process.pid, signal.SIGTERM)
+            except ProcessLookupError:
+                process.terminate()
 
-        await process.wait()
+        try:
+            await asyncio.wait_for(process.wait(), timeout=5.0)
+        except asyncio.TimeoutError:
+            if not WINDOWS:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    process.kill()
+            else:
+                process.kill()
+            await process.wait()
