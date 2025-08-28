@@ -59,7 +59,9 @@ async def test_suppress_and_log(mocker: MockerFixture, exception: Exception) -> 
         raise exception
 
     mock_logger.opt.assert_called_once_with(exception=exception)
-    mock_logger.opt().warning.assert_called_once_with("关闭 playwright 时发生错误。")
+    mock_logger.opt().warning.assert_called_once_with(
+        "Error occurred while closing playwright."
+    )
 
 
 @pytest.mark.asyncio
