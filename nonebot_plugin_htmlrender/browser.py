@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import os
 from typing import Optional
 
 from nonebot.log import logger
@@ -17,6 +18,28 @@ from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log, wi
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
+
+
+def _prepare_env_vars() -> dict[str, str]:
+    """
+    准备启动浏览器所需的环境变量。
+
+    Returns:
+        Dict[str, str]: 包含环境变量的字典
+    """
+    env_vars = {}
+    if (
+        plugin_config.htmlrender_storage_path
+        and not plugin_config.htmlrender_browser_executable_path
+    ):
+        env_vars["PLAYWRIGHT_BROWSERS_PATH"] = str(
+            plugin_config.htmlrender_storage_path
+        )
+        logger.debug(
+            f"Setting PLAYWRIGHT_BROWSERS_PATH={plugin_config.htmlrender_storage_path}"
+        )
+
+    return env_vars
 
 
 async def _launch(browser_type: str, **kwargs) -> Browser:
@@ -156,6 +179,9 @@ async def startup_htmlrender(**kwargs) -> Browser:
     await shutdown_htmlrender()
     _playwright = await async_playwright().start()
 
+    if env_vars := _prepare_env_vars():
+        kwargs["env"] = {**os.environ.copy(), **env_vars}
+
     if (
         plugin_config.htmlrender_browser == "chromium"
         and plugin_config.htmlrender_connect_over_cdp
@@ -175,6 +201,13 @@ async def startup_htmlrender(**kwargs) -> Browser:
 
         if plugin_config.htmlrender_browser_executable_path:
             kwargs["executable_path"] = plugin_config.htmlrender_browser_executable_path
+            try:
+                _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
+            except Exception as e:
+                raise RuntimeError(
+                    f"Failed to launch browser with executable path"
+                    f" '{plugin_config.htmlrender_browser_executable_path}': {e}"
+                ) from e
         else:
             try:
                 await check_playwright_env(**kwargs)
@@ -182,7 +215,7 @@ async def startup_htmlrender(**kwargs) -> Browser:
                 await install_browser()
                 await check_playwright_env(**kwargs)
 
-        _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
+            _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
 
     return _browser
 
@@ -205,12 +238,30 @@ async def shutdown_htmlrender() -> None:
 
 
 async def check_playwright_env(**kwargs):
-    """Check Playwright environment."""
+    """
+    检查Playwright环境，复用_launch方法避免逻辑重复。
+
+    Args:
+        **kwargs: 传递给`playwright.launch`的关键字参数。
+
+    Raises:
+        RuntimeError: 如果Playwright环境设置不正确。
+    """
     logger.info("Checking Playwright environment...")
+
+    if env_vars := _prepare_env_vars():
+        kwargs["env"] = {**os.environ.copy(), **env_vars}
+
     try:
         async with async_playwright() as p:
-            await getattr(p, plugin_config.htmlrender_browser).launch(**kwargs)
+            global _playwright
+            _playwright = p
+            # 使用_launch复用逻辑
+            browser_instance = await _launch(plugin_config.htmlrender_browser, **kwargs)
+            await browser_instance.close()
+            _playwright = None
     except Exception as e:
+        _playwright = None
         raise RuntimeError(
             "Playwright environment is not set up correctly. "
             "Refer to https://playwright.dev/python/docs/intro#system-requirements"
