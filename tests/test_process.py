@@ -7,15 +7,21 @@ import pytest
 
 @pytest.fixture
 async def long_running_process():
-    # Use appropriate command based on platform
+    import asyncio
+    import os
     command = "timeout /t 15" if os.name == "nt" else "sleep 15"
     proc = await asyncio.create_subprocess_shell(
-        command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+        command,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        start_new_session=(os.name != "nt"),
     )
-    yield proc
-    if proc.returncode is None:
-        proc.terminate()
-        await proc.wait()
+    try:
+        yield proc
+    finally:
+        if proc.returncode is None:
+            proc.terminate()
+            await proc.wait()
 
 
 @pytest.mark.asyncio
