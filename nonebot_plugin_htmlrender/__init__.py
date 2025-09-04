@@ -1,8 +1,10 @@
 import nonebot
+from nonebot import require
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
-from nonebot_plugin_htmlrender.browser import get_browser as get_browser
+require("nonebot_plugin_localstore")
+
 from nonebot_plugin_htmlrender.browser import get_new_page as get_new_page
 from nonebot_plugin_htmlrender.browser import init_browser as init_browser
 from nonebot_plugin_htmlrender.browser import shutdown_browser as shutdown_browser
