@@ -7,8 +7,10 @@ require("nonebot_plugin_localstore")
 
 from nonebot_plugin_htmlrender.browser import get_new_page as get_new_page
 from nonebot_plugin_htmlrender.browser import init_browser as init_browser
-from nonebot_plugin_htmlrender.browser import shutdown_browser as shutdown_browser
-from nonebot_plugin_htmlrender.browser import start_browser as start_browser
+from nonebot_plugin_htmlrender.browser import (
+    shutdown_htmlrender,
+    startup_htmlrender,
+)
 from nonebot_plugin_htmlrender.config import Config
 from nonebot_plugin_htmlrender.data_source import capture_element as capture_element
 from nonebot_plugin_htmlrender.data_source import html_to_pic as html_to_pic
@@ -40,7 +42,7 @@ async def init(**kwargs):
 @driver.on_shutdown
 async def shutdown():
     logger.info("HTMLRender Shutting down...")
-    await shutdown_browser()
+    await shutdown_htmlrender()
     logger.info("HTMLRender Shut down.")
 
 
@@ -49,8 +51,8 @@ __all__ = [
     "get_new_page",
     "html_to_pic",
     "md_to_pic",
-    "shutdown_browser",
-    "start_browser",
+    "shutdown_htmlrender",
+    "startup_htmlrender",
     "template_to_html",
     "template_to_pic",
     "text_to_pic",

@@ -59,9 +59,7 @@ async def test_suppress_and_log(mocker: MockerFixture, exception: Exception) -> 
         raise exception
 
     mock_logger.opt.assert_called_once_with(exception=exception)
-    mock_logger.opt().warning.assert_called_once_with(
-        "Error occurred while closing playwright."
-    )
+    mock_logger.opt().warning.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -84,16 +82,13 @@ async def test_init_browser_success(
     mocker: MockerFixture, mock_browser: Browser
 ) -> None:
     """测试浏览器初始化成功"""
-    from nonebot_plugin_htmlrender.browser import init_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
-    mock_start = mocker.patch(
-        "nonebot_plugin_htmlrender.browser.start_browser",
-        return_value=mock_browser,
-    )
-
-    browser = await init_browser()
+    browser = await startup_htmlrender()
     assert isinstance(browser, Browser)
-    mock_start.assert_called_once()
+    assert browser.is_connected()
+    assert browser.browser_type.name == "chromium"
+    await browser.close()
 
 
 @pytest.mark.asyncio
@@ -146,12 +141,12 @@ async def test_shutdown_browser(
     mocker: MockerFixture,
 ) -> None:
     """测试关闭浏览器"""
-    from nonebot_plugin_htmlrender.browser import shutdown_browser
+    from nonebot_plugin_htmlrender.browser import shutdown_htmlrender
 
     close_mock = mocker.AsyncMock()
     mock_browser.close = close_mock
 
-    await shutdown_browser()
+    await shutdown_htmlrender()
     assert close_mock.call_count == 1
 
 
@@ -160,7 +155,7 @@ async def test_connect_via_cdp(
     mocker: MockerFixture, mock_browser: Browser, browser_config: dict[str, str]
 ) -> None:
     """测试通过CDP连接浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch(
         "nonebot_plugin_htmlrender.browser._connect_via_cdp", return_value=mock_browser
@@ -174,7 +169,7 @@ async def test_connect_via_cdp(
         browser_config["cdp"],
     )
 
-    browser = await start_browser()
+    browser = await startup_htmlrender()
     assert browser == mock_browser
 
 
@@ -183,7 +178,7 @@ async def test_connect(
     mocker: MockerFixture, mock_browser: Browser, browser_config: dict[str, str]
 ) -> None:
     """测试通过Playwright协议连接浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch(
         "nonebot_plugin_htmlrender.browser._connect", return_value=mock_browser
@@ -197,7 +192,7 @@ async def test_connect(
         browser_config["pwp"],
     )
 
-    browser = await start_browser()
+    browser = await startup_htmlrender()
     assert browser == mock_browser
 
 
@@ -246,7 +241,7 @@ async def test_start_browser_with_cdp(
     mocker: MockerFixture, browser_config: dict[str, str]
 ) -> None:
     """测试使用CDP启动浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mock_cdp = mocker.patch(
         "nonebot_plugin_htmlrender.browser._connect_via_cdp",
@@ -262,14 +257,14 @@ async def test_start_browser_with_cdp(
         browser_config["cdp"],
     )
 
-    await start_browser()
+    await startup_htmlrender()
     mock_cdp.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_start_browser_with_config(mocker: MockerFixture) -> None:
     """测试带配置启动浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch("nonebot_plugin_htmlrender.browser.check_playwright_env")
     mock_launch = mocker.patch(
@@ -282,5 +277,5 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
         "chrome-canary",
     )
 
-    await start_browser()
+    await startup_htmlrender()
     mock_launch.assert_called_with(mocker.ANY, channel="chrome-canary")

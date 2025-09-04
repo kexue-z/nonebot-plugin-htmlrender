@@ -53,7 +53,7 @@ async def init_browser(**kwargs) -> Browser:
     Raises:
         RuntimeError: 如果浏览器无法启动或安装失败。
     """
-    return await start_browser(**kwargs)
+    return await startup_htmlrender(**kwargs)
 
 
 @asynccontextmanager
@@ -141,7 +141,7 @@ async def _connect(browser_type: str, **kwargs) -> Browser:
 
 
 @with_lock
-async def start_browser(**kwargs) -> Browser:
+async def startup_htmlrender(**kwargs) -> Browser:
     """
     启动 Playwright 浏览器实例。
 
@@ -153,7 +153,7 @@ async def start_browser(**kwargs) -> Browser:
     """
     global _browser, _playwright
 
-    await shutdown_browser()
+    await shutdown_htmlrender()
     _playwright = await async_playwright().start()
 
     if (
@@ -187,7 +187,7 @@ async def start_browser(**kwargs) -> Browser:
     return _browser
 
 
-async def shutdown_browser() -> None:
+async def shutdown_htmlrender() -> None:
     """关闭浏览器和 Playwright 实例。"""
     if _browser:
         if not _browser.is_connected():
