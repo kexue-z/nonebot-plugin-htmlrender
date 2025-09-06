@@ -156,9 +156,9 @@ async def test_ensure_process_terminated_decorator():
     await asyncio.sleep(1.0)
 
     assert proc is not None, "Process was not created."
-    assert isinstance(
-        proc, asyncio.subprocess.Process
-    ), "Process is not of expected type."
+    assert isinstance(proc, asyncio.subprocess.Process), (
+        "Process is not of expected type."
+    )
     assert proc.returncode is None, "Process already terminated prematurely."
 
     task.cancel()
