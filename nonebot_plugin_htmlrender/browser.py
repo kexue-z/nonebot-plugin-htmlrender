@@ -1,6 +1,5 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-import os
 from typing import Optional
 
 from nonebot.log import logger
@@ -14,32 +13,16 @@ from playwright.async_api import (
 
 from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.install import install_browser
-from nonebot_plugin_htmlrender.utils import proxy_settings, suppress_and_log, with_lock
+from nonebot_plugin_htmlrender.utils import (
+    _prepare_playwright_env_vars,
+    clean_playwright_cache,
+    proxy_settings,
+    suppress_and_log,
+    with_lock,
+)
 
 _browser: Optional[Browser] = None
 _playwright: Optional[Playwright] = None
-
-
-def _prepare_env_vars() -> dict[str, str]:
-    """
-    准备启动浏览器所需的环境变量。
-
-    Returns:
-        Dict[str, str]: 包含环境变量的字典
-    """
-    env_vars = {}
-    if (
-        plugin_config.htmlrender_storage_path
-        and not plugin_config.htmlrender_browser_executable_path
-    ):
-        env_vars["PLAYWRIGHT_BROWSERS_PATH"] = str(
-            plugin_config.htmlrender_storage_path
-        )
-        logger.debug(
-            f"Setting PLAYWRIGHT_BROWSERS_PATH={plugin_config.htmlrender_storage_path}"
-        )
-
-    return env_vars
 
 
 async def _launch(browser_type: str, **kwargs) -> Browser:
@@ -61,22 +44,6 @@ async def _launch(browser_type: str, **kwargs) -> Browser:
         f"Looking for Browser in path: <blue>{_browser_cls.executable_path}</blue>"
     )
     return await _browser_cls.launch(**kwargs)
-
-
-async def init_browser(**kwargs) -> Browser:
-    """
-    初始化浏览器实例。
-
-    Args:
-        **kwargs: 传递给`playwright.launch`的关键字参数。
-
-    Returns:
-        Browser: 浏览器实例。
-
-    Raises:
-        RuntimeError: 如果浏览器无法启动或安装失败。
-    """
-    return await startup_htmlrender(**kwargs)
 
 
 @asynccontextmanager
@@ -111,7 +78,7 @@ async def get_browser(**kwargs) -> Browser:
     if _browser and _browser.is_connected():
         return _browser
 
-    return await init_browser(**kwargs)
+    return await startup_htmlrender(**kwargs)
 
 
 async def _connect_via_cdp(**kwargs) -> Browser:
@@ -177,10 +144,12 @@ async def startup_htmlrender(**kwargs) -> Browser:
     global _browser, _playwright
 
     await shutdown_htmlrender()
-    _playwright = await async_playwright().start()
+    clean_playwright_cache()
+    _prepare_playwright_env_vars()
 
-    if env_vars := _prepare_env_vars():
-        kwargs["env"] = {**os.environ.copy(), **env_vars}
+    _playwright = await async_playwright().start()
+    logger.debug("Playwright started")
+
 
     if (
         plugin_config.htmlrender_browser == "chromium"
@@ -215,8 +184,6 @@ async def startup_htmlrender(**kwargs) -> Browser:
                 await install_browser()
                 await check_playwright_env(**kwargs)
 
-            _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
-
     return _browser
 
 
@@ -248,20 +215,16 @@ async def check_playwright_env(**kwargs):
         RuntimeError: 如果Playwright环境设置不正确。
     """
     logger.info("Checking Playwright environment...")
-
-    if env_vars := _prepare_env_vars():
-        kwargs["env"] = {**os.environ.copy(), **env_vars}
+    global _browser, _playwright
 
     try:
-        async with async_playwright() as p:
-            global _playwright
-            _playwright = p
-            # 使用_launch复用逻辑
-            browser_instance = await _launch(plugin_config.htmlrender_browser, **kwargs)
-            await browser_instance.close()
-            _playwright = None
+        _playwright = await async_playwright().start()
+        _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
+        logger.success("Playwright environment is set up correctly.")
+
     except Exception as e:
-        _playwright = None
+        await shutdown_htmlrender()
+
         raise RuntimeError(
             "Playwright environment is not set up correctly. "
             "Refer to https://playwright.dev/python/docs/intro#system-requirements"
