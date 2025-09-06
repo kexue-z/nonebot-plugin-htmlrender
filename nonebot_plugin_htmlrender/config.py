@@ -1,10 +1,16 @@
+from pathlib import Path
 from typing import Any, Optional
 
 from nonebot import get_driver, get_plugin_config
 from nonebot.compat import model_validator
+import nonebot_plugin_localstore as store
 from pydantic import BaseModel, Field
 
 from nonebot_plugin_htmlrender.consts import BROWSER_CHANNEL_TYPES, BROWSER_ENGINE_TYPES
+
+plugin_cache_dir: Path = store.get_plugin_cache_dir()
+plugin_config_dir: Path = store.get_plugin_config_dir()
+plugin_data_dir: Path = store.get_plugin_data_dir()
 
 
 class Config(BaseModel):
@@ -13,6 +19,18 @@ class Config(BaseModel):
     htmlrender_browser: str = Field(
         default="chromium",
         description="Playwright浏览器引擎类型，默认值为 'chromium'。",
+    )
+    htmlrender_storage_path: Path = Field(
+        default=plugin_data_dir,
+        description="存储路径，不填则使用 `nonebot-plugin-localstore` 管理",
+    )
+    htmlrender_cache_path: Path = Field(
+        default=plugin_cache_dir,
+        description="缓存路径，不填则使用 `nonebot-plugin-localstore` 管理",
+    )
+    htmlrender_config_path: Path = Field(
+        default=plugin_config_dir,
+        description="配置路径，不填则使用 `nonebot-plugin-localstore` 管理",
     )
     htmlrender_download_host: Optional[str] = Field(
         default=None, description="下载Playwright浏览器时的主机地址。"
@@ -29,7 +47,7 @@ class Config(BaseModel):
     htmlrender_browser_channel: Optional[str] = Field(
         default=None, description="Playwright浏览器通道类型。"
     )
-    htmlrender_browser_executable_path: Optional[str] = Field(
+    htmlrender_browser_executable_path: Optional[Path] = Field(
         default=None, description="Playwright浏览器可执行文件的路径。"
     )
     htmlrender_connect_over_cdp: Optional[str] = Field(
@@ -38,7 +56,6 @@ class Config(BaseModel):
     htmlrender_connect: Optional[str] = Field(
         default=None, description="通过Playwright协议连接Playwright浏览器的端点地址。"
     )
-
     htmlrender_browser_args: Optional[str] = Field(
         default=None, description="Playwright 浏览器启动参数。"
     )

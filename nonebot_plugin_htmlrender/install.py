@@ -86,7 +86,10 @@ async def download_context() -> AsyncIterator[None]:
     try:
         best_mirror = await check_mirror_connectivity()
         if best_mirror is not None:
-            logger.info(f"Using Mirror source: {best_mirror.name} ({best_mirror.url})")
+            logger.opt(colors=True).info(
+                f"Using Mirror source: <cyan>{best_mirror.name}</cyan> "
+                f"{best_mirror.url}"
+            )
             os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = best_mirror.url
         else:
             logger.info("Mirror source not available, using default")

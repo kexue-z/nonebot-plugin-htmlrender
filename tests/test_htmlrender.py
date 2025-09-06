@@ -11,11 +11,11 @@ from pytest_mock import MockerFixture
 @pytest.fixture
 async def browser():
     """启动和关闭浏览器的 fixture"""
-    from nonebot_plugin_htmlrender import shutdown_browser, start_browser
+    from nonebot_plugin_htmlrender import shutdown_htmlrender, startup_htmlrender
 
-    await start_browser()
+    await startup_htmlrender()
     yield
-    await shutdown_browser()
+    await shutdown_htmlrender()
 
 
 @pytest.fixture

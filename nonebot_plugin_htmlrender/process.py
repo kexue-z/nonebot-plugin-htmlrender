@@ -98,20 +98,25 @@ async def create_process(
     """
     if WINDOWS:
         creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP
-        preexec_fn = None
+        return await asyncio.create_subprocess_exec(
+            *args,
+            cwd=cwd,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            creationflags=creation_flags,
+        )
     else:
         creation_flags = 0
-        preexec_fn = os.setsid
-
-    return await asyncio.create_subprocess_exec(
-        *args,
-        cwd=cwd,
-        stdin=stdin,
-        stdout=stdout,
-        stderr=stderr,
-        creationflags=creation_flags,
-        preexec_fn=preexec_fn,
-    )
+        return await asyncio.create_subprocess_exec(
+            *args,
+            cwd=cwd,
+            stdin=stdin,
+            stdout=stdout,
+            stderr=stderr,
+            creationflags=creation_flags,
+            start_new_session=True,
+        )
 
 
 @ensure_process_terminated
@@ -169,7 +174,8 @@ async def terminate_process(process: asyncio.subprocess.Process) -> None:
             os.kill(process.pid, signal.CTRL_BREAK_EVENT)
         else:
             try:
-                os.killpg(process.pid, signal.SIGTERM)
+                pgid = os.getpgid(process.pid)
+                os.killpg(pgid, signal.SIGTERM)
             except ProcessLookupError:
                 process.terminate()
 
@@ -178,7 +184,8 @@ async def terminate_process(process: asyncio.subprocess.Process) -> None:
         except asyncio.TimeoutError:
             if not WINDOWS:
                 try:
-                    os.killpg(process.pid, signal.SIGKILL)
+                    pgid = os.getpgid(process.pid)
+                    os.killpg(pgid, signal.SIGKILL)
                 except ProcessLookupError:
                     process.kill()
             else:
