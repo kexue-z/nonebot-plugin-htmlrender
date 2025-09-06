@@ -9,6 +9,7 @@ import pytest
 async def long_running_process():
     import asyncio
     import os
+
     command = "timeout /t 15" if os.name == "nt" else "sleep 15"
     proc = await asyncio.create_subprocess_shell(
         command,

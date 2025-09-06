@@ -280,6 +280,7 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
     await startup_htmlrender()
     mock_launch.assert_called_with(mocker.ANY, channel="chrome-canary")
 
+
 @pytest.mark.parametrize(
     ("system_name", "expected_path"),
     [
@@ -303,6 +304,7 @@ def test_clean_playwright_cache(
 
     mock_rmtree.assert_called_once_with(str(expected_path))
 
+
 def test_clean_playwright_cache_path_not_exists(mocker: MockerFixture) -> None:
     """测试路径不存在时的 Playwright 缓存清理"""
     from nonebot_plugin_htmlrender.browser import clean_playwright_cache
@@ -313,6 +315,7 @@ def test_clean_playwright_cache_path_not_exists(mocker: MockerFixture) -> None:
     clean_playwright_cache()
 
     mock_rmtree.assert_not_called()
+
 
 def test_clean_playwright_cache_with_error(mocker: MockerFixture) -> None:
     """测试清理过程中发生错误的情况"""

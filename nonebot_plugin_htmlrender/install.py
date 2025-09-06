@@ -194,26 +194,20 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
             if line_stripped:
                 logger.warning(f"Install error: {line_stripped}")
 
-        stdout_task = asyncio.create_task(
-            read_stream(process.stdout, stdout_callback)
-        )
-        stderr_task = asyncio.create_task(
-            read_stream(process.stderr, stderr_callback)
-        )
+        stdout_task = asyncio.create_task(read_stream(process.stdout, stdout_callback))
+        stderr_task = asyncio.create_task(read_stream(process.stderr, stderr_callback))
 
         try:
             await asyncio.wait_for(
                 asyncio.gather(stdout_task, stderr_task), timeout=timeout
             )
         except asyncio.TimeoutError:
-
             logger.error(f"Timed out ({timeout}秒)")
             await terminate_process(process)
             return False, f"Timed out ({timeout}s)"
 
         await process.wait()
         return_code = process.returncode
-
 
         if return_code != 0:
             return False, f"Exited with code {return_code}"
