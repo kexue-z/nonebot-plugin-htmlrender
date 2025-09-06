@@ -18,7 +18,6 @@ from typing import (
 from typing_extensions import ParamSpec
 import warnings
 
-from nonebot import logger
 from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.config import plugin_config

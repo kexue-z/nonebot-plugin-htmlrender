@@ -150,7 +150,6 @@ async def startup_htmlrender(**kwargs) -> Browser:
     _playwright = await async_playwright().start()
     logger.debug("Playwright started")
 
-
     if (
         plugin_config.htmlrender_browser == "chromium"
         and plugin_config.htmlrender_connect_over_cdp
@@ -179,10 +178,10 @@ async def startup_htmlrender(**kwargs) -> Browser:
                 ) from e
         else:
             try:
-                await check_playwright_env(**kwargs)
+                _browser = await check_playwright_env(**kwargs)
             except RuntimeError:
                 await install_browser()
-                await check_playwright_env(**kwargs)
+                _browser = await check_playwright_env(**kwargs)
 
     return _browser
 
@@ -204,7 +203,7 @@ async def shutdown_htmlrender() -> None:
             logger.info("Playwright stopped.")
 
 
-async def check_playwright_env(**kwargs):
+async def check_playwright_env(**kwargs) -> Browser:
     """
     检查Playwright环境，复用_launch方法避免逻辑重复。
 
@@ -221,6 +220,7 @@ async def check_playwright_env(**kwargs):
         _playwright = await async_playwright().start()
         _browser = await _launch(plugin_config.htmlrender_browser, **kwargs)
         logger.success("Playwright environment is set up correctly.")
+        return _browser
 
     except Exception as e:
         await shutdown_htmlrender()
