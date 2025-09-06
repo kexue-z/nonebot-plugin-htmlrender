@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 from playwright.async_api import Browser, Page
@@ -266,7 +267,6 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
     """测试带配置启动浏览器"""
     from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
-    mocker.patch("nonebot_plugin_htmlrender.browser.check_playwright_env")
     mock_launch = mocker.patch(
         "nonebot_plugin_htmlrender.browser._launch",
         return_value=mocker.MagicMock(spec=Browser),
@@ -279,3 +279,50 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
 
     await startup_htmlrender()
     mock_launch.assert_called_with(mocker.ANY, channel="chrome-canary")
+
+@pytest.mark.parametrize(
+    ("system_name", "expected_path"),
+    [
+        ("Windows", Path.home() / "AppData" / "Local" / "ms-playwright"),
+        ("Darwin", Path.home() / "Library" / "Caches" / "ms-playwright"),
+        ("Linux", Path.home() / ".cache" / "ms-playwright"),
+    ],
+    ids=["windows", "macos", "linux"],
+)
+def test_clean_playwright_cache(
+    mocker: MockerFixture, system_name: str, expected_path: Path
+) -> None:
+    """测试不同操作系统下的 Playwright 缓存清理"""
+    from nonebot_plugin_htmlrender.browser import clean_playwright_cache
+
+    mocker.patch("platform.system", return_value=system_name)
+    mocker.patch.object(Path, "exists", return_value=True)
+    mock_rmtree = mocker.patch("shutil.rmtree")
+
+    clean_playwright_cache()
+
+    mock_rmtree.assert_called_once_with(str(expected_path))
+
+def test_clean_playwright_cache_path_not_exists(mocker: MockerFixture) -> None:
+    """测试路径不存在时的 Playwright 缓存清理"""
+    from nonebot_plugin_htmlrender.browser import clean_playwright_cache
+
+    mocker.patch.object(Path, "exists", return_value=False)
+    mock_rmtree = mocker.patch("shutil.rmtree")
+
+    clean_playwright_cache()
+
+    mock_rmtree.assert_not_called()
+
+def test_clean_playwright_cache_with_error(mocker: MockerFixture) -> None:
+    """测试清理过程中发生错误的情况"""
+    from nonebot_plugin_htmlrender.browser import clean_playwright_cache
+
+    mocker.patch("platform.system", return_value="Linux")
+    mocker.patch.object(Path, "exists", return_value=True)
+    mocker.patch("shutil.rmtree", side_effect=PermissionError())
+    mock_logger_error = mocker.patch("nonebot_plugin_htmlrender.browser.logger.error")
+
+    clean_playwright_cache()
+
+    mock_logger_error.assert_called_once()
