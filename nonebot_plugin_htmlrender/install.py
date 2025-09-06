@@ -128,30 +128,25 @@ async def read_stream(
     if stream is None:
         return ""
 
-    last_progress = ""  # 上一次显示的进度
     output = []  # 存储读取到的文本内容
 
     while True:
         try:
-            char = await stream.read(1)
-            if not char:
+            line_data = await stream.readline()
+            if not line_data:
                 break
 
-            if char == b"\r":
-                continue
+            line = line_data.decode().strip()
 
-            line = char + await stream.readuntil(b"\n")
-            text = line.decode().strip()
+            if callback:
+                try:
+                    await callback(line)
+                except UnicodeEncodeError:
+                    safe_text = "".join(c if ord(c) < 128 else "?" for c in line)
+                    await callback(safe_text)
 
-            if "|" in text and "%" in text:
-                if text != last_progress:
-                    if callback:
-                        await callback(f"Progress: {text}")
-                    last_progress = text
-            else:
-                if callback:
-                    await callback(text)
-                output.append(text)
+            if line:
+                output.append(line)
 
         except asyncio.IncompleteReadError:
             break
@@ -174,6 +169,7 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
     try:
         logger.debug("Starting playwright install process...")
         install_signal_handler()
+
         process = await create_process(
             "playwright",
             "install",
@@ -182,34 +178,50 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        logger.debug("Process created successfully")
 
         async def stdout_callback(line: str) -> None:
-            logger.info(f"{line.strip()}")
+            line_stripped = line.strip()
+            if (
+                not line_stripped.startswith("Progress:")
+                and "|" not in line_stripped
+                and "%" not in line_stripped
+                and line_stripped
+            ):
+                logger.info(line_stripped)
 
         async def stderr_callback(line: str) -> None:
-            logger.warning(f"Install error: {line.strip()}")
+            line_stripped = line.strip()
+            if line_stripped:
+                logger.warning(f"Install error: {line_stripped}")
 
-        stdout_task = asyncio.create_task(read_stream(process.stdout, stdout_callback))
-        stderr_task = asyncio.create_task(read_stream(process.stderr, stderr_callback))
+        stdout_task = asyncio.create_task(
+            read_stream(process.stdout, stdout_callback)
+        )
+        stderr_task = asyncio.create_task(
+            read_stream(process.stderr, stderr_callback)
+        )
 
         try:
             await asyncio.wait_for(
                 asyncio.gather(stdout_task, stderr_task), timeout=timeout
             )
         except asyncio.TimeoutError:
+
+            logger.error(f"Timed out ({timeout}秒)")
             await terminate_process(process)
             return False, f"Timed out ({timeout}s)"
 
         await process.wait()
-        returncode = process.returncode
+        return_code = process.returncode
 
-        if returncode != 0:
-            return False, f"Exited with code {returncode}"
+
+        if return_code != 0:
+            return False, f"Exited with code {return_code}"
 
         return True, "Installation completed"
 
     except Exception as e:
+        logger.error(f"An error occurred during installation: {e!s}")
         return False, f"An error occurred during installation: {e!s}"
 
 
