@@ -1,19 +1,25 @@
 import nonebot
+from nonebot import require
+
+require("nonebot_plugin_localstore")
 from nonebot.log import logger
 from nonebot.plugin import PluginMetadata
 
-from nonebot_plugin_htmlrender.browser import get_browser as get_browser
-from nonebot_plugin_htmlrender.browser import get_new_page as get_new_page
-from nonebot_plugin_htmlrender.browser import init_browser as init_browser
-from nonebot_plugin_htmlrender.browser import shutdown_browser as shutdown_browser
-from nonebot_plugin_htmlrender.browser import start_browser as start_browser
-from nonebot_plugin_htmlrender.config import Config
-from nonebot_plugin_htmlrender.data_source import capture_element as capture_element
-from nonebot_plugin_htmlrender.data_source import html_to_pic as html_to_pic
-from nonebot_plugin_htmlrender.data_source import md_to_pic as md_to_pic
-from nonebot_plugin_htmlrender.data_source import template_to_html as template_to_html
-from nonebot_plugin_htmlrender.data_source import template_to_pic as template_to_pic
-from nonebot_plugin_htmlrender.data_source import text_to_pic as text_to_pic
+from nonebot_plugin_htmlrender.browser import (
+    get_new_page,
+    shutdown_htmlrender,
+    startup_htmlrender,
+)
+from nonebot_plugin_htmlrender.config import Config, plugin_config
+from nonebot_plugin_htmlrender.data_source import (
+    capture_element,
+    html_to_pic,
+    md_to_pic,
+    template_to_html,
+    template_to_pic,
+    text_to_pic,
+)
+from nonebot_plugin_htmlrender.utils import _clear_playwright_env_vars
 
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-htmlrender",
@@ -31,14 +37,17 @@ driver = nonebot.get_driver()
 @driver.on_startup
 async def init(**kwargs):
     logger.info("HTMLRender Starting...")
-    await init_browser(**kwargs)
-    logger.info("HTMLRender Started.")
+    await startup_htmlrender(**kwargs)
+    logger.opt(colors=True).info(
+        f"HTMLRender Started with <cyan>{plugin_config.htmlrender_browser}</cyan>."
+    )
 
 
 @driver.on_shutdown
 async def shutdown():
     logger.info("HTMLRender Shutting down...")
-    await shutdown_browser()
+    await shutdown_htmlrender()
+    _clear_playwright_env_vars()
     logger.info("HTMLRender Shut down.")
 
 
@@ -47,8 +56,8 @@ __all__ = [
     "get_new_page",
     "html_to_pic",
     "md_to_pic",
-    "shutdown_browser",
-    "start_browser",
+    "shutdown_htmlrender",
+    "startup_htmlrender",
     "template_to_html",
     "template_to_pic",
     "text_to_pic",

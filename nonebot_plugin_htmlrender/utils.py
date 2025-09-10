@@ -2,7 +2,11 @@ from asyncio import Lock
 from collections.abc import Awaitable
 from contextlib import contextmanager
 from functools import wraps
+import os
+from pathlib import Path
+import platform
 import re
+import shutil
 from typing import (
     Any,
     Callable,
@@ -159,3 +163,60 @@ def with_lock(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
             return await func(*args, **kwargs)
 
     return wrapper
+
+
+def _prepare_playwright_env_vars() -> None:
+    """
+    准备启动浏览器所需的环境变量。
+
+    Returns:
+        Dict[str, str]: 包含环境变量的字典
+    """
+    if (
+        plugin_config.htmlrender_storage_path
+        and not plugin_config.htmlrender_browser_executable_path
+    ):
+        storage_path = os.path.abspath(
+            os.path.expanduser(str(plugin_config.htmlrender_storage_path))
+        )
+        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = storage_path
+
+        logger.debug(f'Setting PLAYWRIGHT_BROWSERS_PATH="{storage_path}"')
+
+
+def _clear_playwright_env_vars() -> None:
+    if (
+        plugin_config.htmlrender_storage_path
+        and not plugin_config.htmlrender_browser_executable_path
+    ) and "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
+        playwright_path = os.environ.pop("PLAYWRIGHT_BROWSERS_PATH")
+        logger.debug(f'PLAYWRIGHT_BROWSERS_PATH="{playwright_path}" removed')
+
+
+def clean_playwright_cache() -> None:
+    system = platform.system()
+    home_dir = Path.home()
+    cache_path = None
+
+    if system == "Windows":
+        cache_path = home_dir / "AppData" / "Local" / "ms-playwright"
+    elif system == "Darwin":
+        cache_path = home_dir / "Library" / "Caches" / "ms-playwright"
+    elif system == "Linux":
+        cache_path = home_dir / ".cache" / "ms-playwright"
+
+    if cache_path and cache_path.exists():
+        try:
+            logger.warning(
+                "Since v0.7.0, nonebot-plugin-htmlrender has moved the Playwright"
+                "cache path. Executable files are now stored and managed by the "
+                "`nonebot-plugin-localstore` plugin under "
+                f"{plugin_config.htmlrender_storage_path}. "
+                "You can change this path via the config option "
+                "`htmlrender_storage_path`."
+            )
+            logger.info(f"Deleting Playwright directory at {cache_path}")
+            shutil.rmtree(str(cache_path))
+            logger.info("Playwright was cleaned successfully.")
+        except Exception as e:
+            logger.error(f"Failed to delete Playwright: {e}")

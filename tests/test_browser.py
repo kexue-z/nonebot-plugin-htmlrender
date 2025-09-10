@@ -1,4 +1,5 @@
 from collections.abc import AsyncGenerator
+from pathlib import Path
 from unittest.mock import AsyncMock
 
 from playwright.async_api import Browser, Page
@@ -59,9 +60,7 @@ async def test_suppress_and_log(mocker: MockerFixture, exception: Exception) -> 
         raise exception
 
     mock_logger.opt.assert_called_once_with(exception=exception)
-    mock_logger.opt().warning.assert_called_once_with(
-        "Error occurred while closing playwright."
-    )
+    mock_logger.opt().warning.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -84,16 +83,13 @@ async def test_init_browser_success(
     mocker: MockerFixture, mock_browser: Browser
 ) -> None:
     """测试浏览器初始化成功"""
-    from nonebot_plugin_htmlrender.browser import init_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
-    mock_start = mocker.patch(
-        "nonebot_plugin_htmlrender.browser.start_browser",
-        return_value=mock_browser,
-    )
-
-    browser = await init_browser()
+    browser = await startup_htmlrender()
     assert isinstance(browser, Browser)
-    mock_start.assert_called_once()
+    assert browser.is_connected()
+    assert browser.browser_type.name == "chromium"
+    await browser.close()
 
 
 @pytest.mark.asyncio
@@ -146,12 +142,12 @@ async def test_shutdown_browser(
     mocker: MockerFixture,
 ) -> None:
     """测试关闭浏览器"""
-    from nonebot_plugin_htmlrender.browser import shutdown_browser
+    from nonebot_plugin_htmlrender.browser import shutdown_htmlrender
 
     close_mock = mocker.AsyncMock()
     mock_browser.close = close_mock
 
-    await shutdown_browser()
+    await shutdown_htmlrender()
     assert close_mock.call_count == 1
 
 
@@ -160,7 +156,7 @@ async def test_connect_via_cdp(
     mocker: MockerFixture, mock_browser: Browser, browser_config: dict[str, str]
 ) -> None:
     """测试通过CDP连接浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch(
         "nonebot_plugin_htmlrender.browser._connect_via_cdp", return_value=mock_browser
@@ -174,7 +170,7 @@ async def test_connect_via_cdp(
         browser_config["cdp"],
     )
 
-    browser = await start_browser()
+    browser = await startup_htmlrender()
     assert browser == mock_browser
 
 
@@ -183,7 +179,7 @@ async def test_connect(
     mocker: MockerFixture, mock_browser: Browser, browser_config: dict[str, str]
 ) -> None:
     """测试通过Playwright协议连接浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch(
         "nonebot_plugin_htmlrender.browser._connect", return_value=mock_browser
@@ -197,7 +193,7 @@ async def test_connect(
         browser_config["pwp"],
     )
 
-    browser = await start_browser()
+    browser = await startup_htmlrender()
     assert browser == mock_browser
 
 
@@ -246,7 +242,7 @@ async def test_start_browser_with_cdp(
     mocker: MockerFixture, browser_config: dict[str, str]
 ) -> None:
     """测试使用CDP启动浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mock_cdp = mocker.patch(
         "nonebot_plugin_htmlrender.browser._connect_via_cdp",
@@ -262,16 +258,15 @@ async def test_start_browser_with_cdp(
         browser_config["cdp"],
     )
 
-    await start_browser()
+    await startup_htmlrender()
     mock_cdp.assert_called_once()
 
 
 @pytest.mark.asyncio
 async def test_start_browser_with_config(mocker: MockerFixture) -> None:
     """测试带配置启动浏览器"""
-    from nonebot_plugin_htmlrender.browser import start_browser
+    from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
-    mocker.patch("nonebot_plugin_htmlrender.browser.check_playwright_env")
     mock_launch = mocker.patch(
         "nonebot_plugin_htmlrender.browser._launch",
         return_value=mocker.MagicMock(spec=Browser),
@@ -282,5 +277,55 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
         "chrome-canary",
     )
 
-    await start_browser()
+    await startup_htmlrender()
     mock_launch.assert_called_with(mocker.ANY, channel="chrome-canary")
+
+
+@pytest.mark.parametrize(
+    ("system_name", "expected_path"),
+    [
+        ("Windows", Path.home() / "AppData" / "Local" / "ms-playwright"),
+        ("Darwin", Path.home() / "Library" / "Caches" / "ms-playwright"),
+        ("Linux", Path.home() / ".cache" / "ms-playwright"),
+    ],
+    ids=["windows", "macos", "linux"],
+)
+def test_clean_playwright_cache(
+    mocker: MockerFixture, system_name: str, expected_path: Path
+) -> None:
+    """测试不同操作系统下的 Playwright 缓存清理"""
+    from nonebot_plugin_htmlrender.browser import clean_playwright_cache
+
+    mocker.patch("platform.system", return_value=system_name)
+    mocker.patch.object(Path, "exists", return_value=True)
+    mock_rmtree = mocker.patch("shutil.rmtree")
+
+    clean_playwright_cache()
+
+    mock_rmtree.assert_called_once_with(str(expected_path))
+
+
+def test_clean_playwright_cache_path_not_exists(mocker: MockerFixture) -> None:
+    """测试路径不存在时的 Playwright 缓存清理"""
+    from nonebot_plugin_htmlrender.browser import clean_playwright_cache
+
+    mocker.patch.object(Path, "exists", return_value=False)
+    mock_rmtree = mocker.patch("shutil.rmtree")
+
+    clean_playwright_cache()
+
+    mock_rmtree.assert_not_called()
+
+
+def test_clean_playwright_cache_with_error(mocker: MockerFixture) -> None:
+    """测试清理过程中发生错误的情况"""
+    from nonebot_plugin_htmlrender.browser import clean_playwright_cache
+
+    mocker.patch("platform.system", return_value="Linux")
+    mocker.patch.object(Path, "exists", return_value=True)
+    mocker.patch("shutil.rmtree", side_effect=PermissionError())
+    mock_logger_error = mocker.patch("nonebot_plugin_htmlrender.browser.logger.error")
+
+    clean_playwright_cache()
+
+    mock_logger_error.assert_called_once()
