@@ -1,0 +1,67 @@
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        required: true
+        type: string
+
+jobs:
+  test:
+    name: Test (Py ${{ inputs.python-version }} — ${{ matrix.os_label }})
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - runs_on: ubuntu-latest
+            os_label: ubuntu-latest x64
+            arch: x64
+            platform: linux
+
+          - runs_on: macos-latest
+            os_label: macos-latest arm64
+            arch: arm64
+            platform: macos
+
+          - runs_on: windows-latest
+            os_label: windows-latest x64
+            arch: x64
+            platform: windows
+
+          - runs_on: ubuntu-24.04-arm
+            os_label: ubuntu-24.04-arm arm64
+            arch: arm64
+            platform: linux
+
+    env:
+      OS: ${{ matrix.os_label }}
+      PYTHON_VERSION: ${{ inputs.python-version }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ inputs.python-version }}
+          enable-cache: true
+          cache-suffix: ${{ matrix.runs_on }}-${{ inputs.python-version }}
+
+      - name: Sync deps
+        run: uv sync --locked --all-extras --dev
+
+      - name: Install Playwright (Linux)
+        if: matrix.platform == 'linux'
+        run: uv run playwright install --with-deps && uv run playwright install --with-deps
+      - name: Install Playwright (non-Linux)
+        if: matrix.platform != 'linux'
+        run: uv run playwright install && uv run playwright install
+
+      - name: Run tests
+        run: uv run pytest -s -n auto
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          env_vars: OS,PYTHON_VERSION
+          verbose: true

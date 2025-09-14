@@ -152,7 +152,8 @@ async def test_capture_element(mocker: MockerFixture) -> None:
 
     mock_page = mocker.AsyncMock()
     mock_page.goto = mocker.AsyncMock()
-    mock_page.on = mocker.AsyncMock()
+    mock_page.on = mocker.MagicMock()
+    mock_page.off = mocker.MagicMock()
     mock_page.locator = mocker.MagicMock(return_value=mock_locator)
 
     mock_cm = mocker.MagicMock()

@@ -1,6 +1,16 @@
 import nonebot
+from nonebug import NONEBOT_INIT_KWARGS
 import pytest
 from pytest_asyncio import is_async_test
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    config.stash[NONEBOT_INIT_KWARGS] = {
+        "superusers": {"10001"},
+        "command_start": {""},
+        "log_level": "DEBUG",
+        "htmlrender_ci_mode": True,
+    }
 
 
 def pytest_collection_modifyitems(items: list[pytest.Item]):
