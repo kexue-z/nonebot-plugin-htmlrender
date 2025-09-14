@@ -3,6 +3,7 @@ from typing import Any, Optional
 
 from nonebot import get_driver, get_plugin_config
 from nonebot.compat import model_validator
+from nonebot.log import logger
 import nonebot_plugin_localstore as store
 from pydantic import BaseModel, Field
 
@@ -31,6 +32,14 @@ class Config(BaseModel):
     htmlrender_config_path: Path = Field(
         default=plugin_config_dir,
         description="配置路径，不填则使用 `nonebot-plugin-localstore` 管理",
+    )
+    htmlrender_shutdown_browser_on_exit: bool = Field(
+        default=True,
+        description="在插件关闭时关闭浏览器实例，在连接到远程浏览器时默认为 False。",
+    )
+    htmlrender_ci_mode: bool = Field(
+        default=False,
+        description="启用CI模式，跳过浏览器安装和环境变量",
     )
     htmlrender_download_host: Optional[str] = Field(
         default=None, description="下载Playwright浏览器时的主机地址。"
@@ -93,3 +102,8 @@ class Config(BaseModel):
 
 global_config = get_driver().config
 plugin_config = get_plugin_config(Config)
+
+if plugin_config.htmlrender_ci_mode:
+    logger.info(
+        "CI mode enabled, skipping browser installation and environment variable setup."
+    )
