@@ -1,3 +1,6 @@
+import gc
+
+import anyio
 import nonebot
 from nonebug import NONEBOT_INIT_KWARGS
 import pytest
@@ -23,3 +26,17 @@ def pytest_collection_modifyitems(items: list[pytest.Item]):
 @pytest.fixture(scope="session", autouse=True)
 async def after_nonebot_init(after_nonebot_init: None):
     nonebot.require("nonebot_plugin_htmlrender")
+
+
+@pytest.fixture(scope="session", autouse=True)
+async def _cleanup_playwright_session():
+    from nonebot_plugin_htmlrender import shutdown_htmlrender
+
+    yield
+
+    await shutdown_htmlrender()
+
+    gc.collect()
+    gc.collect()
+
+    await anyio.lowlevel.checkpoint()
