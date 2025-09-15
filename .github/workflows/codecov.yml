@@ -2,42 +2,19 @@ name: Code Coverage
 
 on:
   push:
-    branches:
-      - "master"
-      - "dev"
+    branches: [ master, dev , feat/*]
   pull_request:
-    branches:
-      - "master"
+    branches: [ master ]
 
 jobs:
-  test:
-    name: Test
-    runs-on: ${{ matrix.os }}
+  per-python:
+    name: Python ${{ matrix.python-version }}
     strategy:
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-        os: [ubuntu-latest, windows-latest, macos-latest]
       fail-fast: false
-    env:
-      OS: ${{ matrix.os }}
-      PYTHON_VERSION: ${{ matrix.python-version }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      matrix:
+        python-version: [ "3.9", "3.10", "3.11", "3.12", "3.13" ]
 
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v3
-        with:
-          enable-cache: true
-          python-version: ${{ matrix.python-version }}
-
-      - run: uv sync
-        shell: bash
-
-      - name: Run tests
-        run: uv run pytest -s
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v2
-        with:
-          env_vars: OS,PYTHON_VERSION
+    uses: ./.github/workflows/_test-os-arch.yml
+    with:
+      python-version: ${{ matrix.python-version }}
+    secrets: inherit

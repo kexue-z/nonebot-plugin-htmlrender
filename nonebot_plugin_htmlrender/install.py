@@ -202,7 +202,7 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
                 asyncio.gather(stdout_task, stderr_task), timeout=timeout
             )
         except asyncio.TimeoutError:
-            logger.error(f"Timed out ({timeout}秒)")
+            logger.error(f"Timed out ({timeout}s)")
             await terminate_process(process)
             return False, f"Timed out ({timeout}s)"
 

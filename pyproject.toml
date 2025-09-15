@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.6.8"
+version = "0.6.7"
 description = "通过浏览器渲染图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
@@ -16,6 +16,7 @@ dependencies = [
     "pygments>=2.10.0",
     "pymdown-extensions>=9.1",
     "python-markdown-math>=0.8",
+    "tenacity>=9.1.2",
 ]
 
 [project.urls]

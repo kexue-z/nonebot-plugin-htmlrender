@@ -1,5 +1,5 @@
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from typing import Optional
 
 from nonebot.log import logger
@@ -10,6 +10,7 @@ from playwright.async_api import (
     Playwright,
     async_playwright,
 )
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.install import install_browser
@@ -127,7 +128,30 @@ async def _connect(browser_type: str, **kwargs) -> Browser:
     if _playwright is not None:
         return await _browser_cls.connect(**kwargs)
     else:
-        raise RuntimeError("Playwright 未初始化")
+        raise RuntimeError("Playwright is not initialized")
+
+
+@retry(
+    retry=retry_if_exception_type(RuntimeError),
+    stop=stop_after_attempt(4),
+    wait=wait_fixed(1),
+    reraise=True,
+    before_sleep=lambda retry_state: logger.warning(
+        f"Attempt {retry_state.attempt_number} failed, retrying..."
+    ),
+)
+async def _check_env_with_install_retry(**kwargs):
+    try:
+        return await check_playwright_env(**kwargs)
+    except RuntimeError:
+        if plugin_config.htmlrender_ci_mode:
+            raise
+        try:
+            await install_browser()
+        except Exception as e:
+            logger.error(f"Browser installation failed: {e!s}")
+            raise RuntimeError(f"install_browser failed: {e}") from e
+        raise
 
 
 @with_lock
@@ -144,8 +168,10 @@ async def startup_htmlrender(**kwargs) -> Browser:
     global _browser, _playwright
 
     await shutdown_htmlrender()
-    clean_playwright_cache()
-    _prepare_playwright_env_vars()
+
+    if not plugin_config.htmlrender_ci_mode:
+        clean_playwright_cache()
+        _prepare_playwright_env_vars()
 
     _playwright = await async_playwright().start()
     logger.debug("Playwright started")
@@ -177,30 +203,68 @@ async def startup_htmlrender(**kwargs) -> Browser:
                     f" '{plugin_config.htmlrender_browser_executable_path}': {e}"
                 ) from e
         else:
-            try:
-                _browser = await check_playwright_env(**kwargs)
-            except RuntimeError:
-                await install_browser()
-                _browser = await check_playwright_env(**kwargs)
+            _browser = await _check_env_with_install_retry(**kwargs)
 
     return _browser
 
 
 async def shutdown_htmlrender() -> None:
-    """关闭浏览器和 Playwright 实例。"""
-    if _browser:
-        if not _browser.is_connected():
-            logger.info("Browser was already disconnected, skipping close.")
-        else:
-            with suppress_and_log():
-                logger.debug("Disconnecting browser...")
-                await _browser.close()
-                logger.info("Disconnected browser.")
-    if _playwright:
+    is_remote = bool(
+        plugin_config.htmlrender_connect or plugin_config.htmlrender_connect_over_cdp
+    )
+    async with AsyncExitStack() as stack:
+        await _schedule_browser_shutdown(stack, is_remote=is_remote)
+        await _schedule_playwright_shutdown(stack)
+    _clear_globals()
+
+
+async def _schedule_browser_shutdown(stack: AsyncExitStack, *, is_remote: bool) -> None:
+    global _browser
+    if not _browser:
+        return
+
+    should_close = (not is_remote) and plugin_config.htmlrender_shutdown_browser_on_exit
+    if not should_close:
+        logger.info(
+            "Skipping browser shutdown due to configuration or remote connection."
+        )
+        return
+
+    browser = _browser
+    if not browser.is_connected():
+        logger.info("Browser was already disconnected.")
+        return
+
+    logger.debug("Disconnecting browser...")
+
+    async def _close_browser():
         with suppress_and_log():
-            logger.debug("Stopping Playwright...")
-            await _playwright.stop()
+            await browser.close()
+            logger.info("Disconnected browser.")
+
+    stack.push_async_callback(_close_browser)
+
+
+async def _schedule_playwright_shutdown(stack: AsyncExitStack) -> None:
+    global _playwright
+    if not _playwright:
+        return
+
+    pw = _playwright
+    logger.debug("Stopping Playwright...")
+
+    async def _stop_pw():
+        with suppress_and_log():
+            await pw.stop()
             logger.info("Playwright stopped.")
+
+    stack.push_async_callback(_stop_pw)
+
+
+def _clear_globals() -> None:
+    global _browser, _playwright
+    _browser = None
+    _playwright = None
 
 
 async def check_playwright_env(**kwargs) -> Browser:
