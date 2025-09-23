@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 import os
 from typing import Callable, Optional
 from urllib.parse import urlparse
+import sys
 
 from nonebot import logger
 
@@ -171,6 +172,8 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
         install_signal_handler()
 
         process = await create_process(
+            sys.executable,
+            "-m",
             "playwright",
             "install",
             "--with-deps",
