@@ -18,6 +18,9 @@ dependencies = [
     "python-markdown-math>=0.8",
     "tenacity>=9.1.2",
 ]
+[project.optional-dependencies]
+sentry = ["nonebot-plugin-sentry>=2.0.0"]
+prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
