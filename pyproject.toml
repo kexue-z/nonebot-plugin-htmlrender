@@ -99,7 +99,6 @@ executionEnvironments = [
 ]
 
 typeCheckingMode = "standard"
-reportShadowedImports = false
 disableBytesTypePromotions = true
 
 [build-system]
