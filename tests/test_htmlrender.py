@@ -81,6 +81,26 @@ async def test_html_to_pic(app: App, browser: None) -> None:
 
 
 @pytest.mark.asyncio
+async def test_html_to_pic_with_different_url_schemes(app: App, browser: None) -> None:
+    """测试 html_to_pic 支持不同的 URL 协议"""
+    from nonebot_plugin_htmlrender import html_to_pic
+
+    # Test with about:blank
+    img = await html_to_pic(
+        "<html><body><p>Test with about:blank</p></body></html>",
+        template_path="about:blank",
+    )
+    assert isinstance(img, bytes)
+
+    # Test with data URL
+    img = await html_to_pic(
+        "<html><body><p>Test with data URL</p></body></html>",
+        template_path="data:text/html,<html></html>",
+    )
+    assert isinstance(img, bytes)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("template_resources", ["text"], indirect=True)
 async def test_template_to_pic(
     app: App,
@@ -99,6 +119,31 @@ async def test_template_to_pic(
         template_name=template_name,
         templates={"text_list": text_list},
         pages=page_config,
+    )
+    assert isinstance(img, bytes)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("template_resources", ["text"], indirect=True)
+async def test_template_to_pic_with_different_base_url(
+    app: App,
+    browser: None,
+    template_resources: tuple[str, str, list[str]],
+) -> None:
+    """测试 template_to_pic 使用不同的 base_url"""
+    from nonebot_plugin_htmlrender import template_to_pic
+
+    template_path, template_name, text_list = template_resources
+
+    # Test with about:blank as base_url
+    img = await template_to_pic(
+        template_path=template_path,
+        template_name=template_name,
+        templates={"text_list": text_list},
+        pages={
+            "viewport": {"width": 600, "height": 300},
+            "base_url": "about:blank",
+        },
     )
     assert isinstance(img, bytes)
 
