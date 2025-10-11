@@ -198,7 +198,11 @@ async def html_to_pic(
         screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
-        template_path (str, optional): 模板路径 如 "file:///path/to/template/"
+        template_path (str, optional): 模板路径，支持多种URL协议:
+            - file:// 本地文件路径 (如 "file:///path/to/template/")
+            - http:// 或 https:// 远程URL (用于远程浏览器)
+            - data: Data URL
+            - about:blank 空白页面
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰
@@ -208,8 +212,6 @@ async def html_to_pic(
         bytes: 图片, 可直接发送
     """
     # logger.debug(f"html:\n{html}")
-    if "file:" not in template_path:
-        raise Exception("template_path should be file:///path/to/template")
     async with get_new_page(device_scale_factor, **kwargs) as page:
         page.on("console", lambda msg: logger.debug(f"[Browser Console]: {msg.text}"))
         await page.goto(template_path)
