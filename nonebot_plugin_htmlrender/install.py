@@ -241,7 +241,7 @@ async def install_browser(timeout: int = 300) -> bool:
             return True
         else:
             logger.warning("Installation failed, retrying with official mirror...")
-            del os.environ["PLAYWRIGHT_DOWNLOAD_HOST"]
+            os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
             installed, message = await execute_install_command(timeout)
             if installed:
                 logger.info("Installation succeeded")
