@@ -198,7 +198,11 @@ async def html_to_pic(
         screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
-        template_path (str, optional): 模板路径 如 "file:///path/to/template/"
+        template_path (str, optional): 模板路径，支持多种URL协议:
+            - file:// 本地文件路径 (如 "file:///path/to/template/")
+            - http:// 或 https:// 远程URL (用于远程浏览器)
+            - data: Data URL
+            - about:blank 空白页面
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰
@@ -208,8 +212,6 @@ async def html_to_pic(
         bytes: 图片, 可直接发送
     """
     # logger.debug(f"html:\n{html}")
-    if "file:" not in template_path:
-        raise Exception("template_path should be file:///path/to/template")
     async with get_new_page(device_scale_factor, **kwargs) as page:
         page.on("console", lambda msg: logger.debug(f"[Browser Console]: {msg.text}"))
         await page.goto(template_path)
@@ -239,12 +241,16 @@ async def template_to_pic(
 
     Args:
         screenshot_timeout (float, optional): 截图超时时间，默认30000ms
-        template_path (str): 模板路径
+        template_path (str): 模板文件的本地路径 (用于jinja2加载模板)
         template_name (str): 模板名
         templates (Dict[Any, Any]): 模板内参数 如: {"name": "abc"}
         filters (Optional[Dict[str, Any]]): 自定义过滤器
-        pages (Optional[Dict[Any, Any]]): 网页参数 Defaults to
-            {"base_url": f"file://{getcwd()}", "viewport": {"width": 500, "height": 10}}
+        pages (Optional[Dict[Any, Any]]): 网页参数，支持以下字段:
+            - base_url: 浏览器页面的基础URL，用于解析相对路径。
+              对于本地浏览器使用 file:// 协议，
+              对于远程浏览器可使用 http:// 或 https:// 协议。
+              默认为 f"file://{getcwd()}"
+            - viewport: 视口大小，默认为 {"width": 500, "height": 10}
         wait (int, optional): 网页载入等待时间. Defaults to 0.
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
@@ -270,8 +276,13 @@ async def template_to_pic(
 
     template = template_env.get_template(template_name)
 
+    # Use base_url from pages if provided, otherwise use file:// URL from template_path
+    # This allows remote browsers to use http/https URLs
+    # while local browsers use file:// URLs
+    page_base_url = pages.get("base_url", f"file://{template_path}")
+
     return await html_to_pic(
-        template_path=f"file://{template_path}",
+        template_path=page_base_url,
         html=await template.render_async(**templates),
         wait=wait,
         type=type,

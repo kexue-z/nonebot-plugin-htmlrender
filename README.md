@@ -80,6 +80,73 @@ htmlrender_connect_over_cdp = "http://127.0.0.1:9222"
 htmlrender_connect="ws://playwright:3000"
 ```
 
+### 远程浏览器使用说明
+
+当使用远程浏览器（通过 `htmlrender_connect` 或 `htmlrender_connect_over_cdp` 配置）时，本地文件系统的 `file://` 协议将无法访问。此时需要：
+
+#### 1. 使用 `html_to_pic` 函数
+
+可以直接传入不同的 URL 协议：
+
+```python
+from nonebot_plugin_htmlrender import html_to_pic
+
+# 使用 about:blank（推荐用于纯 HTML 内容）
+pic = await html_to_pic(
+    html="<html><body><h1>Hello</h1></body></html>",
+    template_path="about:blank"
+)
+
+# 使用 data URL
+pic = await html_to_pic(
+    html="<html><body><h1>Hello</h1></body></html>",
+    template_path="data:text/html,<html></html>"
+)
+
+# 使用 HTTP URL（需要有可访问的 Web 服务器提供资源）
+pic = await html_to_pic(
+    html="<html><body><h1>Hello</h1></body></html>",
+    template_path="http://your-server.com/base/"
+)
+```
+
+#### 2. 使用 `template_to_pic` 函数
+
+需要通过 `pages` 参数的 `base_url` 字段指定浏览器使用的基础 URL：
+
+```python
+from nonebot_plugin_htmlrender import template_to_pic
+from pathlib import Path
+
+template_path = str(Path(__file__).parent / "templates")
+
+# 对于远程浏览器，使用 about:blank 或 HTTP URL
+pic = await template_to_pic(
+    template_path=template_path,  # 本地模板路径（用于 jinja2 加载）
+    template_name="my_template.html",
+    templates={"data": "value"},
+    pages={
+        "viewport": {"width": 600, "height": 300},
+        "base_url": "about:blank",  # 浏览器使用的基础 URL
+    },
+)
+
+# 如果模板中有相对路径的资源（如图片、CSS），需要使用 HTTP URL
+pic = await template_to_pic(
+    template_path=template_path,
+    template_name="my_template.html",
+    templates={"data": "value"},
+    pages={
+        "viewport": {"width": 600, "height": 300},
+        "base_url": "http://your-server.com/static/",
+    },
+)
+```
+
+**注意**：
+- `template_path` 参数始终是本地文件系统路径，用于 jinja2 模板引擎加载模板文件
+- `base_url` 参数是浏览器使用的基础 URL，用于解析 HTML 中的相对路径资源
+
 ## 部署
 
 ### （建议）使用 docker compose 进行部署
