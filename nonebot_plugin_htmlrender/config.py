@@ -68,6 +68,9 @@ class Config(BaseModel):
     htmlrender_browser_args: Optional[str] = Field(
         default=None, description="Playwright 浏览器启动参数。"
     )
+    htmlrender_install_retry_times: int = Field(
+        default=4, description="Playwright浏览器安装失败时的重试次数。"
+    )
 
     @model_validator(mode="after")
     @classmethod

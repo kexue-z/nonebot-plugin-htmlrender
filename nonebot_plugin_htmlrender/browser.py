@@ -133,11 +133,11 @@ async def _connect(browser_type: str, **kwargs) -> Browser:
 
 @retry(
     retry=retry_if_exception_type(RuntimeError),
-    stop=stop_after_attempt(4),
+    stop=stop_after_attempt(plugin_config.htmlrender_install_retry_times),
     wait=wait_fixed(1),
     reraise=True,
     before_sleep=lambda retry_state: logger.warning(
-        f"Attempt {retry_state.attempt_number} failed, retrying..."
+        f"Attempt [{retry_state.attempt_number}/{plugin_config.htmlrender_install_retry_times}] failed, retrying..."
     ),
 )
 async def _check_env_with_install_retry(**kwargs):
