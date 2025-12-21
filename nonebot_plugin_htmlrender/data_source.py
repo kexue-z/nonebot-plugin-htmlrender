@@ -184,7 +184,7 @@ async def template_to_html(
 async def html_to_pic(
     html: str,
     wait: int = 0,
-    template_path: str = f"file://{getcwd()}",
+    template_path: Optional[str] = None,
     type: Literal["jpeg", "png"] = "png",
     quality: Union[int, None] = None,
     device_scale_factor: float = 2,
@@ -198,7 +198,7 @@ async def html_to_pic(
         screenshot_timeout (float, optional): 截图超时时间，默认30000ms
         html (str): html文本
         wait (int, optional): 等待时间. Defaults to 0.
-        template_path (str, optional): 模板路径 如 "file:///path/to/template/"
+        template_path (str, optional): 模板路径 如 "file:///path/to/template/". 如果未提供，则导航到 about:blank
         type (Literal["jpeg", "png"]): 图片类型, 默认 png
         quality (int, optional): 图片质量 0-100 当为`png`时无效
         device_scale_factor: 缩放比例,类型为float,值越大越清晰
@@ -208,11 +208,14 @@ async def html_to_pic(
         bytes: 图片, 可直接发送
     """
     # logger.debug(f"html:\n{html}")
-    if "file:" not in template_path:
-        raise Exception("template_path should be file:///path/to/template")
     async with get_new_page(device_scale_factor, **kwargs) as page:
         page.on("console", lambda msg: logger.debug(f"[Browser Console]: {msg.text}"))
-        await page.goto(template_path)
+        if template_path:
+            if "file:" not in template_path:
+                raise Exception("template_path should be file:///path/to/template")
+            await page.goto(template_path)
+        else:
+            await page.goto("about:blank")
         await page.set_content(html, wait_until="networkidle")
         await page.wait_for_timeout(wait)
         return await page.screenshot(
