@@ -29,9 +29,9 @@ async def mock_browser_context(
     mocker: MockerFixture, mock_browser: Browser
 ) -> AsyncGenerator[None, None]:
     """模拟浏览器上下文的 fixture"""
-    mocker.patch("nonebot_plugin_htmlrender.browser._browser", mock_browser)
+    mocker.patch("nonebot_plugin_htmlrender.browser._manager._browser", mock_browser)
     yield
-    mocker.patch("nonebot_plugin_htmlrender.browser._browser", None)
+    mocker.patch("nonebot_plugin_htmlrender.browser._manager._browser", None)
 
 
 @pytest.fixture
@@ -72,7 +72,9 @@ async def test_launch(mocker: MockerFixture, browser_config: dict[str, str]) -> 
     mock_playwright = mocker.MagicMock()
     setattr(mock_playwright, "chromium", mock_browser_type)
 
-    mocker.patch("nonebot_plugin_htmlrender.browser._playwright", mock_playwright)
+    mocker.patch(
+        "nonebot_plugin_htmlrender.browser._manager._playwright", mock_playwright
+    )
     await _launch(browser_config["browser"])
 
     mock_browser_type.launch.assert_called_once()
@@ -114,7 +116,7 @@ async def test_get_new_page(
     mocker.patch.object(mock_browser, "new_page", new_page_mock)
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.browser.get_browser",
+        "nonebot_plugin_htmlrender.browser._manager.get_browser",
         return_value=mock_browser,
     )
 
@@ -159,7 +161,8 @@ async def test_connect_via_cdp(
     from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.browser._connect_via_cdp", return_value=mock_browser
+        "nonebot_plugin_htmlrender.browser._manager._connect_via_cdp",
+        return_value=mock_browser,
     )
     mocker.patch(
         "nonebot_plugin_htmlrender.browser.plugin_config.htmlrender_browser",
@@ -182,7 +185,8 @@ async def test_connect(
     from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.browser._connect", return_value=mock_browser
+        "nonebot_plugin_htmlrender.browser._manager._connect",
+        return_value=mock_browser,
     )
     mocker.patch(
         "nonebot_plugin_htmlrender.browser.plugin_config.htmlrender_browser",
@@ -245,7 +249,7 @@ async def test_start_browser_with_cdp(
     from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mock_cdp = mocker.patch(
-        "nonebot_plugin_htmlrender.browser._connect_via_cdp",
+        "nonebot_plugin_htmlrender.browser._manager._connect_via_cdp",
         return_value=mocker.MagicMock(spec=Browser),
     )
     mocker.patch("playwright.async_api.async_playwright")
@@ -268,7 +272,7 @@ async def test_start_browser_with_config(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.browser import startup_htmlrender
 
     mock_launch = mocker.patch(
-        "nonebot_plugin_htmlrender.browser._launch",
+        "nonebot_plugin_htmlrender.browser._manager._launch",
         return_value=mocker.MagicMock(spec=Browser),
     )
     mocker.patch("playwright.async_api.async_playwright")
