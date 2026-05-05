@@ -117,12 +117,11 @@ async def test_template_filter(
     def _count_to_color(count: str) -> str:
         if count == "1":
             return "#facc15"
-        elif count == "2":
+        if count == "2":
             return "#f87171"
-        elif count == "3":
+        if count == "3":
             return "#c084fc"
-        else:
-            return "#60a5fa"
+        return "#60a5fa"
 
     template_path, template_name, count_list = template_resources
     page_config["base_url"] = f"file://{template_path}"
@@ -143,7 +142,7 @@ async def test_template_filter(
 @pytest.mark.asyncio
 async def test_capture_element(mocker: MockerFixture) -> None:
     """测试网页元素捕获功能"""
-    from nonebot_plugin_htmlrender.data_source import capture_element
+    from nonebot_plugin_htmlrender.backend.playwright.data_source import capture_element
 
     mock_screenshot = b"test_image_bytes"
 
@@ -161,7 +160,7 @@ async def test_capture_element(mocker: MockerFixture) -> None:
     mock_cm.__aexit__ = mocker.AsyncMock(return_value=None)
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.data_source.get_new_page", return_value=mock_cm
+        "nonebot_plugin_htmlrender.backend.playwright.data_source.get_new_page", return_value=mock_cm
     )
 
     result = await capture_element("https://example.com", "#target-element")
@@ -198,13 +197,13 @@ async def test_capture_element_exceptions_propagate(mocker: MockerFixture) -> No
     """测试网页元素捕获时的异常能正确传递"""
     from playwright.async_api import Error
 
-    from nonebot_plugin_htmlrender.data_source import capture_element
+    from nonebot_plugin_htmlrender.backend.playwright.data_source import capture_element
 
     mock_cm = mocker.MagicMock()
     mock_cm.__aenter__ = mocker.AsyncMock(side_effect=Error("Browser error"))
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.data_source.get_new_page", return_value=mock_cm
+        "nonebot_plugin_htmlrender.backend.playwright.data_source.get_new_page", return_value=mock_cm
     )
 
     with pytest.raises(Error) as exc_info:

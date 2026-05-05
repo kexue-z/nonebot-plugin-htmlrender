@@ -10,9 +10,7 @@ import shutil
 from typing import (
     Any,
     Callable,
-    Optional,
     TypeVar,
-    Union,
     overload,
 )
 from typing_extensions import ParamSpec
@@ -35,17 +33,17 @@ def deprecated(func: Callable[P, R]) -> Callable[P, R]: ...
 def deprecated(
     func: None = None,
     *,
-    message: Optional[str] = None,
-    version: Optional[str] = None,
+    message: str | None = None,
+    version: str | None = None,
 ) -> Callable[[Callable[P, R]], Callable[P, R]]: ...
 
 
 def deprecated(
-    func: Optional[Callable[P, R]] = None,
+    func: Callable[P, R] | None = None,
     *,
-    message: Optional[str] = None,
-    version: Optional[str] = None,
-) -> Union[Callable[P, R], Callable[[Callable[P, R]], Callable[P, R]]]:
+    message: str | None = None,
+    version: str | None = None,
+) -> Callable[P, R] | Callable[[Callable[P, R]], Callable[P, R]]:
     """
     一个用于标记函数为已废弃的装饰器。
 
@@ -110,15 +108,15 @@ def suppress_and_log():
         logger.opt(exception=e).warning("Error occurred while closing playwright.")
 
 
-def proxy_settings(proxy_host: Optional[str]) -> Optional[dict]:
+def proxy_settings(proxy_host: str | None) -> dict[str, str] | None:
     """
     代理设置，解析提供的代理 URL，并检查是否包含用户名和密码，同时处理代理绕过。
 
     Args:
-        proxy_host (Optional[str]): 代理主机的 URL。
+        proxy_host (str | None): 代理主机的 URL。
 
     Returns:
-        Optional[dict]: 代理设置。
+        dict[str, str] | None: 代理设置。
     """
     if not proxy_host:
         return None
@@ -148,8 +146,8 @@ def proxy_settings(proxy_host: Optional[str]) -> Optional[dict]:
         proxy_url = proxy_host
         proxy = {"server": proxy_url}
 
-    if plugin_config.htmlrender_proxy_host_bypass:
-        proxy["bypass"] = plugin_config.htmlrender_proxy_host_bypass
+    if plugin_config.render_playwright.proxy_bypass:
+        proxy["bypass"] = plugin_config.render_playwright.proxy_bypass
 
     return proxy
 
@@ -173,24 +171,34 @@ def _prepare_playwright_env_vars() -> None:
         Dict[str, str]: 包含环境变量的字典
     """
     if (
-        plugin_config.htmlrender_storage_path
-        and not plugin_config.htmlrender_browser_executable_path
+        plugin_config.render_storage_path
+        and not plugin_config.render_playwright.executable_path
     ):
         storage_path = os.path.abspath(
-            os.path.expanduser(str(plugin_config.htmlrender_storage_path))
+            os.path.expanduser(str(plugin_config.render_storage_path))
         )
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = storage_path
 
         logger.debug(f'Setting PLAYWRIGHT_BROWSERS_PATH="{storage_path}"')
 
 
+def prepare_playwright_env_vars() -> None:
+    """Public wrapper for preparing Playwright env vars."""
+    _prepare_playwright_env_vars()
+
+
 def _clear_playwright_env_vars() -> None:
     if (
-        plugin_config.htmlrender_storage_path
-        and not plugin_config.htmlrender_browser_executable_path
+        plugin_config.render_storage_path
+        and not plugin_config.render_playwright.executable_path
     ) and "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
         playwright_path = os.environ.pop("PLAYWRIGHT_BROWSERS_PATH")
         logger.debug(f'PLAYWRIGHT_BROWSERS_PATH="{playwright_path}" removed')
+
+
+def clear_playwright_env_vars() -> None:
+    """Public wrapper for clearing Playwright env vars."""
+    _clear_playwright_env_vars()
 
 
 def clean_playwright_cache() -> None:
@@ -211,9 +219,9 @@ def clean_playwright_cache() -> None:
                 "Since v0.7.0, nonebot-plugin-htmlrender has moved the Playwright"
                 "cache path. Executable files are now stored and managed by the "
                 "`nonebot-plugin-localstore` plugin under "
-                f"{plugin_config.htmlrender_storage_path}. "
+                f"{plugin_config.render_storage_path}. "
                 "You can change this path via the config option "
-                "`htmlrender_storage_path`."
+                "`render_storage_path`."
             )
             logger.info(f"Deleting Playwright directory at {cache_path}")
             shutil.rmtree(str(cache_path))

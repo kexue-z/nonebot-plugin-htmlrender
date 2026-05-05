@@ -2,9 +2,9 @@ import asyncio
 from collections.abc import AsyncIterator, Awaitable
 from contextlib import asynccontextmanager
 import os
+import sys
 from typing import Callable, Optional
 from urllib.parse import urlparse
-import sys
 
 from nonebot import logger
 
@@ -44,10 +44,10 @@ async def check_mirror_connectivity(timeout: int = 5) -> Optional[MirrorSource]:
             logger.debug(f"镜像源 {mirror.name} 连接失败: {e!s}")
         return mirror, float("inf")
 
-    if plugin_config.htmlrender_download_host:
+    if plugin_config.render_playwright.install_mirror:
         mirrors = [
             *MIRRORS,
-            MirrorSource("自定义镜像", plugin_config.htmlrender_download_host, 0),
+            MirrorSource("自定义镜像", plugin_config.render_playwright.install_mirror, 0),
         ]
     else:
         mirrors = MIRRORS
@@ -75,8 +75,8 @@ async def download_context() -> AsyncIterator[None]:
     original_host = os.environ.get("PLAYWRIGHT_DOWNLOAD_HOST")
     os.environ["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"] = "300000"
 
-    if plugin_config.htmlrender_download_proxy:
-        proxy = plugin_config.htmlrender_download_proxy
+    if plugin_config.render_playwright.install_proxy:
+        proxy = plugin_config.render_playwright.install_proxy
         if proxy.startswith("http://") and not os.environ.get("HTTP_PROXY"):
             logger.info(f"Using http Proxy: {proxy}")
             os.environ["HTTP_PROXY"] = proxy
@@ -177,7 +177,7 @@ async def execute_install_command(timeout: int) -> tuple[bool, str]:
             "playwright",
             "install",
             "--with-deps",
-            plugin_config.htmlrender_browser,
+            plugin_config.render_playwright.engine,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
@@ -233,7 +233,7 @@ async def install_browser(timeout: int = 300) -> bool:
     """
     async with download_context():
         logger.opt(colors=True).info(
-            f"Checking <cyan>{plugin_config.htmlrender_browser}</cyan> installation..."
+            f"Checking <cyan>{plugin_config.render_playwright.engine}</cyan> installation..."
         )
         installed, message = await execute_install_command(timeout)
         if installed:
