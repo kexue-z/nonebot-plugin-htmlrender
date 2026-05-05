@@ -7,17 +7,18 @@ authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
 requires-python = ">=3.11,<4.0"
 license = { file = "LICENSE" }
 dependencies = [
-    "anyio>=4.11.0",
+    "anyio>=4.12.0",
     "exceptiongroup>=1.3.0",
     "jinja2>=3.0.3",
-    "markdown>=3.3.6",
+    "markdown>=3.10.0",
     "nonebot-plugin-localstore>=0.7.4",
     "nonebot2>=2.4.2",
-    "playwright>=1.48.0",
+    "playwright>=1.58.0",
     "pygments>=2.10.0",
     "pymdown-extensions>=9.1",
     "python-markdown-math>=0.8",
     "tenacity>=9.1.2",
+    "typing-extensions>=4.15.0",
 ]
 [project.optional-dependencies]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
@@ -30,29 +31,24 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 [dependency-groups]
 dev = [
     "nonebot-adapter-onebot>=2.4.6",
-    "nonebot2[fastapi]>=2.3.3",
-    "ruff>=0.14.2",
-    "basedpyright>=1.32.1",
+    "nonebot2[fastapi]>=2.4.4",
+    "ruff>=0.15.2",
+    "basedpyright>=1.38.1",
 ]
 docs = [
-    "zensical>=0.0.20",
+    "zensical>=0.0.23",
     "mdformat>=1.0.0",
     "mdformat-mkdocs>=4.4.2",
-    "mkdocs>=1.6.1",
-    "mkdocs-git-revision-date-localized-plugin>=1.5.0",
-    "mkdocs-github-admonitions-plugin>=0.1.1",
-    "mkdocs-redirects>=1.2.2",
-    "mkdocstrings[python]>=1.0.2",
+    "mkdocstrings-python>=2.0.1",
 ]
 test = [
     "nonebug>=0.4.2",
-    "pytest>=8.4.2",
     "pytest-cov>=7.0.0",
     "pytest-xdist>=3.8.0",
     "respx>=0.22.0",
     "pytest-mock>=3.15.1",
-    "trio>=0.32.0",
-    "pillow>=11.0.0",
+    "trio>=0.33.0",
+    "pillow>=12.0.0",
 ]
 
 
@@ -141,6 +137,7 @@ select = [
     "RUF", # Ruff-specific rules
 ]
 ignore = [
+    "E402", # module-import-not-at-top-of-file (needed by nonebot require pattern)
     "E501", # 过长的行由 ruff format 处理, 剩余的都是字符串
     "UP035", # pyupgrade, 但 typing.Callable 的导入会报错
     "TRY003", # 简单异常搞这么复杂
@@ -157,6 +154,10 @@ ignore = [
     "SIM108", # 迫真 simplicy
     "RUF009", # 我不想要额外的全局变量。
     "RUF003", # 中文注释里用全角符号怎么你了
+    "RUF001", # 中文字符串里的全角标点
+    "RUF002", # 中文 docstring 里的全角标点
+    "PTH100", # keep os.path for compatibility
+    "PTH111", # keep os.path for compatibility
     "SLOT000", # 动态类型需求，主要是 json5 backend
     "PLR0911",
     "PLR0912",
@@ -178,6 +179,9 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 
 [tool.ruff.lint.flake8-annotations]
 mypy-init-return = true
+
+[tool.ruff.lint.per-file-ignores]
+"tests/test_browser.py" = ["PLC0415", "ARG001", "B010"]
 
 [tool.ruff.lint.flake8-builtins]
 builtins-ignorelist = ["id"]
@@ -206,8 +210,14 @@ keep-runtime-typing = true
 [tool.basedpyright]
 pythonVersion = "3.11"
 pythonPlatform = "All"
-typeCheckingMode = "recommended"
+typeCheckingMode = "standard"
 disableBytesTypePromotions = true
+reportAny = false
+reportExplicitAny = false
+reportUnusedFunction = false
+reportUnusedCallResult = false
+reportPrivateUsage = false
+reportUnreachable = false
 include = ["nonebot_plugin_htmlrender", "tests"]
 executionEnvironments = [
     { root = "./tests", extraPaths = ["./"] },

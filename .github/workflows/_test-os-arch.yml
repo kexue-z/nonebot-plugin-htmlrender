@@ -50,6 +50,10 @@ jobs:
       - name: Sync deps
         run: uv sync --locked --all-extras --dev
 
+      - name: Run basedpyright
+        if: matrix.runs_on == 'ubuntu-latest' && inputs.python-version == '3.11'
+        run: uv run basedpyright
+
       - name: Install Playwright (Linux)
         if: matrix.platform == 'linux'
         run: uv run playwright install --with-deps && uv run playwright install --with-deps
