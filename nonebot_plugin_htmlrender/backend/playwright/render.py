@@ -1,16 +1,35 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from enum import StrEnum
+from enum import Enum
+from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
+from importlib.util import find_spec
 import re
-from typing import TYPE_CHECKING, Any, Awaitable, Callable
-from urllib.parse import parse_qs, urlparse
+import shutil
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
+from typing_extensions import Unpack
+from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from .models import HtmlRenderRequest, TemplateConfig, TemplateRenderRequest
+    from .types import (
+        BrowserLaunchKwargs,
+        BrowserSessionKwargs,
+        CaptureElementKwargs,
+        CdpConnectKwargs,
+        PageContextKwargs,
+        ProxySettings,
+        RenderHtmlKwargs,
+        RenderMarkdownKwargs,
+        RenderTemplateKwargs,
+        RenderTextKwargs,
+        WsConnectKwargs,
+    )
 
 from anyio.to_thread import run_sync
 from nonebot.log import logger
@@ -23,18 +42,30 @@ from playwright.async_api import (
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.consts import BrowserEngine, RenderBackend
-from nonebot_plugin_htmlrender.install import install_browser
-from nonebot_plugin_htmlrender.telemetry import track_render
-from nonebot_plugin_htmlrender.utils import (
-    clean_playwright_cache,
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceConfig,
+    register_resource_config_provider,
+)
+from nonebot_plugin_htmlrender.resources.filehost import ensure_filehost_runtime_ready
+from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
+
+from ..base import BackendCapability, RenderRuntime, RenderSession
+from ..factory import BackendAvailability, register_backend
+from . import operations as playwright_operations
+from .config import get_playwright_config
+from .install import install_browser
+from .runtime import (
     clear_playwright_env_vars,
+    has_installed_browser,
     prepare_playwright_env_vars,
-    suppress_and_log,
+    reconcile_legacy_playwright_cache,
+    record_playwright_runtime_state,
 )
 
-from ..base import Renderer, RenderRuntime, RenderSession
+
+class StrEnum(str, Enum):
+    pass
 
 
 class PlaywrightMode(StrEnum):
@@ -49,33 +80,53 @@ class WsVersionRiskLevel(StrEnum):
     BLOCK = "block"
 
 
-class PlaywrightRender(Renderer[Playwright, Browser]):
+class PlaywrightBackend:
     """Playwright-backed renderer.
 
-    Implements the ``Renderer[Playwright, Browser]`` protocol:
+    Implements the ``Backend[Playwright, Browser]`` protocol:
 
-    - ``open_runtime`` starts the Playwright subprocess and prepares env vars.
-    - ``open_session`` launches or connects a Browser.
+    - ``create_runtime`` starts the Playwright subprocess and prepares env vars.
+    - ``create_session`` launches or connects a Browser.
     - ``is_alive`` reports whether the Browser connection is healthy.
-    - ``get_new_page`` is a Playwright-specific extension that yields a new Page.
+    - ``get_render_context`` is a Playwright-specific extension that yields a new Page.
     """
 
     backend: RenderBackend = RenderBackend.PLAYWRIGHT
+    capabilities = frozenset(
+        {
+            BackendCapability.RENDER_CONTEXT,
+            BackendCapability.HTML_RENDER,
+            BackendCapability.TEXT_RENDER,
+            BackendCapability.MARKDOWN_RENDER,
+            BackendCapability.TEMPLATE_RENDER,
+            BackendCapability.TEMPLATE_HTML_RENDER,
+            BackendCapability.HTML_ELEMENT_CAPTURE,
+        }
+    )
 
     def startup_steps(self) -> tuple[Callable[[], Awaitable[None]], ...]:
+        """返回后端启动前需要执行的异步准备步骤。"""
+
         async def _prepare_env() -> None:
             await run_sync(prepare_playwright_env_vars)
 
         async def _clean_cache() -> None:
-            await run_sync(clean_playwright_cache)
+            await run_sync(
+                partial(
+                    reconcile_legacy_playwright_cache,
+                    cleanup=get_playwright_config().cleanup_legacy_cache,
+                )
+            )
 
-        return (_prepare_env, _clean_cache)
+        async def _record_runtime_state() -> None:
+            await run_sync(record_playwright_runtime_state)
 
-    # ------------------------------------------------------------------
-    # Renderer protocol
-    # ------------------------------------------------------------------
+        async def _prewarm_filehost() -> None:
+            await ensure_filehost_runtime_ready(reason="playwright_startup")
 
-    async def open_runtime(self) -> RenderRuntime[Playwright]:
+        return (_prepare_env, _clean_cache, _record_runtime_state, _prewarm_filehost)
+
+    async def create_runtime(self) -> RenderRuntime:
         """启动 Playwright 子进程并准备环境变量。
 
         Returns:
@@ -92,11 +143,11 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
 
             return RenderRuntime(backend=self.backend, handle=pw, _aclose=_aclose)
 
-    async def open_session(
+    async def create_session(
         self,
-        runtime: RenderRuntime[Playwright],
-        **kwargs: Any,
-    ) -> RenderSession[Playwright, Browser]:
+        runtime: RenderRuntime,
+        **kwargs: Unpack[BrowserSessionKwargs],
+    ) -> RenderSession:
         """启动或连接一个绑定到给定运行时的浏览器会话。
 
         Args:
@@ -110,12 +161,19 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
             RuntimeError: 浏览器无法启动或连接时抛出。
         """
         async with track_render("playwright.open_session", backend=self.backend):
+            pw = runtime.handle
+            if not isinstance(pw, Playwright):
+                raise TypeError(f"Expected Playwright handle, got {type(pw).__name__}")
             mode = self._resolve_mode()
-            browser = await self._create_browser(runtime.handle, mode, **kwargs)
+            browser = await self._create_browser(pw, mode, **kwargs)
 
             async def _aclose() -> None:
-                cfg = plugin_config.render_playwright
-                if mode == PlaywrightMode.LOCAL and cfg.close_on_exit and browser.is_connected():
+                cfg = get_playwright_config()
+                if (
+                    mode == PlaywrightMode.LOCAL
+                    and cfg.close_on_exit
+                    and browser.is_connected()
+                ):
                     logger.debug("Closing browser...")
                     with suppress_and_log():
                         await browser.close()
@@ -123,7 +181,7 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
 
             return RenderSession(runtime=runtime, handle=browser, _aclose=_aclose)
 
-    def is_alive(self, session: RenderSession[Playwright, Browser]) -> bool:
+    def is_alive(self, session: RenderSession) -> bool:
         """检查浏览器会话是否仍处于连接状态。
 
         Args:
@@ -135,39 +193,106 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
         browser = session.handle
         return isinstance(browser, Browser) and browser.is_connected()
 
-    # ------------------------------------------------------------------
-    # Playwright-specific extension
-    # ------------------------------------------------------------------
-
     @asynccontextmanager
-    async def get_new_page(
+    async def get_render_context(
         self,
-        session: RenderSession[Playwright, Browser],
-        device_scale_factor: float = 2,
-        **kwargs: Any,
+        session: RenderSession,
+        **kwargs: Unpack[PageContextKwargs],
     ) -> AsyncIterator[Page]:
-        """在给定的浏览器会话中打开一个新页面。
+        """在给定的浏览器会话中创建渲染上下文。
 
         Args:
             session: 活跃的 RenderSession，其 handle 应为 Browser。
-            device_scale_factor: 截图时使用的设备像素比。
             **kwargs: 透传给 browser.new_page() 的额外选项。
 
         Yields:
             Page: 可立即使用的 Playwright Page 实例。
         """
-        async with track_render("playwright.get_new_page", backend=self.backend):
-            browser = session.handle
-            page = await browser.new_page(device_scale_factor=device_scale_factor, **kwargs)
-            async with page:
-                yield page
+        async with (
+            track_render("playwright.get_render_context", backend=self.backend),
+            playwright_operations.open_page_context(
+                session=session,
+                **kwargs,
+            ) as page,
+        ):
+            yield page
 
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
+    async def render_html(
+        self,
+        session: RenderSession,
+        request: HtmlRenderRequest | str,
+        **kwargs: Unpack[RenderHtmlKwargs],
+    ) -> bytes:
+        """委托 playwright_operations 执行 HTML 渲染。"""
+        return await playwright_operations.render_html(
+            request, session=session, **kwargs
+        )
+
+    async def render_text(
+        self,
+        session: RenderSession,
+        text: str,
+        **kwargs: Unpack[RenderTextKwargs],
+    ) -> bytes:
+        """委托 playwright_operations 执行文本渲染。"""
+        return await playwright_operations.render_text(text, session=session, **kwargs)
+
+    async def render_markdown(
+        self,
+        session: RenderSession,
+        markdown_text: str = "",
+        **kwargs: Unpack[RenderMarkdownKwargs],
+    ) -> bytes:
+        """委托 playwright_operations 执行 Markdown 渲染。"""
+        if "md" in kwargs:
+            return await playwright_operations.render_markdown(
+                session=session, **kwargs
+            )
+        return await playwright_operations.render_markdown(
+            markdown_text,
+            session=session,
+            **kwargs,
+        )
+
+    async def render_template(
+        self,
+        session: RenderSession,
+        request: TemplateRenderRequest | str,
+        **kwargs: Unpack[RenderTemplateKwargs],
+    ) -> bytes:
+        """委托 playwright_operations 执行模板渲染。"""
+        return await playwright_operations.render_template(
+            request,
+            session=session,
+            **kwargs,
+        )
+
+    async def render_template_html(
+        self,
+        template: TemplateConfig | str,
+        **kwargs: Any,
+    ) -> str:
+        """委托 playwright_operations 将模板渲染为 HTML 字符串。"""
+        return await playwright_operations.render_template_html(template, **kwargs)
+
+    async def capture_html_element(
+        self,
+        session: RenderSession,
+        url: str,
+        element: str,
+        **kwargs: Unpack[CaptureElementKwargs],
+    ) -> bytes:
+        """委托 playwright_operations 捕获 HTML 元素截图。"""
+        return await playwright_operations.capture_html_element(
+            url,
+            element,
+            session=session,
+            **kwargs,
+        )
 
     def _resolve_mode(self) -> PlaywrightMode:
-        cfg = plugin_config.render_playwright
+        """根据配置确定 Playwright 连接模式（CDP / WebSocket / 本地）。"""
+        cfg = get_playwright_config()
         has_cdp = bool(cfg.connect_cdp.endpoint)
         has_ws = bool(cfg.connect_ws.endpoint)
         if has_cdp and has_ws:
@@ -185,9 +310,22 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
         self,
         pw: Playwright,
         mode: PlaywrightMode,
-        **kwargs: Any,
+        **kwargs: Unpack[BrowserSessionKwargs],
     ) -> Browser:
-        cfg = plugin_config.render_playwright
+        """根据连接模式创建浏览器实例。
+
+        Args:
+            pw: Playwright 实例。
+            mode: 连接模式（CDP / WebSocket / 本地）。
+            **kwargs: 透传给浏览器创建方法的额外选项。
+
+        Returns:
+            已连接的 Browser 实例。
+
+        Raises:
+            RuntimeError: 配置无效或连接失败时。
+        """
+        cfg = get_playwright_config()
         browser_name = cfg.engine.value
 
         match mode:
@@ -199,10 +337,19 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
                 endpoint = cfg.connect_cdp.endpoint
                 if not endpoint:
                     raise RuntimeError("CDP endpoint is empty.")
-                logger.info("Connecting to Chromium via CDP (%s)", endpoint)
-                options = dict(kwargs)
-                options.pop("endpoint_url", None)
-                return await pw.chromium.connect_over_cdp(endpoint, **options)
+                logger.info(
+                    f"Connecting to Chromium via CDP ({self._redact_url(endpoint)})"
+                )
+                options = cast(
+                    "CdpConnectKwargs",
+                    {
+                        key: value
+                        for key, value in kwargs.items()
+                        if key != "endpoint_url"
+                    },
+                )
+                chromium = self._get_browser_type(pw, BrowserEngine.CHROMIUM.value)
+                return await chromium.connect_over_cdp(endpoint, **options)
 
             case PlaywrightMode.REMOTE_WS:
                 self._check_ws_version_gate()
@@ -210,22 +357,30 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
                 if not endpoint:
                     raise RuntimeError("WebSocket endpoint is empty.")
                 logger.info(
-                    "Connecting to %s via WebSocket endpoint: %s",
-                    browser_name.capitalize(),
-                    endpoint,
+                    "Connecting to "
+                    f"{browser_name.capitalize()} via WebSocket endpoint: "
+                    f"{self._redact_url(endpoint)}"
                 )
-                options = dict(kwargs)
-                options.pop("ws_endpoint", None)
+                options = cast(
+                    "WsConnectKwargs",
+                    {
+                        key: value
+                        for key, value in kwargs.items()
+                        if key != "ws_endpoint"
+                    },
+                )
                 browser_type = self._get_browser_type(pw, browser_name)
                 return await browser_type.connect(endpoint, **options)
 
             case _:
                 browser_type = self._get_browser_type(pw, browser_name)
-                options = dict(kwargs)
+                options = cast("BrowserLaunchKwargs", dict(kwargs))
                 if cfg.channel:
                     options["channel"] = cfg.channel.value
                 if cfg.proxy_server:
-                    options["proxy"] = self._build_proxy(cfg.proxy_server, cfg.proxy_bypass)
+                    options["proxy"] = self._build_proxy(
+                        cfg.proxy_server, cfg.proxy_bypass
+                    )
                 if cfg.launch_args:
                     options["args"] = cfg.launch_args.split()
                 if cfg.executable_path:
@@ -237,7 +392,7 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
     def _build_proxy(
         server: str,
         bypass: str | None = None,
-    ) -> dict[str, str]:
+    ) -> ProxySettings:
         """构建 Playwright 代理选项字典。
 
         Args:
@@ -247,10 +402,23 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
         Returns:
             BrowserType.launch() 可接受的代理选项字典。
         """
-        proxy: dict[str, str] = {"server": server}
+        proxy = cast("ProxySettings", {"server": server})
         if bypass:
             proxy["bypass"] = bypass
         return proxy
+
+    @staticmethod
+    def _redact_url(value: str) -> str:
+        """脱敏 URL，移除查询参数和认证信息。"""
+        try:
+            parsed = urlsplit(value)
+        except Exception:
+            return value
+
+        netloc = parsed.hostname or ""
+        if parsed.port is not None:
+            netloc = f"{netloc}:{parsed.port}"
+        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
     @retry(
         retry=retry_if_exception_type(RuntimeError),
@@ -264,12 +432,13 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
     async def _check_env_with_install_retry(
         self,
         pw: Playwright,
-        **kwargs: Any,
+        **kwargs: Unpack[BrowserLaunchKwargs],
     ) -> Browser:
+        """检查 Playwright 环境，启动失败时自动安装浏览器并重试。"""
         try:
             return await self._check_playwright_env(pw, **kwargs)
         except RuntimeError:
-            if plugin_config.render_playwright.skip_browser_install:
+            if get_playwright_config().skip_browser_install:
                 raise
             try:
                 await install_browser()
@@ -281,12 +450,13 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
     async def _check_playwright_env(
         self,
         pw: Playwright,
-        **kwargs: Any,
+        **kwargs: Unpack[BrowserLaunchKwargs],
     ) -> Browser:
+        """检查 Playwright 环境并尝试启动浏览器。"""
         logger.info("Checking Playwright environment...")
         try:
             browser_type = self._get_browser_type(
-                pw, plugin_config.render_playwright.engine.value
+                pw, get_playwright_config().engine.value
             )
             browser = await browser_type.launch(**kwargs)
             logger.success("Playwright environment is set up correctly.")
@@ -299,14 +469,12 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
 
     @staticmethod
     def _get_browser_type(pw: Playwright, browser_type: str) -> BrowserType:
+        """从 Playwright 实例获取指定的浏览器类型对象。"""
         return getattr(pw, browser_type)
-
-    # ------------------------------------------------------------------
-    # WebSocket version-gate helpers (unchanged logic)
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _parse_semver(version_text: str) -> tuple[int, int, int] | None:
+        """解析语义化版本号字符串为三元组。"""
         match = re.search(r"(\d+)\.(\d+)\.(\d+)", version_text)
         if not match:
             return None
@@ -317,6 +485,7 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
         local: tuple[int, int, int],
         remote: tuple[int, int, int],
     ) -> WsVersionRiskLevel:
+        """评估本地与远程 Playwright 版本差异的风险级别。"""
         local_major, local_minor, local_patch = local
         remote_major, remote_minor, remote_patch = remote
 
@@ -337,12 +506,14 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
 
     @classmethod
     def _extract_version_from_text(cls, text: str) -> tuple[int, int, int] | None:
+        """从任意文本中提取语义化版本号。"""
         return cls._parse_semver(text)
 
     @classmethod
     def _extract_version_from_endpoint(
         cls, ws_endpoint: str
     ) -> tuple[int, int, int] | None:
+        """从 WebSocket 端点 URL 的查询参数或路径中提取版本号。"""
         parsed = urlparse(ws_endpoint)
         query = parse_qs(parsed.query)
         for key in ("playwright_version", "pw_version", "version"):
@@ -364,33 +535,40 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
 
     @classmethod
     def _probe_ws_http_version(cls, ws_endpoint: str) -> tuple[int, int, int] | None:
+        """通过 HTTP 探测远程 WebSocket 服务的 Playwright 版本。"""
         parsed = urlparse(ws_endpoint)
         if parsed.scheme not in {"ws", "wss"}:
             return None
         http_scheme = "https" if parsed.scheme == "wss" else "http"
         base = f"{http_scheme}://{parsed.netloc}"
-        for path in ("/json/version", "/"):
+
+        def _probe_path(path: str) -> tuple[int, int, int] | None:
             try:
                 request = Request(f"{base}{path}", method="GET")  # noqa: S310
                 with urlopen(request, timeout=2) as resp:  # noqa: S310
                     body = resp.read().decode("utf-8", errors="ignore")
-                version = cls._extract_version_from_text(body)
-                if version is not None:
-                    return version
+                return cls._extract_version_from_text(body)
             except Exception as e:
                 logger.debug(f"WS version probe failed for {base}{path}: {e!s}")
-                continue
+                return None
+
+        for path in ("/json/version", "/"):
+            version = _probe_path(path)
+            if version is not None:
+                return version
         return None
 
     @classmethod
     def _detect_remote_ws_version(cls, ws_endpoint: str) -> tuple[int, int, int] | None:
+        """检测远程 WebSocket 端点的 Playwright 版本。"""
         version = cls._extract_version_from_endpoint(ws_endpoint)
         if version is not None:
             return version
         return cls._probe_ws_http_version(ws_endpoint)
 
     def _check_ws_version_gate(self) -> None:
-        ws_endpoint = plugin_config.render_playwright.connect_ws.endpoint
+        """检查本地与远程 Playwright 版本兼容性，不兼容时抛出异常。"""
+        ws_endpoint = get_playwright_config().connect_ws.endpoint
         if not ws_endpoint:
             raise RuntimeError("WS endpoint is empty.")
         try:
@@ -406,10 +584,12 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
 
         remote = self._detect_remote_ws_version(ws_endpoint)
         if remote is None:
-            raise RuntimeError(
-                "Unable to detect remote Playwright version from WS endpoint: "
-                f"{ws_endpoint}"
+            logger.warning(
+                "WS version gate: unable to detect remote Playwright version "
+                f"from endpoint {self._redact_url(ws_endpoint)!r}; continuing without strict version "
+                "compatibility check."
             )
+            return
 
         remote_version = f"{remote[0]}.{remote[1]}.{remote[2]}"
         risk = self._evaluate_ws_version_risk(local, remote)
@@ -431,3 +611,140 @@ class PlaywrightRender(Renderer[Playwright, Browser]):
             "WS version mismatch is out of allowed range: "
             f"local={local_version}, remote={remote_version}."
         )
+
+
+def _has_valid_remote_endpoint(endpoint: str, *, schemes: set[str]) -> bool:
+    """验证远程端点 URL 的协议和主机是否有效。"""
+    parsed = urlparse(endpoint)
+    return bool(parsed.scheme in schemes and parsed.netloc)
+
+
+def _channel_command_candidates(channel: str) -> tuple[str, ...]:
+    """获取浏览器 channel 对应的命令行候选列表。"""
+    return {
+        "chromium": ("chromium",),
+        "chrome": ("google-chrome", "chrome", "google-chrome-stable"),
+        "chrome-beta": ("google-chrome-beta", "chrome-beta"),
+        "chrome-dev": ("google-chrome-unstable", "google-chrome-dev", "chrome-dev"),
+        "chrome-canary": ("google-chrome-canary", "chrome-canary"),
+        "msedge": ("microsoft-edge", "msedge"),
+        "msedge-beta": ("microsoft-edge-beta", "msedge-beta"),
+        "msedge-dev": ("microsoft-edge-dev", "msedge-dev"),
+        "msedge-canary": ("microsoft-edge-canary", "msedge-canary"),
+    }.get(channel, (channel,))
+
+
+def _has_available_channel_browser(channel: str) -> bool:
+    """检查指定 channel 的浏览器是否在 PATH 中可用。"""
+    return any(
+        shutil.which(candidate) for candidate in _channel_command_candidates(channel)
+    )
+
+
+def is_playwright_backend_available() -> BackendAvailability:
+    """检查 Playwright 后端是否可用。
+
+    依次检查 playwright 包安装状态、配置有效性、远程端点或本地浏览器可用性。
+
+    Returns:
+        包含可用性状态和原因的 BackendAvailability 对象。
+    """
+    if find_spec("playwright.async_api") is None:
+        return BackendAvailability(
+            available=False,
+            reason="Python package `playwright` is not installed.",
+        )
+
+    try:
+        cfg = get_playwright_config()
+    except Exception as e:
+        return BackendAvailability(
+            available=False,
+            reason=f"Invalid Playwright config: {e}",
+        )
+
+    if cfg.connect_cdp.endpoint:
+        if not _has_valid_remote_endpoint(
+            cfg.connect_cdp.endpoint,
+            schemes={"http", "https", "ws", "wss"},
+        ):
+            return BackendAvailability(
+                available=False,
+                reason="Configured CDP endpoint is invalid.",
+            )
+        return BackendAvailability(available=True)
+
+    if cfg.connect_ws.endpoint:
+        if not _has_valid_remote_endpoint(
+            cfg.connect_ws.endpoint,
+            schemes={"ws", "wss"},
+        ):
+            return BackendAvailability(
+                available=False,
+                reason="Configured WebSocket endpoint is invalid.",
+            )
+        return BackendAvailability(available=True)
+
+    if cfg.executable_path is not None:
+        executable_path = cfg.executable_path.expanduser()
+        if executable_path.is_file():
+            return BackendAvailability(available=True)
+        return BackendAvailability(
+            available=False,
+            reason=f"Configured executable does not exist: {executable_path}",
+        )
+
+    if cfg.channel is not None:
+        if _has_available_channel_browser(cfg.channel.value):
+            return BackendAvailability(available=True)
+        return BackendAvailability(
+            available=False,
+            reason=(
+                f"Configured browser channel `{cfg.channel.value}` is not available "
+                "on PATH."
+            ),
+        )
+
+    if not cfg.skip_browser_install:
+        return BackendAvailability(available=True)
+
+    if has_installed_browser(cfg.engine):
+        return BackendAvailability(available=True)
+
+    return BackendAvailability(
+        available=False,
+        reason=(
+            f"No installed Playwright browser was found for `{cfg.engine.value}` while "
+            "`skip_browser_install=true`."
+        ),
+    )
+
+
+def _build_resource_config() -> ResourceConfig:
+    """从 Playwright 配置构建资源解析配置。"""
+    cfg = get_playwright_config()
+    return ResourceConfig(
+        is_remote_mode=bool(cfg.connect_ws.endpoint or cfg.connect_cdp.endpoint),
+        resource_resolve_mode=cfg.resource_resolve_mode,
+        remote_local_resource_policy=cfg.remote_local_resource_policy,
+        local_local_resource_policy=cfg.local_local_resource_policy,
+        filehost_allow_any_path=cfg.filehost_allow_any_path,
+        filehost_allowed_paths=tuple(cfg.filehost_allowed_paths),
+        filehost_cache_ttl_seconds=cfg.filehost_cache_ttl_seconds,
+        filehost_prewarm_enabled=cfg.filehost_prewarm_enabled,
+        filehost_prewarm_max_files=cfg.filehost_prewarm_max_files,
+        filehost_prewarm_paths=tuple(cfg.filehost_prewarm_paths),
+        filehost_prewarm_extensions=tuple(cfg.filehost_prewarm_extensions),
+        filehost_request_header_name=cfg.filehost_request_header_name,
+        filehost_request_header_value=cfg.filehost_request_header_value,
+        filehost_request_header_salt=cfg.filehost_request_header_salt,
+    )
+
+
+register_resource_config_provider(_build_resource_config)
+
+register_backend(
+    RenderBackend.PLAYWRIGHT,
+    PlaywrightBackend,
+    availability_checker=is_playwright_backend_available,
+)
