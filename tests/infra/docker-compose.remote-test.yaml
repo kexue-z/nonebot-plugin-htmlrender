@@ -1,0 +1,36 @@
+services:
+  render:
+    build:
+      context: ../..
+      dockerfile: tests/infra/dockerfile.remote-test
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-docker.1ms.run/library/python:3.12-slim-bookworm}
+        PLAYWRIGHT_CLIENT_VERSION: ${PLAYWRIGHT_CLIENT_VERSION:-1.56.0}
+    container_name: htmlrender-remote-test
+    depends_on:
+      - playwright
+    working_dir: /app
+    volumes:
+      - ../..:/app
+    environment:
+      PLAYWRIGHT_WS_ENDPOINT: ws://playwright:53333/playwright
+      FILEHOST_HOST_OVERRIDE: http://render:9012/
+      PLAYWRIGHT_CLIENT_VERSION: ${PLAYWRIGHT_CLIENT_VERSION:-1.56.0}
+    ports:
+      - "9012:9012"
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        /venv/bin/python -m pip install --no-deps -e /app
+        /venv/bin/python tests/remote_smoke.py
+
+  playwright:
+    image: ${PLAYWRIGHT_IMAGE:-jacoblincool/playwright:chromium-server}
+    container_name: htmlrender-playwright
+    environment:
+      BROWSER_PORT: "53333"
+      BROWSER_WS_ENDPOINT: /playwright
+    ports:
+      - "53333:53333"

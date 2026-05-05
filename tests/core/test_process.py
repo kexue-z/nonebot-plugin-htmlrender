@@ -1,20 +1,26 @@
-import asyncio
 import os
 from pathlib import Path
+import subprocess
 
+import anyio
+from anyio import EndOfStream
 import pytest
+
+from nonebot_plugin_htmlrender.utils.process import (
+    create_process,
+    create_process_shell,
+    ensure_process_terminated,
+    terminate_process,
+)
 
 
 @pytest.fixture
 async def long_running_process():
-    import asyncio
-    import os
-
-    command = "timeout /t 15" if os.name == "nt" else "sleep 15"
-    proc = await asyncio.create_subprocess_shell(
+    command = ["cmd", "/c", "timeout /t 15"] if os.name == "nt" else ["sleep", "15"]
+    proc = await anyio.open_process(
         command,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
         start_new_session=(os.name != "nt"),
     )
     try:
@@ -25,10 +31,8 @@ async def long_running_process():
             await proc.wait()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_process_basic():
-    from nonebot_plugin_htmlrender.process import create_process
-
     if os.name == "nt":
         proc = await create_process("cmd", "/c", "echo", "test")
     else:
@@ -37,10 +41,8 @@ async def test_create_process_basic():
     assert proc.returncode == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_process_with_cwd():
-    from nonebot_plugin_htmlrender.process import create_process
-
     cwd = Path.cwd()
     if os.name == "nt":
         proc = await create_process("cmd", "/c", "cd", cwd=cwd)
@@ -50,35 +52,35 @@ async def test_create_process_with_cwd():
     assert proc.returncode == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_process_with_pipe():
-    from nonebot_plugin_htmlrender.process import create_process
-
     if os.name == "nt":
-        proc = await create_process(
-            "cmd", "/c", "echo", "test", stdout=asyncio.subprocess.PIPE
-        )
+        proc = await create_process("cmd", "/c", "echo", "test", stdout=subprocess.PIPE)
     else:
-        proc = await create_process("echo", "test", stdout=asyncio.subprocess.PIPE)
-    stdout, _ = await proc.communicate()
-    assert b"test" in stdout.lower()
+        proc = await create_process("echo", "test", stdout=subprocess.PIPE)
+
+    assert proc.stdout is not None
+    data = b""
+    while True:
+        try:
+            data += await proc.stdout.receive(65536)
+        except EndOfStream:  # noqa: PERF203
+            break
+
+    assert b"test" in data.lower()
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_process_shell_basic():
-    from nonebot_plugin_htmlrender.process import create_process_shell
-
     command = "echo test"
     proc = await create_process_shell(command)
-    assert isinstance(proc, asyncio.subprocess.Process)
+    assert proc.pid > 0
     await proc.wait()
     assert proc.returncode == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_create_process_shell_with_cwd():
-    from nonebot_plugin_htmlrender.process import create_process_shell
-
     cwd = Path.cwd()
     command = "cd" if os.name == "nt" else "pwd"
     proc = await create_process_shell(command, cwd=cwd)
@@ -86,19 +88,15 @@ async def test_create_process_shell_with_cwd():
     assert proc.returncode == 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_terminate_process(long_running_process):
-    from nonebot_plugin_htmlrender.process import terminate_process
-
     await terminate_process(long_running_process)
     await long_running_process.wait()
     assert long_running_process.returncode != 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_terminate_completed_process():
-    from nonebot_plugin_htmlrender.process import create_process, terminate_process
-
     if os.name == "nt":
         proc = await create_process("cmd", "/c", "echo", "test")
     else:
@@ -109,22 +107,15 @@ async def test_terminate_completed_process():
     assert proc.returncode == original_returncode
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_terminate_process_unix(long_running_process):
-    from nonebot_plugin_htmlrender.process import terminate_process
-
     await terminate_process(long_running_process)
     await long_running_process.wait()
     assert long_running_process.returncode != 0
 
 
-@pytest.mark.asyncio
+@pytest.mark.anyio
 async def test_ensure_process_terminated_decorator():
-    from nonebot_plugin_htmlrender.process import (
-        create_process,
-        ensure_process_terminated,
-    )
-
     proc = None
 
     @ensure_process_terminated
@@ -137,36 +128,24 @@ async def test_ensure_process_terminated_decorator():
         )
         proc = await create_process(
             *command,
-            stdout=asyncio.subprocess.DEVNULL,
-            stderr=asyncio.subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
         )
-        try:
-            await proc.wait()
-        except asyncio.CancelledError:
-            await terminate_process(proc)
-            raise
+        await proc.wait()
         return proc
 
-    async def terminate_process(_):
-        if _ and _.returncode is None:
-            _.terminate()
-            await asyncio.shield(_.wait())
+    async with anyio.create_task_group() as tg:
+        tg.start_soon(func)
+        await anyio.sleep(1.0)
 
-    task = asyncio.create_task(func())
-    await asyncio.sleep(1.0)
+        assert proc is not None, "Process was not created."
+        assert proc.pid > 0, "Process pid is invalid."
+        assert proc.returncode is None, "Process already terminated prematurely."
 
-    assert proc is not None, "Process was not created."
-    assert isinstance(proc, asyncio.subprocess.Process), (
-        "Process is not of expected type."
-    )
-    assert proc.returncode is None, "Process already terminated prematurely."
+        tg.cancel_scope.cancel()
 
-    task.cancel()
-
-    try:
-        await task
-    except asyncio.CancelledError:
+    if proc is not None and proc.returncode is None:
         await terminate_process(proc)
 
-    await asyncio.sleep(0.5)
+    assert proc is not None
     assert proc.returncode is not None, "Process did not terminate as expected."
