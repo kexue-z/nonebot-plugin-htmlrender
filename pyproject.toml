@@ -1,10 +1,10 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.7.0.alpha.2"
+version = "0.7.0"
 description = "通过浏览器渲染图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
-requires-python = ">=3.11,<4.0"
+requires-python = ">=3.10,<4.0"
 license = { file = "LICENSE" }
 dependencies = [
     "anyio>=4.12.0",
@@ -21,6 +21,7 @@ dependencies = [
     "typing-extensions>=4.15.0",
 ]
 [project.optional-dependencies]
+filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
@@ -33,10 +34,12 @@ dev = [
     "nonebot-adapter-onebot>=2.4.6",
     "nonebot2[fastapi]>=2.4.4",
     "ruff>=0.15.2",
-    "basedpyright>=1.38.1",
+    "basedpyright>=1.38.4",
+    "ty>=0.0.26",
 ]
 docs = [
-    "zensical>=0.0.23",
+    "zensical>=0.0.39",
+    "mike @ git+https://github.com/squidfunk/mike.git",
     "mdformat>=1.0.0",
     "mdformat-mkdocs>=4.4.2",
     "mkdocstrings-python>=2.0.1",
@@ -53,14 +56,50 @@ test = [
 
 
 [tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "session"
-addopts = "--cov=nonebot_plugin_htmlrender --cov-report=term-missing"
+addopts = "-p no:nonebug --cov=nonebot_plugin_htmlrender --cov-report=term-missing"
 anyio_mode = "auto"
+markers = [
+    "anyio: run async tests via anyio backend",
+    "requires_browser: test needs a real Playwright browser",
+]
+# In-house deprecation noise from compat shells (`_compat.*`, deprecated
+# data_source re-exports). Tests intentionally exercise these legacy paths.
+filterwarnings = [
+    "ignore:`.+` is deprecated\\. Use `.+` instead\\.:DeprecationWarning",
+    "ignore:Importing Playwright helpers from .+\\.data_source.+ is deprecated\\..+:DeprecationWarning",
+]
+
+[tool.coverage.run]
+omit = [
+    # Telemetry / observability
+    "nonebot_plugin_htmlrender/utils/telemetry/*",
+    "nonebot_plugin_htmlrender/backend/playwright/telemetry.py",
+    # Signal & process management
+    "nonebot_plugin_htmlrender/utils/signal.py",
+    "nonebot_plugin_htmlrender/utils/process.py",
+    # Installation helpers
+    "nonebot_plugin_htmlrender/utils/install.py",
+    "nonebot_plugin_htmlrender/backend/playwright/install.py",
+    # Backward compat re-export shells
+    "nonebot_plugin_htmlrender/_compat.py",
+    "nonebot_plugin_htmlrender/browser.py",
+    "nonebot_plugin_htmlrender/data_source.py",
+    "nonebot_plugin_htmlrender/backend/playwright/data_source.py",
+    # Bootstrap hacks
+    "nonebot_plugin_htmlrender/_bootstrap.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.$",
+]
 
 [tool.ruff]
 line-length = 88
 indent-width = 4
-target-version = "py311"
+target-version = "py310"
 exclude = [
     ".bzr",
     ".direnv",
@@ -180,9 +219,6 @@ dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
 [tool.ruff.lint.flake8-annotations]
 mypy-init-return = true
 
-[tool.ruff.lint.per-file-ignores]
-"tests/test_browser.py" = ["PLC0415", "ARG001", "B010"]
-
 [tool.ruff.lint.flake8-builtins]
 builtins-ignorelist = ["id"]
 
@@ -211,13 +247,6 @@ keep-runtime-typing = true
 pythonVersion = "3.11"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-disableBytesTypePromotions = true
-reportAny = false
-reportExplicitAny = false
-reportUnusedFunction = false
-reportUnusedCallResult = false
-reportPrivateUsage = false
-reportUnreachable = false
 include = ["nonebot_plugin_htmlrender", "tests"]
 executionEnvironments = [
     { root = "./tests", extraPaths = ["./"] },
@@ -226,9 +255,10 @@ executionEnvironments = [
 exclude = [
     "**/__pycache__",
     ".venv/**",
-    "fct_standalone_test/**",
-    "iotpwm-rs/**",
 ]
+
+[tool.ty.rules]
+deprecated = "ignore"
 
 [build-system]
 requires = ["hatchling"]

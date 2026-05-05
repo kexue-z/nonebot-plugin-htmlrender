@@ -1,0 +1,113 @@
+name: Coverage
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+      - feat/**
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: Enable extra debug diagnostics
+        required: false
+        default: false
+        type: boolean
+      pytest_extra_args:
+        description: Extra pytest args (for debugging)
+        required: false
+        default: ""
+        type: string
+
+jobs:
+  coverage:
+    name: Coverage (py${{ matrix.python-version }}-${{ matrix.target.arch }})
+    runs-on: ${{ matrix.target.runs-on }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        target:
+          - runs-on: ubuntu-latest
+            arch: x64
+          - runs-on: ubuntu-24.04-arm
+            arch: arm64
+
+    env:
+      HTMLRENDER_TEST_PROFILE: ci
+      ARCH: ${{ matrix.target.arch }}
+      PYTHON_VERSION: ${{ matrix.python-version }}
+      COVERAGE_XML: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}.xml
+      PYTEST_LOG: pytest-py${{ matrix.python-version }}-${{ matrix.target.arch }}.log
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-suffix: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}
+
+      - name: Show Runner Context
+        run: |
+          echo "Event: ${{ github.event_name }}"
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          echo "Python: $PYTHON_VERSION, ARCH: $ARCH"
+          uname -a
+          df -h
+          python --version
+          uv --version
+          if command -v lscpu >/dev/null 2>&1; then lscpu; fi
+
+      - name: Sync deps
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Show Dependency Snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        run: |
+          uv pip list
+          uv tree
+
+      - name: Run tests with coverage
+        run: |
+          set -o pipefail
+          EXTRA_ARGS="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pytest_extra_args || '' }}"
+          uv run pytest tests \
+            --cov=nonebot_plugin_htmlrender \
+            --cov-report=term-missing \
+            --cov-report=xml:${COVERAGE_XML} \
+            -ra \
+            ${EXTRA_ARGS} 2>&1 | tee "${PYTEST_LOG}"
+
+      - name: Show Failure Diagnostics
+        if: ${{ failure() }}
+        run: |
+          echo "==== Last 200 lines of pytest log ===="
+          tail -n 200 "${PYTEST_LOG}" || true
+          echo "==== Environment ===="
+          env | sort
+          echo "==== Workspace files ===="
+          ls -la
+
+      - name: Upload Coverage + Pytest Logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-debug-py${{ matrix.python-version }}-${{ matrix.target.arch }}
+          path: |
+            ${{ env.COVERAGE_XML }}
+            ${{ env.PYTEST_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./${{ env.COVERAGE_XML }}
+          flags: py${{ matrix.python-version }}-${{ matrix.target.arch }}
+          env_vars: ARCH,PYTHON_VERSION
+          verbose: true

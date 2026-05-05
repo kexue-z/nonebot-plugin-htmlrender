@@ -1,0 +1,176 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+      - feat/**
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: Enable extra debug diagnostics
+        required: false
+        default: false
+        type: boolean
+      pytest_extra_args:
+        description: Extra pytest args for Test job
+        required: false
+        default: ""
+        type: string
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: Ruff
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-suffix: lint-type
+
+      - name: Show Runner Context
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          python --version
+          uv --version
+
+      - name: Sync deps
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Ruff
+        run: uv run ruff check .
+
+  ty:
+    name: Ty
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [ruff]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-suffix: ty
+
+      - name: Sync deps
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Ty
+        run: uv run ty check
+
+  basedpyright:
+    name: Basedpyright
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [ruff]
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-suffix: basedpyright
+
+      - name: Sync deps
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Basedpyright
+        run: uv run basedpyright .
+
+  test:
+    name: Test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+
+    env:
+      HTMLRENDER_TEST_PROFILE: ci
+      PYTEST_LOG: pytest-ci-py${{ matrix.python-version }}.log
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+          cache-suffix: test-${{ matrix.python-version }}
+
+      - name: Sync deps
+        run: uv sync --locked --all-extras --all-groups
+
+      - name: Debug Dependency Snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        run: |
+          uv pip list
+          uv tree
+
+      - name: Run tests
+        run: |
+          set -o pipefail
+          EXTRA_ARGS="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pytest_extra_args || '' }}"
+          uv run pytest tests -n auto --dist=loadfile -ra ${EXTRA_ARGS} 2>&1 | tee "${PYTEST_LOG}"
+
+      - name: Show Failure Diagnostics
+        if: ${{ failure() }}
+        run: |
+          echo "==== Last 200 lines of pytest log ===="
+          tail -n 200 "${PYTEST_LOG}" || true
+          echo "==== Environment ===="
+          env | sort
+
+      - name: Upload Test Logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-logs-py${{ matrix.python-version }}
+          path: ${{ env.PYTEST_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
+
+  remote-browser-render:
+    name: Remote Browser Render Smoke (Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build and run remote smoke
+        run: docker compose -f tests/infra/docker-compose.remote-test.yaml up --build --abort-on-container-exit --exit-code-from render
+
+      - name: Capture compose logs
+        if: ${{ always() }}
+        run: docker compose -f tests/infra/docker-compose.remote-test.yaml logs > remote-smoke-compose.log
+
+      - name: Upload remote smoke logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: remote-smoke-compose-logs
+          path: remote-smoke-compose.log
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Teardown compose
+        if: always()
+        run: docker compose -f tests/infra/docker-compose.remote-test.yaml down -v

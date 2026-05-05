@@ -1,0 +1,162 @@
+name: Docs
+
+on:
+  push:
+    branches:
+      - master
+      - dev
+      - feat/**
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - README.md
+      - .github/workflows/docs.yml
+  pull_request:
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - README.md
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: Enable extra debug diagnostics
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOCS_LOG: docs-build.log
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-suffix: docs
+
+      - name: Show Runner Context
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          python --version
+          uv --version
+
+      - name: Sync docs deps
+        run: uv sync --locked --group docs
+
+      - name: Debug Dependency Snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        run: |
+          uv pip list
+          uv tree
+
+      - name: Build docs
+        run: |
+          set -o pipefail
+          uv run zensical build --strict 2>&1 | tee "${DOCS_LOG}"
+
+      - name: Upload docs build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-build-logs
+          path: ${{ env.DOCS_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Upload built site artifact
+        if: ${{ github.event_name == 'push' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs-site
+          path: site/
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy-main:
+    name: Deploy Docs (Main)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-suffix: docs
+
+      - name: Sync docs deps
+        run: uv sync --locked --group docs
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Get project version
+        id: version
+        run: |
+          VERSION=$(uv run python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy versioned docs
+        run: |
+          uv run mike deploy --push --update-aliases ${{ steps.version.outputs.version }} latest
+
+      - name: Set default version
+        run: |
+          uv run mike set-default --push latest
+
+      - name: Show docs url
+        run: |
+          echo "Docs deployed: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/${{ steps.version.outputs.version }}/"
+
+  deploy-preview:
+    name: Deploy Docs Preview (Non-main)
+    runs-on: ubuntu-latest
+    needs: [build]
+    if: ${{ github.event_name == 'push' && github.ref != 'refs/heads/master' }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download built site
+        uses: actions/download-artifact@v4
+        with:
+          name: docs-site
+          path: site
+
+      - name: Compute preview path
+        id: preview
+        shell: bash
+        run: |
+          BRANCH_NAME="${GITHUB_REF_NAME}"
+          SAFE_BRANCH=$(echo "${BRANCH_NAME}" | tr '/[:upper:]' '-[:lower:]' | tr -cd 'a-z0-9._-')
+          echo "safe_branch=${SAFE_BRANCH}" >> "${GITHUB_OUTPUT}"
+          echo "preview_url=https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/preview/${SAFE_BRANCH}/" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy preview docs to gh-pages
+        uses: JamesIves/github-pages-deploy-action@v4
+        with:
+          branch: gh-pages
+          folder: site
+          clean: true
+          target-folder: preview/${{ steps.preview.outputs.safe_branch }}
+
+      - name: Show preview url
+        run: |
+          echo "Preview docs deployed to: ${{ steps.preview.outputs.preview_url }}"

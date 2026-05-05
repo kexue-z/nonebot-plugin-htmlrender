@@ -1,60 +1,114 @@
+name: Publish
+
 on:
   push:
     tags:
       - "*"
   workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: Enable extra debug diagnostics
+        required: false
+        default: false
+        type: boolean
+      release_tag:
+        description: Tag to publish as GitHub Release when manually triggered (e.g. v0.7.0)
+        required: false
+        default: ""
+        type: string
 
 jobs:
   pypi-publish:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     environment: release
     permissions:
       # IMPORTANT: this permission is mandatory for trusted publishing
       id-token: write
+      contents: write
+    env:
+      BUILD_LOG: publish-build.log
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@v3
+        uses: astral-sh/setup-uv@v7
         with:
           enable-cache: true
 
-      - name: "Set up Python"
-        uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v6
         with:
           python-version-file: ".python-version"
 
-      - run: uv sync
+      - name: Show Runner Context
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          python --version
+          uv --version
+
+      - name: Sync deps
+        run: uv sync
         shell: bash
 
-      # - name: Get Version
-      #   id: version
-      #   run: |
-      #     echo "VERSION=$(uvx pdm show --version)" >> $GITHUB_OUTPUT
-      #     echo "TAG_VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-      #     echo "TAG_NAME=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-
-      # - name: Check Version
-      # if: steps.version.outputs.VERSION != steps.version.outputs.TAG_VERSION
-      #   run: exit 1
+      - name: Debug Dependency Snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        run: |
+          uv pip list
+          uv tree
 
       - name: Build Package
-        run: uv build
+        run: |
+          set -o pipefail
+          uv build 2>&1 | tee "${BUILD_LOG}"
 
-      - uses: actions/upload-artifact@v4
+      - name: Show built distributions
+        run: |
+          ls -la dist
+          sha256sum dist/* || true
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
         with:
           name: artifact
-          path: dist/ # or path/to/artifact
+          path: dist/
+
+      - name: Upload build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: publish-build-logs
+          path: ${{ env.BUILD_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
 
       - name: pypi-publish
-        uses: pypa/gh-action-pypi-publish@v1.12.3
+        uses: pypa/gh-action-pypi-publish@v1.13.0
 
-      # - name: Publish Package to PyPI
-      #   run: uv publish
+      - name: Resolve Release Tag
+        id: release_tag
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${{ github.event.inputs.release_tag }}" ]]; then
+            TAG="${{ github.event.inputs.release_tag }}"
+          else
+            echo "::error::No release tag found. Use a tag push or provide workflow_dispatch input 'release_tag'."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved release tag: ${TAG}"
 
-      # - name: Publish Package to GitHub Release
-      #   run: gh release create ${{ steps.version.outputs.TAG_NAME }} dist/*.tar.gz dist/*.whl -t "🔖 ${{ steps.version.outputs.TAG_NAME }}" --generate-notes
-      #   env:
-      #     GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.release_tag.outputs.tag }}
+          name: ${{ steps.release_tag.outputs.tag }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
