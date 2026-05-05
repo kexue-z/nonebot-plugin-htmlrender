@@ -1,3 +1,18 @@
+/* Global brand color override */
+:root {
+  --md-primary-fg-color: #EA5252;
+  --md-primary-fg-color--light: #f06a6a;
+  --md-primary-fg-color--dark: #d64545;
+  --md-accent-fg-color: #EA5252;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-primary-fg-color: #EA5252;
+  --md-primary-fg-color--light: #f06a6a;
+  --md-primary-fg-color--dark: #d64545;
+  --md-accent-fg-color: #EA5252;
+}
+
 @keyframes heart {
 
   0%,
@@ -72,4 +87,38 @@
 
 .md-typeset .mdx-flags__content code {
   float: right
+}
+
+/* Dependency cards in docs/users/config/integrations.md */
+.md-typeset .dep-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+
+@media screen and (max-width: 59.9844em) {
+  .md-typeset .dep-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.md-typeset .dep-card {
+  border: 2px solid var(--md-default-fg-color--light);
+  border-radius: .75rem;
+  padding: 1rem 1rem .75rem;
+  height: 100%;
+}
+
+.md-typeset .dep-card h4 {
+  margin-top: 0;
+}
+
+.md-typeset .dep-card-required {
+  border-style: solid;
+  border-color: var(--md-primary-fg-color);
+}
+
+.md-typeset .dep-card-optional {
+  border-style: dashed;
+  border-color: var(--md-default-fg-color--light);
 }

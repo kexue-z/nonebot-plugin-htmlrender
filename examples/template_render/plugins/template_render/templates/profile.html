@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="card">
+        <div class="header">
+            <div class="avatar">{{ avatar_text }}</div>
+            <div class="info">
+                <h1>{{ username }}</h1>
+                <span class="badge">Lv.{{ level }}</span>
+            </div>
+        </div>
+        <div class="stats">
+            {% for stat in stats %}
+            <div class="stat-item">
+                <div class="stat-value">{{ stat.value }}</div>
+                <div class="stat-label">{{ stat.label }}</div>
+            </div>
+            {% endfor %}
+        </div>
+        <div class="footer">
+            <p>{{ signature }}</p>
+        </div>
+    </div>
+</body>
+</html>
