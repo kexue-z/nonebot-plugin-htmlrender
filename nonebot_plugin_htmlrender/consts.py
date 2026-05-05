@@ -1,31 +1,37 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from enum import StrEnum
+from enum import Enum
 import os
 import sys
+import sysconfig
 
-# Docs (Playwright Browsers):
-# https://playwright.dev/python/docs/browsers
-#
-# Docs (Playwright BrowserType.launch / channel option):
-# https://playwright.dev/python/docs/api/class-browsertype#browser-type-launch
+
+class StrEnum(str, Enum):
+    """字符串枚举基类，用于声明取值为字符串的枚举类型。"""
 
 
 @dataclass(frozen=True)
 class MirrorSource:
+    """Playwright 浏览器二进制下载镜像源。
+
+    Attributes:
+        name: 镜像源展示名称。
+        url: 镜像下载基础 URL。
+        priority: 优先级，数值越小越优先尝试。
+    """
+
     name: str
     url: str
     priority: int
 
 
-# SHELL = os.getenv("SHELL", "")
+SHELL = os.getenv("SHELL", "")
 WINDOWS = sys.platform.startswith("win") or (sys.platform == "cli" and os.name == "nt")
-# MINGW = sysconfig.get_platform().startswith("mingw")
-# MACOS = sys.platform == "darwin"
+MINGW = sysconfig.get_platform().startswith("mingw")
+MACOS = sys.platform == "darwin"
 MIRRORS = [
-    MirrorSource("Default", "https://playwright.azureedge.net", 1),
-    MirrorSource("Taobao", "https://registry.npmmirror.com/-/binary/playwright", 2),
+    MirrorSource("Taobao", "https://registry.npmmirror.com/-/binary/playwright", 1),
 ]
 
 
@@ -38,6 +44,15 @@ class RenderBackend(StrEnum):
     SKIA = "skia"
     PLAYWRIGHT = "playwright"
     PILLOW = "pillow"
+    HTMLKIT = "htmlkit"
+
+
+class RenderStartupMode(StrEnum):
+    """Plugin startup policy for render runtime initialization."""
+
+    OFF = "off"
+    WARMUP = "warmup"
+    PROBE = "probe"
 
 
 class BrowserEngine(StrEnum):
@@ -74,8 +89,36 @@ class ChromiumChannel(StrEnum):
     MSEDGE_CANARY = "msedge-canary"
 
 
+class ResourceResolveMode(StrEnum):
+    """模板中资源占位符的解析模式。"""
+
+    OFF = "off"
+    AUTO = "auto"
+    STRICT = "strict"
+
+
+class RemoteLocalResourcePolicy(StrEnum):
+    """远程渲染时对本地资源的处理策略。"""
+
+    PASSTHROUGH = "passthrough"
+    FILEHOST = "filehost"
+    ERROR = "error"
+
+
+class LocalLocalResourcePolicy(StrEnum):
+    """本地渲染时对本地资源的处理策略。"""
+
+    FILE = "file"
+    FILEHOST = "filehost"
+    PASSTHROUGH = "passthrough"
+
+
 __all__ = (
     "BrowserEngine",
     "ChromiumChannel",
+    "LocalLocalResourcePolicy",
+    "RemoteLocalResourcePolicy",
     "RenderBackend",
+    "RenderStartupMode",
+    "ResourceResolveMode",
 )
