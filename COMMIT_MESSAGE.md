@@ -8,5 +8,5 @@ type(scope): subject
 
 Full guideline:
 
-- [docs/maintainers/commit-message.md](docs/maintainers/commit-message.md)
+- [docs/maintainers/contributing/commit-message.md](docs/maintainers/contributing/commit-message.md)
 

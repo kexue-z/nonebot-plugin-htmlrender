@@ -54,14 +54,14 @@ type(scope): subject
 
 See the full guide:
 
-- [提交消息指南](docs/maintainers/commit-message.md)
+- [提交消息指南](docs/maintainers/contributing/commit-message.md)
 
 ## Coding Standards
 
 See:
 
-- [编码规范](docs/maintainers/coding-standards.md)
-- [工程协作与规范](docs/maintainers/engineering-guide.md)
+- [编码规范](docs/maintainers/contributing/coding-standards.md)
+- [工程协作与规范](docs/maintainers/contributing/engineering-guide.md)
 
 ## Code of Conduct
 
