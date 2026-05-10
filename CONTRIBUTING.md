@@ -1,3 +1,5 @@
+<!-- markdownlint-disable-file MD013 -->
+
 # Contributing to nonebot-plugin-htmlrender
 
 Thanks for your interest in contributing.
@@ -21,10 +23,10 @@ make test-local
 ## Contribution Workflow
 
 1. Fork the repository.
-2. Create a focused branch for one logical change.
-3. Add or update tests with your code changes.
-4. Run local checks before opening a PR.
-5. Open a pull request with clear context and validation results.
+1. Create a focused branch for one logical change.
+1. Add or update tests with your code changes.
+1. Run local checks before opening a PR.
+1. Open a pull request with clear context and validation results.
 
 ## Before Opening a PR
 
@@ -43,6 +45,15 @@ If docs were changed:
 ```bash
 make docs-build
 ```
+
+## PR Previews
+
+When opening a PR from a branch in this repository (not a fork), the following previews are produced automatically:
+
+- **TestPyPI build**: each push to the PR is published to TestPyPI under a dev-suffixed version. A sticky comment on the PR shows the install command.
+- **Docs preview** (only when `docs/**`, `mkdocs.yml`, or `README.md` change): a sticky comment on the PR shows the preview URL under `pr-preview/pr-<NUMBER>/` of the Pages site. The preview is removed automatically when the PR is closed.
+
+PRs from forks skip both because the workflow tokens cannot write to gh-pages or use TestPyPI trusted publishing.
 
 ## Commit Message Format
 

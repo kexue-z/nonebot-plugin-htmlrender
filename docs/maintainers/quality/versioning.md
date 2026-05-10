@@ -1,12 +1,15 @@
+<!-- markdownlint-disable-file MD013 MD041 -->
 ---
 title: 文档版本管理
 description: 使用 mike 进行多版本文档发布与管理
 icon: lucide/git-branch
 status: new
 tags:
-  - Maintainers
-  - Docs
-  - Versioning
+
+- Maintainers
+- Docs
+- Versioning
+
 ---
 
 # 文档版本管理
@@ -15,14 +18,22 @@ tags:
 
 ## 工作原理
 
-- 每次合并到 `master` 分支时，CI 自动读取 `pyproject.toml` 中的版本号，通过 `mike deploy` 发布到 `gh-pages` 分支
+- 推送到 `master` 分支且涉及文档相关路径时，Docs workflow 自动读取 `pyproject.toml` 中的版本号，通过 `mike deploy` 发布到 `gh-pages` 分支
 - 版本以子目录形式存在，例如 `docs.example.com/0.7.0/`、`docs.example.com/0.8.0/`
 - `latest` 别名始终指向最新版本，根路径自动重定向到 `latest`
 - 旧版本页面顶部会显示过期提醒横幅
 
+PR 阶段的文档预览由独立的 `Docs PR Preview` workflow 部署到 `gh-pages` 的 `pr-preview/pr-<NUMBER>/`，PR 关闭时自动清理，不会影响 `mike` 维护的版本目录。
+
 ## CI 自动发布
 
-推送到 `master` 分支且涉及文档文件变更时，Docs workflow 会自动执行版本化部署。workflow 触发条件与排障入口见 [CI Actions](ci-actions.md)。
+发版时不需要手动打 tag。维护者只需在 PR 中改好 `pyproject.toml` 的 `project.version` 后合并到 `master`：
+
+1. 合并到 `master` 触发 `Docs` workflow，将新版本通过 `mike` 部署为版本化文档；
+2. 同时触发 `Auto Tag` workflow，读取版本号自动创建 `v<version>` tag；
+3. `Auto Tag` 通过 `gh workflow run` 调起 `Publish`，完成 PyPI 发布与 GitHub Release。
+
+完整 workflow 触发条件与排障入口见 [CI Actions](ci-actions.md)。
 
 ```bash
 mike deploy --push --update-aliases <version> latest
