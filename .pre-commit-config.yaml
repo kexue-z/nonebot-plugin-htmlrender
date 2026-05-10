@@ -72,6 +72,9 @@ repos:
           (?x)^(
             docs/formatter/black\.md
             | docs/\w+\.md
+            | docs/maintainers/quality/ci-actions\.md
+            | docs/maintainers/quality/testing-matrix\.md
+            | docs/maintainers/quality/versioning\.md
           )$
         priority: 0
 
