@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-      - dev
-      - feat/**
   pull_request:
   workflow_dispatch:
     inputs:
@@ -14,11 +12,9 @@ on:
         required: false
         default: false
         type: boolean
-      pytest_extra_args:
-        description: Extra pytest args (for debugging)
-        required: false
-        default: ""
-        type: string
+
+permissions:
+  contents: read
 
 jobs:
   coverage:
@@ -43,10 +39,12 @@ jobs:
       PYTEST_LOG: pytest-py${{ matrix.python-version }}-${{ matrix.target.arch }}.log
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
@@ -75,13 +73,11 @@ jobs:
       - name: Run tests with coverage
         run: |
           set -o pipefail
-          EXTRA_ARGS="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pytest_extra_args || '' }}"
           uv run pytest tests \
             --cov=nonebot_plugin_htmlrender \
             --cov-report=term-missing \
             --cov-report=xml:${COVERAGE_XML} \
-            -ra \
-            ${EXTRA_ARGS} 2>&1 | tee "${PYTEST_LOG}"
+            -ra 2>&1 | tee "${PYTEST_LOG}"
 
       - name: Show Failure Diagnostics
         if: ${{ failure() }}
@@ -95,7 +91,7 @@ jobs:
 
       - name: Upload Coverage + Pytest Logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: coverage-debug-py${{ matrix.python-version }}-${{ matrix.target.arch }}
           path: |
@@ -105,7 +101,7 @@ jobs:
           retention-days: 14
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
         with:
           files: ./${{ env.COVERAGE_XML }}
           flags: py${{ matrix.python-version }}-${{ matrix.target.arch }}

@@ -1,11 +1,14 @@
+<!-- markdownlint-disable-file MD013 MD041 MD046 MD060 -->
 ---
 title: CI Actions
 description: GitHub Actions 工作流职责、触发条件与排障入口
 icon: lucide/badge-check
 status: new
 tags:
-  - Maintainers
-  - CI
+
+- Maintainers
+- CI
+
 ---
 
 # CI Actions
@@ -14,12 +17,12 @@ tags:
 
 ## 工作流总览
 
-| Workflow | 文件 | 主要职责 | 触发条件 |
-| --- | --- | --- | --- |
-| CI | `.github/workflows/ci.yml` | lint、类型检查、单测、远程浏览器 smoke | push、pull request、手动触发 |
-| Coverage | `.github/workflows/coverage.yml` | Python 版本 + CPU 架构覆盖率矩阵 | push、pull request、手动触发 |
-| Docs | `.github/workflows/docs.yml` | 文档构建、预览部署、主分支版本化部署 | 文档相关路径变更、手动触发 |
-| Publish | `.github/workflows/publish.yml` | 构建分发包、PyPI trusted publishing、GitHub Release | tag push、手动触发 |
+| Workflow        | 文件                             | 主要职责                                         | 触发条件                            |
+| --------------- | -------------------------------- | ------------------------------------------------ | ----------------------------------- |
+| CI              | `.github/workflows/ci.yml`       | lint、类型检查、打包校验、远程浏览器 smoke       | push master、pull request、手动触发 |
+| Coverage        | `.github/workflows/coverage.yml` | Python 版本 + CPU 架构覆盖率矩阵                 | push master、pull request、手动触发 |
+| Docs            | `.github/workflows/docs.yml`     | 文档构建、预览部署、主分支版本化部署             | 文档相关路径变更、手动触发          |
+| Publish         | `.github/workflows/publish.yml`  | 构建分发包、PyPI trusted publishing、GitHub Release | tag push、手动触发               |
 
 ## CI
 
@@ -29,19 +32,18 @@ tags:
 flowchart TD
     A["Ruff"] --> B["Ty"]
     A --> C["Basedpyright"]
-    D["Test matrix<br/>Python 3.10 / 3.11 / 3.12 / 3.13"]
+    D["Package Build<br/>uv build + twine check"]
     E["Remote Browser Render Smoke<br/>Docker Compose"]
 ```
 
 - `Ruff` 使用 `uv run ruff check .`，覆盖仓库内所有未排除文件；
 - `Ty` 与 `Basedpyright` 在 Ruff 通过后运行；
-- `Test` 按 [测试矩阵](testing-matrix.md) 执行 Python 版本覆盖，并发运行 `pytest tests -n auto --dist=loadfile -ra`；
+- `Package` 通过 `uv build` 构建 wheel 与 sdist，再用 `twine check dist/*` 校验包元数据；该 job 在 fork PR 上也会运行（不需要 secrets），用于兜底验证打包可行性；
 - `Remote Browser Render Smoke` 使用 `tests/infra/docker-compose.remote-test.yaml`，验证远程浏览器渲染路径。
 
-手动触发时可设置：
+测试用例由 `Coverage` workflow 负责，CI workflow 不再单独跑 pytest。
 
-- `debug_enabled=true`：输出 `uv pip list` 与 `uv tree`；
-- `pytest_extra_args`：追加 pytest 参数，用于临时放大或缩小测试范围。
+手动触发可设置 `debug_enabled=true` 输出 `uv pip list` 与 `uv tree`。
 
 ## Coverage
 
@@ -82,29 +84,31 @@ uv run zensical build --strict
 
 ## 本地对应命令
 
-| CI 项 | 本地命令 |
-| --- | --- |
-| 依赖同步 | `make sync-all` |
-| Ruff 格式化 | `make ruff-format` |
-| Ruff 检查 | `make ruff-check` |
-| Basedpyright | `make typecheck` |
-| Ty | `make ty` |
-| CI profile tests | `make test-ci` |
-| Local browser tests | `make install-browser && make test-local` |
-| Remote browser smoke | `make remote-smoke` |
-| Docs build | `make docs-build` |
-| Build artifacts | `make build-artifacts` |
+| CI 项                  | 本地命令                                  |
+| ---------------------- | ----------------------------------------- |
+| 依赖同步               | `make sync-all`                           |
+| Ruff 格式化            | `make ruff-format`                        |
+| Ruff 检查              | `make ruff-check`                         |
+| Basedpyright           | `make typecheck`                          |
+| Ty                     | `make ty`                                 |
+| Coverage profile tests | `make test-ci`                            |
+| Local browser tests    | `make install-browser && make test-local` |
+| Remote browser smoke   | `make remote-smoke`                       |
+| Docs build             | `make docs-build`                         |
+| Build artifacts        | `make build-artifacts`                    |
 
 `make check` 会运行常用本地门禁；完整目标说明见 [工程协作与规范](../contributing/engineering-guide.md)。
 
 !!! info "远程 smoke 的缓存策略"
+
     本地默认使用 `make remote-smoke`，复用已有镜像层与容器内依赖环境。
     只有基础镜像、`pyproject.toml`、`uv.lock` 或 `tests/infra/dockerfile.remote-test` 变更后，才需要执行 `make remote-smoke-build`。
 
 ## 排障入口
 
 - 首先看失败 job 的最后 200 行日志；
-- 对测试失败，优先下载 `test-logs-*` 或 `coverage-debug-*` artifact；
+- 对测试失败，下载 `coverage-debug-*` artifact；
+- 对打包失败，下载 `package-dist` 与 `package-build-logs`；
 - 对远程浏览器 smoke，下载 `remote-smoke-compose-logs`；
 - 对文档构建失败，下载 `docs-build-logs`；
 - 对发布失败，下载 `publish-build-logs` 并检查 `dist/` 产物。

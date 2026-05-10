@@ -1,11 +1,14 @@
+<!-- markdownlint-disable-file MD013 MD041 -->
 ---
 title: 测试矩阵
 description: CI / local 画像、并发策略与约束
 icon: lucide/flask-conical
 status: new
 tags:
-  - Maintainers
-  - Testing
+
+- Maintainers
+- Testing
+
 ---
 
 # 测试矩阵
@@ -15,8 +18,8 @@ tags:
 测试覆盖分为三层：
 
 1. 本地 `Makefile` profile，帮助开发者快速复现 CI 或真实浏览器路径；
-2. GitHub Actions 的版本矩阵，覆盖支持的 Python 版本；
-3. GitHub Actions 的架构矩阵，覆盖 x64 与 arm64。
+1. GitHub Actions 的版本矩阵，覆盖支持的 Python 版本；
+1. GitHub Actions 的架构矩阵，覆盖 x64 与 arm64。
 
 ## Make 目标
 
@@ -27,32 +30,32 @@ tags:
 
 ## profile 对照
 
-| 维度 | ci | local |
-| --- | --- | --- |
-| `requires_browser` 用例 | 跳过 | 执行 |
-| 并发 | 开启 | 关闭 |
-| 浏览器安装要求 | 无 | 必须有本地安装 |
+| 维度                    | ci   | local          |
+| ----------------------- | ---- | -------------- |
+| `requires_browser` 用例 | 跳过 | 执行           |
+| 并发                    | 开启 | 关闭           |
+| 浏览器安装要求          | 无   | 必须有本地安装 |
 
 ## 版本矩阵
 
-CI 单测与 Coverage workflow 当前覆盖以下 Python 版本：
+测试用例由 `Coverage` workflow 统一覆盖，CI workflow 不再单独跑 pytest。当前 Python 版本覆盖：
 
-| Python | CI 单测 | Coverage | 说明 |
-| --- | --- | --- | --- |
-| 3.10 | 是 | 是 | 项目最低支持版本 |
-| 3.11 | 是 | 是 | 主流兼容版本 |
-| 3.12 | 是 | 是 | 默认开发/文档构建版本 |
-| 3.13 | 是 | 是 | 前向兼容验证 |
+| Python | Coverage | 说明                  |
+| ------ | -------- | --------------------- |
+| 3.10   | 是       | 项目最低支持版本      |
+| 3.11   | 是       | 主流兼容版本          |
+| 3.12   | 是       | 默认开发/文档构建版本 |
+| 3.13   | 是       | 前向兼容验证          |
 
-Lint、`ty`、`basedpyright` 与文档构建固定在 Python 3.12 上运行，用于减少工具链差异；运行时版本兼容性由测试矩阵承担。
+Lint、`ty`、`basedpyright`、`package`、文档构建固定在 Python 3.12 上运行，用于减少工具链差异；运行时版本兼容性由测试矩阵承担。
 
 ## 架构矩阵
 
 Coverage workflow 额外覆盖架构维度：
 
-| Runner | 架构 | Python 版本 | 目的 |
-| --- | --- | --- | --- |
-| `ubuntu-latest` | x64 | 3.10 / 3.11 / 3.12 / 3.13 | 主流 Linux 环境覆盖 |
+| Runner             | 架构  | Python 版本               | 目的                 |
+| ------------------ | ----- | ------------------------- | -------------------- |
+| `ubuntu-latest`    | x64   | 3.10 / 3.11 / 3.12 / 3.13 | 主流 Linux 环境覆盖  |
 | `ubuntu-24.04-arm` | arm64 | 3.10 / 3.11 / 3.12 / 3.13 | ARM Linux 兼容性覆盖 |
 
 覆盖率任务会生成独立 XML，并用 Codecov flags 标记对应版本与架构。artifact 命名和下载入口见 [CI Actions](ci-actions.md)。

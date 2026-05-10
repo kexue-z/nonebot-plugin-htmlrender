@@ -4,8 +4,6 @@ on:
   push:
     branches:
       - master
-      - dev
-      - feat/**
   pull_request:
   workflow_dispatch:
     inputs:
@@ -14,11 +12,9 @@ on:
         required: false
         default: false
         type: boolean
-      pytest_extra_args:
-        description: Extra pytest args for Test job
-        required: false
-        default: ""
-        type: string
+
+permissions:
+  contents: read
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -30,10 +26,12 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
           python-version: "3.12"
           enable-cache: true
@@ -57,10 +55,12 @@ jobs:
     timeout-minutes: 20
     needs: [ruff]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
           python-version: "3.12"
           enable-cache: true
@@ -78,10 +78,12 @@ jobs:
     timeout-minutes: 20
     needs: [ruff]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
           python-version: "3.12"
           enable-cache: true
@@ -93,58 +95,54 @@ jobs:
       - name: Basedpyright
         run: uv run basedpyright .
 
-  test:
-    name: Test (py${{ matrix.python-version }})
+  package:
+    name: Package Build
     runs-on: ubuntu-latest
-    timeout-minutes: 45
-    strategy:
-      fail-fast: false
-      matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
-
+    timeout-minutes: 15
     env:
-      HTMLRENDER_TEST_PROFILE: ci
-      PYTEST_LOG: pytest-ci-py${{ matrix.python-version }}.log
-
+      BUILD_LOG: package-build.log
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@v7
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
           enable-cache: true
-          cache-suffix: test-${{ matrix.python-version }}
+          cache-suffix: package
 
       - name: Sync deps
         run: uv sync --locked --all-extras --all-groups
 
-      - name: Debug Dependency Snapshot
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
-        run: |
-          uv pip list
-          uv tree
-
-      - name: Run tests
+      - name: Build distributions
         run: |
           set -o pipefail
-          EXTRA_ARGS="${{ github.event_name == 'workflow_dispatch' && github.event.inputs.pytest_extra_args || '' }}"
-          uv run pytest tests -n auto --dist=loadfile -ra ${EXTRA_ARGS} 2>&1 | tee "${PYTEST_LOG}"
+          uv build 2>&1 | tee "${BUILD_LOG}"
 
-      - name: Show Failure Diagnostics
-        if: ${{ failure() }}
+      - name: Validate distributions
+        run: uv run --with twine twine check dist/*
+
+      - name: Show built distributions
         run: |
-          echo "==== Last 200 lines of pytest log ===="
-          tail -n 200 "${PYTEST_LOG}" || true
-          echo "==== Environment ===="
-          env | sort
+          ls -la dist
+          sha256sum dist/* || true
 
-      - name: Upload Test Logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+      - name: Upload built distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: test-logs-py${{ matrix.python-version }}
-          path: ${{ env.PYTEST_LOG }}
+          name: package-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: package-build-logs
+          path: ${{ env.BUILD_LOG }}
           if-no-files-found: warn
           retention-days: 14
 
@@ -153,7 +151,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
 
       - name: Build and run remote smoke
         run: docker compose -f tests/infra/docker-compose.remote-test.yaml up --build --abort-on-container-exit --exit-code-from render
@@ -164,7 +164,7 @@ jobs:
 
       - name: Upload remote smoke logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: remote-smoke-compose-logs
           path: remote-smoke-compose.log
