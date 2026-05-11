@@ -4,7 +4,7 @@ services:
       context: .
       dockerfile: tests/infra/dockerfile.remote-test
       args:
-        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-docker.1ms.run/library/python:3.12-slim-bookworm}
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-bookworm}
     container_name: htmlrender-dev
     depends_on:
       - playwright

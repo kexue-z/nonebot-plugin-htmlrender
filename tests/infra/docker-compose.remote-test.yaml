@@ -4,7 +4,7 @@ services:
       context: ../..
       dockerfile: tests/infra/dockerfile.remote-test
       args:
-        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-docker.1ms.run/library/python:3.12-slim-bookworm}
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-bookworm}
         PLAYWRIGHT_CLIENT_VERSION: ${PLAYWRIGHT_CLIENT_VERSION:-1.56.0}
     container_name: htmlrender-remote-test
     depends_on:
@@ -23,7 +23,7 @@ services:
       - -lc
       - |
         set -e
-        /venv/bin/python -m pip install --no-deps -e /app
+        uv pip install --python /venv/bin/python --no-deps -e /app
         /venv/bin/python tests/remote_smoke.py
 
   playwright:
