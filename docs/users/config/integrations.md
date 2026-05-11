@@ -42,7 +42,7 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 <div class="dep-card dep-card-required" markdown>
 
-#### :lucide-folders: [localstore](https://github.com/nonebot/plugin-localstore)
+### :lucide-folders: [localstore](https://github.com/nonebot/plugin-localstore)
 
 提供插件数据/缓存/配置目录能力，`nonebot-plugin-htmlrender` 运行依赖它，默认会自动 `require`。
 可结合 NoneBot 的数据存储最佳实践文档一起使用。
@@ -51,7 +51,7 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 <div class="dep-card dep-card-optional" markdown>
 
-#### :lucide-folder-symlink: [filehost](https://github.com/nonebot/plugin-filehost)
+### :lucide-folder-symlink: [filehost](https://github.com/nonebot/plugin-filehost)
 
 用于远程模式下把本地资源解析为可访问 URL，避免远程浏览器无法读取本地 `file://` 资源。
 同时会启用资源请求头校验；默认会基于设备标识（`py-machineid`）派生请求 token。
@@ -63,7 +63,7 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 <div class="dep-card dep-card-optional" markdown>
 
-#### :lucide-chess-rook: [sentry](https://github.com/nonebot/plugin-sentry)
+### :lucide-chess-rook: [sentry](https://github.com/nonebot/plugin-sentry)
 
 用于将渲染链路指标/追踪接入 Sentry。
 若环境中安装了 `nonebot-plugin-sentry`，插件会在导入阶段提前尝试 `require("nonebot_plugin_sentry")`。
@@ -74,7 +74,7 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 <div class="dep-card dep-card-optional" markdown>
 
-#### :lucide-chart-spline: [prometheus](https://github.com/nonebot/plugin-prometheus)
+### :lucide-chart-spline: [prometheus](https://github.com/nonebot/plugin-prometheus)
 
 用于将渲染链路指标暴露到 Prometheus。
 若环境中安装了 `nonebot-plugin-prometheus`，插件会在导入阶段提前尝试 `require("nonebot_plugin_prometheus")`。

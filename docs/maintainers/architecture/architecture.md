@@ -28,6 +28,7 @@ tags:
 5. **Context（上下文）**：单次渲染容器。Playwright 后端中对应 `BrowserContext` + `Page`，由 `operations` 模块在每次渲染时按需创建并退出释放。
 
 层次约束：
+
 - 上层只能透过下层暴露的接口操作下层资源，不直接持有更下层对象。
 - `Render` 不感知 Playwright 细节；`Backend` 不感知 NoneBot 生命周期。
 - 资源解析（`resources/`）作为旁路被 `operations` 调用，不参与渲染主链路的依赖反转。

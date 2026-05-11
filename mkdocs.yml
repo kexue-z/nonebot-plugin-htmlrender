@@ -160,16 +160,16 @@ nav:
               - Playwright 配置: users/config/playwright.md
               - 依赖扩展与观测: users/config/integrations.md
       - 使用:
-         - API 与兼容层: users/api.md
-         - 示例项目: users/examples.md
-         - 最佳实践: users/best-practices.md
-         - 远程渲染与 Filehost: users/remote-playwright.md
+          - API 与兼容层: users/api.md
+          - 示例项目: users/examples.md
+          - 最佳实践: users/best-practices.md
+          - 远程渲染与 Filehost: users/remote-playwright.md
       - 排障与运维:
-         - 故障排查: users/troubleshooting.md
-         - 常见问题: users/faq.md
-         - 安全须知: users/security.md
+          - 故障排查: users/troubleshooting.md
+          - 常见问题: users/faq.md
+          - 安全须知: users/security.md
       - 迁移:
-         - 旧版本迁移指南: users/migration.md
+          - 旧版本迁移指南: users/migration.md
   - 面向开发者:
       - 概览: maintainers/index.md
       - 架构与设计:

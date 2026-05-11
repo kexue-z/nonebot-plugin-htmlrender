@@ -24,7 +24,7 @@ Copy the `plugins/remote_render` directory into your project's plugin directory.
 
 ### Start a remote browser
 
-**Option A: Docker Compose (CDP) - Recommended**
+#### Option A: Docker Compose (CDP) - Recommended
 
 ```bash
 docker compose up -d
@@ -33,7 +33,7 @@ cp .env.prod .env
 
 This starts a Chromium container on port 9222, `.env.prod` already configured to connect via CDP.
 
-**Option B: Playwright Server (WebSocket)**
+#### Option B: Playwright Server (WebSocket)
 
 ```bash
 npx playwright run-server --port 3000

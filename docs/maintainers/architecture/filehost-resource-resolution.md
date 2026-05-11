@@ -199,9 +199,9 @@ flowchart TD
 - TTL 由 `render_playwright.filehost_cache_ttl_seconds` 控制，默认 300 秒
 - 命中时刷新 `expires_at_ns = now_ns + TTL`（仅在无 lease 持有时；持有 lease 期间一直是 `None`）
 - 驱逐函数 `_evict_expired_resources_locked` 在以下时机触发：
-    - 每次 `filehost_url(...)` 入口（先 evict 再查表）
-    - `release_filehost_lease(...)` 释放 lease 后
-    - 用户主动调用 `prune_filehost_cache()`
+  - 每次 `filehost_url(...)` 入口（先 evict 再查表）
+  - `release_filehost_lease(...)` 释放 lease 后
+  - 用户主动调用 `prune_filehost_cache()`
 - `lease_ref_count > 0` 的条目不参与驱逐——单次渲染期间钉住的资源不会被并发请求的 TTL 检查抢先回收
 
 ### Lease（租约）

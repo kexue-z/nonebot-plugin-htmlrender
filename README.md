@@ -4,7 +4,7 @@
 
 # nonebot-plugin-htmlrender
 
-_NoneBot2 浏览器渲染库插件（Library Plugin）_
+> NoneBot2 浏览器渲染库插件（Library Plugin）
 
 [![PyPI](https://img.shields.io/pypi/v/nonebot-plugin-htmlrender.svg)](https://pypi.org/project/nonebot-plugin-htmlrender/)
 [![Python](https://img.shields.io/pypi/pyversions/nonebot-plugin-htmlrender.svg)](https://pypi.org/project/nonebot-plugin-htmlrender/)

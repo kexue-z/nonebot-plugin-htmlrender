@@ -86,7 +86,6 @@ from nonebot_plugin_htmlrender import render_template
 
 show_profile = on_command("profile")
 
-
 @show_profile.handle()
 async def handle_profile() -> None:
     image = await render_template(

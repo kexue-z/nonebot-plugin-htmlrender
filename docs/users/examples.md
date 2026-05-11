@@ -79,7 +79,7 @@ img = await capture_html_element(
 
 ### 项目结构
 
-```
+```text
 plugins/template_render/
 ├── __init__.py
 └── templates/

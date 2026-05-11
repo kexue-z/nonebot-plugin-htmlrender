@@ -27,7 +27,7 @@ RENDER_BACKEND=playwright
 
 ## Template Structure
 
-```
+```text
 plugins/template_render/
   __init__.py
   templates/
