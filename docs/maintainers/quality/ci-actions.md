@@ -1,14 +1,11 @@
-<!-- markdownlint-disable-file MD013 MD041 MD046 MD060 -->
 ---
 title: CI Actions
 description: GitHub Actions 工作流职责、触发条件与排障入口
 icon: lucide/badge-check
 status: new
 tags:
-
-- Maintainers
-- CI
-
+  - Maintainers
+  - CI
 ---
 
 # CI Actions

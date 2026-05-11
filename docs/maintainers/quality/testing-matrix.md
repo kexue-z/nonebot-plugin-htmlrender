@@ -1,14 +1,11 @@
-<!-- markdownlint-disable-file MD013 MD041 -->
 ---
 title: 测试矩阵
 description: CI / local 画像、并发策略与约束
 icon: lucide/flask-conical
 status: new
 tags:
-
-- Maintainers
-- Testing
-
+  - Maintainers
+  - Testing
 ---
 
 # 测试矩阵

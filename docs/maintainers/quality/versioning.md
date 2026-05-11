@@ -1,15 +1,12 @@
-<!-- markdownlint-disable-file MD013 MD041 -->
 ---
 title: 文档版本管理
 description: 使用 mike 进行多版本文档发布与管理
 icon: lucide/git-branch
 status: new
 tags:
-
-- Maintainers
-- Docs
-- Versioning
-
+  - Maintainers
+  - Docs
+  - Versioning
 ---
 
 # 文档版本管理
