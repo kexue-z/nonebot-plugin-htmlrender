@@ -38,7 +38,7 @@ dev = [
     "ty>=0.0.26",
 ]
 docs = [
-    "zensical>=0.0.39",
+    "zensical>=0.0.41",
     "mike @ git+https://github.com/squidfunk/mike.git",
     "mdformat>=1.0.0",
     "mdformat-mkdocs>=4.4.2",
