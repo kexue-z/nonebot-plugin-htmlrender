@@ -98,4 +98,3 @@ BREAKING CHANGE: `render_html_to_image` has been removed. Use `render_html`.
 
 - 合并前建议整理“中间提交”（如 `fix typo`、`wip`）；
 - 保留有意义的提交边界，避免一个大提交覆盖多个独立主题。
-

@@ -37,4 +37,3 @@ All reports will be reviewed and investigated promptly and fairly.
 ## Attribution
 
 This document is adapted from the Contributor Covenant (v2.x) spirit and simplified for this repository.
-

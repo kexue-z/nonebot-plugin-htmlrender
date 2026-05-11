@@ -24,4 +24,3 @@ After confirmation and patch preparation:
 1. Maintainers coordinate a fix and release plan.
 2. Security notes are published with the release.
 3. Credits are provided when appropriate.
-
