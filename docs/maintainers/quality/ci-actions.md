@@ -159,6 +159,7 @@ pip install -i https://test.pypi.org/simple/ \
 
     本地默认使用 `make remote-smoke`，复用已有镜像层与容器内依赖环境。
     只有基础镜像、`pyproject.toml`、`uv.lock` 或 `tests/infra/dockerfile.remote-test` 变更后，才需要执行 `make remote-smoke-build`。
+    CI 中的 `Remote Browser Render Smoke (Docker)` job 会先通过 Docker Buildx 预构建 `render` 镜像，并把 Docker 层缓存写入 GitHub Actions cache；后续频繁触发时可直接复用基础镜像层和 `uv sync` 构建层，避免每次完整重建。
 
 ## 排障入口
 

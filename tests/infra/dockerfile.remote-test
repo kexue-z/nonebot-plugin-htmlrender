@@ -1,8 +1,6 @@
 # Lightweight render image for remote Playwright integration smoke tests.
 ARG PYTHON_BASE_IMAGE=python:3.12-bookworm
-ARG PLAYWRIGHT_CLIENT_VERSION=1.56.0
 FROM ${PYTHON_BASE_IMAGE}
-ARG PLAYWRIGHT_CLIENT_VERSION
 
 ENV TZ=Asia/Shanghai \
     DEBIAN_FRONTEND=noninteractive \
@@ -20,7 +18,6 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
 WORKDIR /tmp/remote-smoke
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project --group dev --group test --extra filehost \
-    && uv pip install --python /venv/bin/python --no-deps playwright==${PLAYWRIGHT_CLIENT_VERSION}
+    uv sync --locked --no-install-project --group dev --group test --extra filehost
 
 WORKDIR /app

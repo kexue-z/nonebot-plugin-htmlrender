@@ -1,11 +1,11 @@
 services:
   render:
+    image: ${RENDER_IMAGE:-htmlrender-remote-test:local}
     build:
       context: ../..
       dockerfile: tests/infra/dockerfile.remote-test
       args:
         PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-bookworm}
-        PLAYWRIGHT_CLIENT_VERSION: ${PLAYWRIGHT_CLIENT_VERSION:-1.56.0}
     container_name: htmlrender-remote-test
     depends_on:
       - playwright
@@ -15,7 +15,6 @@ services:
     environment:
       PLAYWRIGHT_WS_ENDPOINT: ws://playwright:53333/playwright
       FILEHOST_HOST_OVERRIDE: http://render:9012/
-      PLAYWRIGHT_CLIENT_VERSION: ${PLAYWRIGHT_CLIENT_VERSION:-1.56.0}
     ports:
       - "9012:9012"
     command:
