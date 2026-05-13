@@ -35,7 +35,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-          cache-suffix: lint-type
+          cache-suffix: lint-type-${{ github.event_name }}
 
       - name: Show Runner Context
         run: |
@@ -64,7 +64,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-          cache-suffix: ty
+          cache-suffix: ty-${{ github.event_name }}
 
       - name: Sync deps
         run: uv sync --locked --all-extras --all-groups
@@ -87,7 +87,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-          cache-suffix: basedpyright
+          cache-suffix: basedpyright-${{ github.event_name }}
 
       - name: Sync deps
         run: uv sync --locked --all-extras --all-groups
@@ -111,7 +111,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-          cache-suffix: package
+          cache-suffix: package-${{ github.event_name }}
 
       - name: Sync deps
         run: uv sync --locked --all-extras --all-groups

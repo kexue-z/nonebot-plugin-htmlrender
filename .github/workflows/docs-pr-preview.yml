@@ -34,7 +34,7 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
-          cache-suffix: docs
+          cache-suffix: docs-${{ github.event_name }}
 
       - name: Show Runner Context
         if: github.event.action != 'closed'

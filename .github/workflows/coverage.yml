@@ -48,7 +48,7 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
-          cache-suffix: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}
+          cache-suffix: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}-${{ github.event_name }}
 
       - name: Show Runner Context
         run: |
