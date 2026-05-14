@@ -152,6 +152,7 @@ jobs:
     timeout-minutes: 30
     env:
       RENDER_IMAGE: htmlrender-remote-test:ci
+      PLAYWRIGHT_IMAGE: htmlrender-playwright:ci
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -171,6 +172,16 @@ jobs:
           cache-to: type=gha,scope=remote-smoke,mode=max
           build-args: |
             PYTHON_BASE_IMAGE=python:3.12-bookworm
+
+      - name: Build playwright server image
+        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        with:
+          context: .
+          file: tests/infra/dockerfile.playwright-server
+          load: true
+          tags: ${{ env.PLAYWRIGHT_IMAGE }}
+          cache-from: type=gha,scope=playwright-server
+          cache-to: type=gha,scope=playwright-server,mode=max
 
       - name: Build and run remote smoke
         run: docker compose -f tests/infra/docker-compose.remote-test.yaml up --abort-on-container-exit --exit-code-from render

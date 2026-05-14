@@ -8,7 +8,8 @@ services:
         PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-bookworm}
     container_name: htmlrender-remote-test
     depends_on:
-      - playwright
+      playwright:
+        condition: service_healthy
     working_dir: /app
     volumes:
       - ../..:/app
@@ -26,7 +27,10 @@ services:
         /venv/bin/python tests/remote_smoke.py
 
   playwright:
-    image: ${PLAYWRIGHT_IMAGE:-jacoblincool/playwright:chromium-server}
+    image: ${PLAYWRIGHT_IMAGE:-htmlrender-playwright:local}
+    build:
+      context: ../..
+      dockerfile: tests/infra/dockerfile.playwright-server
     container_name: htmlrender-playwright
     environment:
       BROWSER_PORT: "53333"
