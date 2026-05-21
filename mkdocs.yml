@@ -175,6 +175,7 @@ nav:
       - 架构与设计:
           - 分层架构: maintainers/architecture/architecture.md
           - 自定义 Backend 指南: maintainers/architecture/custom-backends.md
+          - 渲染后端开发指南: maintainers/architecture/render-backend-development.md
           - Filehost 资源解析方案: maintainers/architecture/filehost-resource-resolution.md
       - 协作流程:
           - 贡献指南: maintainers/contributing/contributing.md

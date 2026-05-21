@@ -12,7 +12,10 @@ tags:
 # 自定义 Backend 指南
 
 backend 分离的目标不是为了把 Playwright 搬目录，而是把“渲染能力”与“具体驱动”拆开。  
-如果后续要接入新 backend，入口从这里开始。
+如果后续要接入 backend，入口从这里开始。
+
+!!! tip "实现入口"
+    如果你已经准备在仓库里真正接入 backend，而不是只理解协议，请继续看 [渲染后端开发指南](render-backend-development.md)。
 
 ## 先记住的边界
 
@@ -47,14 +50,16 @@ backend 分离的目标不是为了把 Playwright 搬目录，而是把“渲染
 
 backend 通过 `BackendCapability` 声明自己能提供什么：
 
-- `RENDER_CONTEXT`
-- `HTML_RENDER`
-- `TEXT_RENDER`
-- `MARKDOWN_RENDER`
-- `TEMPLATE_RENDER`
-- `TEMPLATE_HTML_RENDER`
-- `HTML_ELEMENT_CAPTURE`
-- `RASTER_RENDER`
+| Capability | 含义 |
+| --- | --- |
+| `RENDER_CONTEXT` | backend 可以为单次渲染创建上下文 |
+| `HTML_RENDER` | backend 可以按 HTML/CSS 语义渲染页面 |
+| `TEXT_RENDER` | backend 可以渲染纯文本 |
+| `MARKDOWN_RENDER` | backend 可以渲染 Markdown |
+| `TEMPLATE_RENDER` | backend 可以把模板渲染为图片 |
+| `TEMPLATE_HTML_RENDER` | backend 可以把模板渲染为 HTML 字符串 |
+| `HTML_ELEMENT_CAPTURE` | backend 可以截取指定 HTML 元素 |
+| `RASTER_RENDER` | backend 可以直接绘制位图输出 |
 
 这些是 backend-facing building blocks。  
 `Render` 层再把它们映射成用户可见的 `RenderCapability`。
@@ -115,5 +120,5 @@ backend 注册入口在 `backend/factory.py`：
 - HTML family 渲染
 - 远程连接与资源解析协同
 
-但这不是要求新 backend 复制 Playwright 的目录数量。  
+但这不是要求目标 backend 复制 Playwright 的目录数量。  
 真正必须保持的是协议、能力声明和依赖方向。
