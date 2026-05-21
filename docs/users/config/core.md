@@ -15,6 +15,23 @@ tags:
 - 当前仓库的正式主路径 backend 是 `playwright`。
 - `render_backend` 默认不是 `playwright`，而是 `null`；不配置就不会自动选择后端。
 
+## 为什么存在 `render_backend`
+
+`RENDER_BACKEND` 的意义不是“多写一个看起来重复的配置”，而是把“渲染 API”与“具体运行时实现”明确拆开：
+
+- 用户代码调用的是统一的 `render_text`、`render_markdown`、`render_html`、`render_template`
+- 插件内部需要根据 backend 决定由谁负责创建页面、执行截图、处理生命周期与资源解析
+- 这让公共 API、兼容层、启动流程和后端实现之间有清晰边界，而不是把 `playwright` 硬编码成不可替换的隐式前提
+
+因此 `render_backend` 的配置意义主要有三点：
+
+- 显式声明你要启用哪套渲染实现，避免插件在启动时“猜测”运行方式
+- 让启动阶段、健康检查和错误信息都围绕同一个已选 backend 展开
+- 为后续扩展或实验性 backend 保留协议边界，同时不污染调用方 API
+
+对当前仓库而言，正式支持的值仍应视为 `playwright`。  
+也就是说，今天你配置 `RENDER_BACKEND=playwright`，本质上是在告诉插件：“请把统一渲染 API 绑定到 Playwright 这套运行时上，并按它的生命周期与配置模型工作。”
+
 ## 插件级配置
 
 > 以下默认值以当前代码实现为准（`nonebot_plugin_htmlrender/config.py`）。
