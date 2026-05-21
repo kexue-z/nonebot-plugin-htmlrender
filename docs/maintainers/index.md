@@ -15,19 +15,71 @@ tags:
 - 这套实现应该如何验证与发布
 - 后续演进时哪些边界不能被破坏
 
+<div class="grid cards" markdown>
+
+- **架构与 backend**
+
+    ---
+
+    理解渲染主链路、Backend Protocol、资源解析和后端开发的落地步骤。
+
+    [分层架构](architecture/architecture.md)
+
+- **协作流程**
+
+    ---
+
+    对齐贡献入口、工程规范、编码风格和提交消息格式。
+
+    [工程协作与规范](contributing/engineering-guide.md)
+
+- **质量与发布**
+
+    ---
+
+    查看测试分层、CI 工作流和文档版本发布规则。
+
+    [测试矩阵](quality/testing-matrix.md)
+
+</div>
+
 ## 建议阅读顺序
 
-1. [分层架构](architecture/architecture.md)
-2. [自定义 Backend 指南](architecture/custom-backends.md)
-3. [Filehost 资源解析方案](architecture/filehost-resource-resolution.md)
-4. [工程协作与规范](contributing/engineering-guide.md)
-5. [测试矩阵](quality/testing-matrix.md)
-6. [CI Actions](quality/ci-actions.md)
+=== "维护代码"
+
+    1. [分层架构](architecture/architecture.md)
+    2. [Filehost 资源解析方案](architecture/filehost-resource-resolution.md)
+    3. [工程协作与规范](contributing/engineering-guide.md)
+    4. [测试矩阵](quality/testing-matrix.md)
+
+=== "开发 backend"
+
+    1. [分层架构](architecture/architecture.md)
+    2. [自定义 Backend 指南](architecture/custom-backends.md)
+    3. [渲染后端开发指南](architecture/render-backend-development.md)
+    4. [测试矩阵](quality/testing-matrix.md)
+
+=== "发布文档"
+
+    1. [贡献指南](contributing/contributing.md)
+    2. [提交消息指南](contributing/commit-message.md)
+    3. [CI Actions](quality/ci-actions.md)
+    4. [文档版本管理](quality/versioning.md)
+
+## 推荐同步阅读的用户文档
+
+维护者在排查 issue、判断兼容性影响或评估默认行为时，通常也需要回看用户侧文档：
+
+- [故障排查](../users/troubleshooting.md)
+- [常见问题](../users/faq.md)
+- [安全须知](../users/security.md)
+- [旧版本迁移指南](../users/migration.md)
 
 ## 架构与设计
 
 - [分层架构](architecture/architecture.md)
 - [自定义 Backend 指南](architecture/custom-backends.md)
+- [渲染后端开发指南](architecture/render-backend-development.md)
 - [Filehost 资源解析方案](architecture/filehost-resource-resolution.md)
 
 ## 协作流程

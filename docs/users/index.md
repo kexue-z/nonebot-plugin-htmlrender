@@ -15,37 +15,59 @@ tags:
 
 ## 推荐阅读顺序
 
-1. [快速开始](quickstart.md)
-2. [API 与兼容层](api.md)
-3. [配置总览](config/index.md)
-4. [远程 Playwright 与 Filehost](remote-playwright.md)
-5. [最佳实践](best-practices.md)
+<div class="grid cards" markdown>
+
+- **1. 接入**
+
+    ---
+
+    [快速开始](quickstart.md) -> [配置总览](config/index.md)
+
+- **2. 调用**
+
+    ---
+
+    [API 与兼容层](api.md) -> [示例项目](examples.md) -> [最佳实践](best-practices.md)
+
+- **3. 部署**
+
+    ---
+
+    [远程 Playwright 与 Filehost](remote-playwright.md) -> [安全须知](security.md)
+
+- **4. 收口**
+
+    ---
+
+    [故障排查](troubleshooting.md) -> [常见问题](faq.md) -> [旧版本迁移指南](migration.md)
+
+</div>
 
 ## 按问题找文档
 
-如果你正在接入：
+=== "正在接入"
 
-- [快速开始](quickstart.md)：最短接入路径
-- [配置总览](config/index.md)：配置面全览
-- [Playwright 配置](config/playwright.md)：浏览器、连接、安装与启动策略
-- [依赖扩展与观测](config/integrations.md)：filehost、sentry、prometheus
+    - [快速开始](quickstart.md)：最短接入路径
+    - [配置总览](config/index.md)：配置面全览
+    - [Playwright 配置](config/playwright.md)：浏览器、连接、安装与启动策略
+    - [依赖扩展与观测](config/integrations.md)：filehost、sentry、prometheus
 
-如果你正在写业务代码：
+=== "编写业务代码"
 
-- [API 与兼容层](api.md)：公共 API、兼容层与高级入口
-- [示例项目](examples.md)：常见调用方式
-- [最佳实践](best-practices.md)：目录组织、模板管理与接入节奏
+    - [API 与兼容层](api.md)：公共 API、兼容层与高级入口
+    - [示例项目](examples.md)：常见调用方式
+    - [最佳实践](best-practices.md)：目录组织、模板管理与接入节奏
 
-如果你正在排障或部署：
+=== "排障或部署"
 
-- [远程 Playwright 与 Filehost](remote-playwright.md)：远程浏览器、资源可达性与 filehost
-- [故障排查](troubleshooting.md)：按报错现象定位问题
-- [常见问题](faq.md)：部署与接入高频问题
-- [安全须知](security.md)：远端连接、任意 HTML、filehost 暴露面的加固建议
+    - [远程 Playwright 与 Filehost](remote-playwright.md)：远程浏览器、资源可达性与 filehost
+    - [故障排查](troubleshooting.md)：按报错现象定位问题
+    - [常见问题](faq.md)：部署与接入高频问题
+    - [安全须知](security.md)：远端连接、任意 HTML、filehost 暴露面的加固建议
 
-如果你在迁移旧项目：
+=== "迁移旧项目"
 
-- [旧版本迁移指南](migration.md)
+    - [旧版本迁移指南](migration.md)：从旧 API、旧配置和历史行为迁移到新路径
 
 ## 新项目建议
 
