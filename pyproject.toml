@@ -12,10 +12,10 @@ dependencies = [
     "jinja2>=3.0.3",
     "markdown>=3.10.0",
     "nonebot-plugin-localstore>=0.7.4",
-    "nonebot2>=2.4.2",
-    "playwright>=1.58.0",
+    "nonebot2>=2.5.0",
+    "playwright>=1.60.0",
     "pygments>=2.10.0",
-    "pymdown-extensions>=9.1",
+    "pymdown-extensions>=10.21.2",
     "python-markdown-math>=0.8",
     "tenacity>=9.1.2",
     "typing-extensions>=4.15.0",
@@ -32,10 +32,10 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 [dependency-groups]
 dev = [
     "nonebot-adapter-onebot>=2.4.6",
-    "nonebot2[fastapi]>=2.4.4",
+    "nonebot2[fastapi]>=2.5.0",
     "ruff>=0.15.2",
     "basedpyright>=1.38.4",
-    "ty>=0.0.26",
+    "ty>=0.0.34",
 ]
 docs = [
     "zensical>=0.0.41",
@@ -44,14 +44,18 @@ docs = [
     "mdformat-mkdocs>=4.4.2",
     "mkdocstrings-python>=2.0.1",
 ]
+remote-smoke = [
+    "nonebot2[fastapi]>=2.5.0",
+    "pillow>=12.0.0",
+]
 test = [
-    "nonebug>=0.4.2",
+    "nonebug>=0.4.4",
     "pytest-cov>=7.0.0",
     "pytest-xdist>=3.8.0",
-    "respx>=0.22.0",
     "pytest-mock>=3.15.1",
     "trio>=0.33.0",
     "pillow>=12.0.0",
+    "httpx2>=2.4.0",
 ]
 
 

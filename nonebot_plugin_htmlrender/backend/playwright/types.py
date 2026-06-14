@@ -169,8 +169,8 @@ class BrowserSessionKwargs(
 ):
     """启动浏览器会话的统一参数集合，覆盖 launch / CDP / WebSocket 三种模式。"""
 
+    endpoint: str | None
     endpoint_url: str | None
-    ws_endpoint: str | None
 
 
 class RenderHtmlKwargs(HtmlPageKwargs, total=False):
@@ -200,6 +200,7 @@ class RenderTextKwargs(TypedDict, total=False):
 class RenderMarkdownKwargs(RenderTextKwargs, total=False):
     """``render_markdown`` 的可选参数。"""
 
+    md: str
     md_path: str
 
 
