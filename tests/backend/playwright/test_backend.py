@@ -41,6 +41,19 @@ def test_resolve_mode_variants(mocker: MockerFixture) -> None:
     )
     assert backend._resolve_mode() is PlaywrightMode.REMOTE_CDP
 
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        return_value=PlaywrightConfig(),
+    )
+    assert (
+        backend._resolve_mode(endpoint="ws://example.com/ws")
+        is PlaywrightMode.REMOTE_WS
+    )
+    assert (
+        backend._resolve_mode(endpoint_url="http://example.com/json/version")
+        is PlaywrightMode.REMOTE_CDP
+    )
+
 
 def test_resolve_mode_rejects_multiple_remote_endpoints(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
@@ -58,6 +71,17 @@ def test_resolve_mode_rejects_multiple_remote_endpoints(mocker: MockerFixture) -
 
     with pytest.raises(RuntimeError, match="cannot both be set"):
         backend._resolve_mode()
+
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        return_value=SimpleNamespace(
+            connect_ws=SimpleNamespace(endpoint=None),
+            connect_cdp=SimpleNamespace(endpoint="http://example.com/json/version"),
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="cannot both be set"):
+        backend._resolve_mode(endpoint="ws://example.com/ws")
 
 
 def test_build_proxy() -> None:
@@ -228,13 +252,52 @@ async def test_create_browser_remote_ws_connects_after_version_gate(
     result = await backend._create_browser(
         pw,  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
         PlaywrightMode.REMOTE_WS,
-        ws_endpoint="ignored",
+        endpoint="ignored",
         timeout=4_000,
     )
 
     assert result == "ws-browser"
-    check_ws_gate_mock.assert_called_once_with()
-    connect_mock.assert_awaited_once_with("ws://localhost:3000/ws", timeout=4_000)
+    check_ws_gate_mock.assert_called_once_with("ws://localhost:3000/ws")
+    connect_mock.assert_awaited_once_with(
+        endpoint="ws://localhost:3000/ws", timeout=4_000
+    )
+
+
+@pytest.mark.anyio
+async def test_create_browser_remote_ws_accepts_startup_endpoint(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+        PlaywrightConfig,
+    )
+    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+        PlaywrightBackend,
+        PlaywrightMode,
+    )
+    from nonebot_plugin_htmlrender.consts import BrowserEngine  # noqa: PLC0415
+
+    backend = PlaywrightBackend()
+    connect_mock = mocker.AsyncMock(return_value="ws-browser")
+    pw = SimpleNamespace(chromium=SimpleNamespace(connect=connect_mock))
+
+    check_ws_gate_mock = mocker.patch.object(backend, "_check_ws_version_gate")
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        return_value=PlaywrightConfig(engine=BrowserEngine.CHROMIUM),
+    )
+
+    result = await backend._create_browser(
+        pw,  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+        PlaywrightMode.REMOTE_WS,
+        endpoint="ws://192.168.50.102:8100",
+        timeout=4_000,
+    )
+
+    assert result == "ws-browser"
+    check_ws_gate_mock.assert_called_once_with("ws://192.168.50.102:8100")
+    connect_mock.assert_awaited_once_with(
+        endpoint="ws://192.168.50.102:8100", timeout=4_000
+    )
 
 
 @pytest.mark.anyio
