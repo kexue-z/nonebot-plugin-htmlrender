@@ -1,0 +1,39 @@
+# Playwright WebSocket server image for remote-smoke tests.
+#
+# We do not reuse jacoblincool/playwright:chromium-server because its entrypoint
+# omits the `host` option in launchServer(), so the Node runtime on Linux
+# runners binds to [::1] only. Render containers reach the service via the
+# bridge IPv4 address and fail with ECONNREFUSED.
+#
+# The mcr.microsoft.com/playwright base bakes browser binaries into
+# /ms-playwright but deletes the playwright-core npm package after install
+# (the image expects projects to bring their own JS dependency). We reinstall
+# it locally under /srv at the matching version so the server entrypoint can
+# `import` it. Pin against uv.lock (Python `playwright`==1.59.0) to keep
+# client/server in lockstep.
+ARG PLAYWRIGHT_VERSION=1.59.0
+FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
+
+ARG PLAYWRIGHT_VERSION
+
+WORKDIR /srv
+# Install playwright-core *locally* under /srv/node_modules. Node ESM
+# resolution walks up from the importing file's directory and ignores the
+# global npm prefix and NODE_PATH entirely, so a global install would not
+# satisfy `import { chromium } from "playwright-core"`.
+RUN npm init -y >/dev/null \
+    && npm install --no-audit --no-fund playwright-core@${PLAYWRIGHT_VERSION} \
+    && npm cache clean --force \
+    && rm -rf /root/.npm
+
+COPY tests/infra/playwright-server.mjs ./playwright-server.mjs
+
+ENV BROWSER_PORT=53333 \
+    BROWSER_WS_ENDPOINT=/playwright
+
+EXPOSE 53333
+
+HEALTHCHECK --interval=2s --timeout=2s --retries=20 --start-period=1s \
+    CMD node -e "require('net').connect(parseInt(process.env.BROWSER_PORT||'53333',10),'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+
+CMD ["node", "/srv/playwright-server.mjs"]

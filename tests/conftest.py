@@ -1,42 +1,128 @@
-import gc
+import os
+from pathlib import Path
+from typing import Any
 
-import anyio
 import nonebot
-from nonebug import NONEBOT_INIT_KWARGS
 import pytest
-from pytest_asyncio import is_async_test
+
+_TEST_PROFILE_ENV = "HTMLRENDER_TEST_PROFILE"
+_TEST_ANYIO_BACKEND_ENV = "HTMLRENDER_TEST_ANYIO_BACKEND"
+_LOCAL_TEST_PROFILE = "local"
+_CI_TEST_PROFILE = "ci"
+_PROJECT_ROOT = Path(__file__).resolve().parents[1]
+_TEST_PLAYWRIGHT_BROWSERS_PATH = _PROJECT_ROOT / ".artifacts" / "playwright-browsers"
+_PLAYWRIGHT_CHROMIUM_PATTERNS = ("chromium-*", "chromium_headless_shell-*")
 
 
-def pytest_configure(config: pytest.Config) -> None:
-    config.stash[NONEBOT_INIT_KWARGS] = {
+def _get_test_profile() -> str:
+    profile = os.environ.get(_TEST_PROFILE_ENV)
+    if profile is not None:
+        return profile.lower()
+
+    if os.environ.get("CI", "").lower() in {"1", "true", "yes"}:
+        return _CI_TEST_PROFILE
+    if os.environ.get("GITHUB_ACTIONS", "").lower() == "true":
+        return _CI_TEST_PROFILE
+    return _LOCAL_TEST_PROFILE
+
+
+_TEST_PROFILE = _get_test_profile()
+
+
+def _is_ci_test_profile() -> bool:
+    return _TEST_PROFILE == _CI_TEST_PROFILE
+
+
+def _has_test_browser_installation() -> bool:
+    if not _TEST_PLAYWRIGHT_BROWSERS_PATH.exists():
+        return False
+
+    return any(
+        path.is_dir()
+        for pattern in _PLAYWRIGHT_CHROMIUM_PATTERNS
+        for path in _TEST_PLAYWRIGHT_BROWSERS_PATH.glob(pattern)
+    )
+
+
+def _configure_playwright_test_env() -> None:
+    os.environ.pop("PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT", None)
+    os.environ.pop("PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD", None)
+
+    if _is_ci_test_profile():
+        os.environ.pop("PLAYWRIGHT_BROWSERS_PATH", None)
+        return
+
+    _TEST_PLAYWRIGHT_BROWSERS_PATH.mkdir(parents=True, exist_ok=True)
+    os.environ["PLAYWRIGHT_BROWSERS_PATH"] = str(_TEST_PLAYWRIGHT_BROWSERS_PATH)
+
+
+def _build_test_init_kwargs() -> dict[str, Any]:
+    common: dict[str, Any] = {
         "superusers": {"10001"},
         "command_start": {""},
         "log_level": "DEBUG",
-        "htmlrender_ci_mode": True,
+        "render_backend": "playwright",
+        "render_startup_mode": "off",
+    }
+
+    if _is_ci_test_profile():
+        return {
+            **common,
+            "render_playwright": {
+                "engine": "chromium",
+                "skip_browser_install": True,
+            },
+        }
+
+    return {
+        **common,
+        "render_storage_path": str(_TEST_PLAYWRIGHT_BROWSERS_PATH),
+        "render_playwright": {
+            "engine": "chromium",
+            "skip_browser_install": True,
+        },
     }
 
 
-def pytest_collection_modifyitems(items: list[pytest.Item]):
-    pytest_asyncio_tests = (item for item in items if is_async_test(item))
-    session_scope_marker = pytest.mark.asyncio(loop_scope="session")
-    for async_test in pytest_asyncio_tests:
-        async_test.add_marker(session_scope_marker, append=False)
-
-
-@pytest.fixture(scope="session", autouse=True)
-async def after_nonebot_init(after_nonebot_init: None):
+def pytest_configure(config: pytest.Config) -> None:
+    _configure_playwright_test_env()
+    try:
+        nonebot.get_driver()
+    except Exception:
+        nonebot.init(**_build_test_init_kwargs())
     nonebot.require("nonebot_plugin_htmlrender")
+    del config
 
 
-@pytest.fixture(scope="session", autouse=True)
-async def _cleanup_playwright_session():
-    from nonebot_plugin_htmlrender import shutdown_htmlrender
+def pytest_collection_modifyitems(
+    config: pytest.Config,
+    items: list[pytest.Item],
+) -> None:
+    del config
+    if not _is_ci_test_profile():
+        if _has_test_browser_installation():
+            return
 
-    yield
+        skip_browser = pytest.mark.skip(
+            reason=(
+                "Real-browser tests require a project-local Playwright install. "
+                "Run `make install-browser` first."
+            )
+        )
+        for item in items:
+            if "requires_browser" in item.keywords:
+                item.add_marker(skip_browser)
+        return
 
-    await shutdown_htmlrender()
+    skip_browser = pytest.mark.skip(
+        reason="Real-browser tests are skipped in CI profile."
+    )
+    for item in items:
+        if "requires_browser" in item.keywords:
+            item.add_marker(skip_browser)
 
-    gc.collect()
-    gc.collect()
 
-    await anyio.lowlevel.checkpoint()
+@pytest.fixture(scope="session")
+def anyio_backend() -> str:
+    backend = os.environ.get(_TEST_ANYIO_BACKEND_ENV, "asyncio").strip().lower()
+    return backend or "asyncio"

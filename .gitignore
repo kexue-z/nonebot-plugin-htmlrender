@@ -130,3 +130,7 @@ dmypy.json
 
 # pycharm project settings
 .idea/
+
+# project specific
+.artifacts/
+.claude/

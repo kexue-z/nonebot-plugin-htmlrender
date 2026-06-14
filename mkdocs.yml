@@ -1,0 +1,188 @@
+site_name: nonebot-plugin-htmlrender Documentation
+site_url: https://kexue-z.github.io/nonebot-plugin-htmlrender/
+site_description: >-
+  nonebot-plugin-htmlrender 文档
+
+# Repository
+repo_name: kexue-z/nonebot-plugin-htmlrender
+repo_url: https://github.com/kexue-z/nonebot-plugin-htmlrender
+edit_uri: https://github.com/kexue-z/nonebot-plugin-htmlrender/docs/edit/master/docs/
+
+# Copyright
+copyright: "&copy; 2026 kexue-z"
+
+# Configuration
+theme:
+  variant: modern
+  custom_dir: docs/overrides
+  features:
+    - announce.dismiss
+    - content.action.edit
+    - content.action.view
+    - content.code.annotate
+    - content.code.copy
+    - content.code.select
+    - content.footnote.tooltips
+    - content.tabs.link
+    - content.tooltips
+    - navigation.footer
+    - navigation.indexes
+    - navigation.path
+    - navigation.sections
+    - navigation.tabs
+    - navigation.top
+    - search.highlight
+  palette:
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: lucide/sun-moon
+        name: Switch to light mode
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: red
+      accent: red
+      toggle:
+        icon: lucide/sun
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: red
+      accent: red
+      toggle:
+        icon: lucide/moon-star
+        name: Switch to system preference
+  favicon: assets/logo.png
+  logo: assets/nonebot_plugin.svg
+  icon:
+    tag:
+      default: lucide/hash
+
+extra_css:
+  - stylesheets/extra.css
+
+# Plugins
+plugins:
+  - search
+  - tags
+
+# Additional configuration
+extra:
+  homepage: https://github.com/kexue-z/nonebot-plugin-htmlrender
+  scope: /
+  version:
+    provider: mike
+    default: latest
+    alias: true
+  annotate:
+    json: [.s2]
+  status:
+    new: Recently added
+    deprecated: Deprecated
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/kexue-z/nonebot-plugin-htmlrender
+    - icon: fontawesome/brands/python
+      link: https://pypi.org/project/nonebot-plugin-htmlrender/
+  tags:
+    default: default
+
+# Extensions
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - toc:
+      permalink: true
+  - pymdownx.arithmatex:
+      generic: true
+  - pymdownx.betterem:
+      smart_enable: all
+  - pymdownx.caret
+  - pymdownx.details
+  - pymdownx.emoji:
+      emoji_generator: !!python/name:zensical.extensions.emoji.to_svg
+      emoji_index: !!python/name:zensical.extensions.emoji.twemoji
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.keys
+  - pymdownx.magiclink:
+      normalize_issue_symbols: true
+      repo_url_shorthand: true
+      user: zensical
+      repo: zensical
+  - pymdownx.mark
+  - pymdownx.smartsymbols
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tabbed:
+      alternate_style: true
+      combine_header_slug: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify
+        kwds:
+          case: lower
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.tilde
+  - pymdownx.blocks.caption
+  - zensical.extensions.glightbox:
+      auto_caption: true
+
+# Validation
+validation:
+  unresolved_references: true
+  unresolved_footnotes: true
+  unused_definitions: true
+  unused_footnotes: true
+  shadowed_definitions: true
+  shadowed_footnotes: true
+  invalid_links: true
+  invalid_link_anchors: true
+
+# Page tree
+nav:
+  - 首页: index.md
+  - 面向用户:
+      - 概览: users/index.md
+      - 接入:
+          - 快速开始: users/quickstart.md
+          - 配置:
+              - 配置总览: users/config/index.md
+              - 基础配置与加载: users/config/core.md
+              - Playwright 配置: users/config/playwright.md
+              - 依赖扩展与观测: users/config/integrations.md
+      - 使用:
+          - API 与兼容层: users/api.md
+          - 示例项目: users/examples.md
+          - 最佳实践: users/best-practices.md
+          - 远程渲染与 Filehost: users/remote-playwright.md
+      - 排障与运维:
+          - 故障排查: users/troubleshooting.md
+          - 常见问题: users/faq.md
+          - 安全须知: users/security.md
+      - 迁移:
+          - 旧版本迁移指南: users/migration.md
+  - 面向开发者:
+      - 概览: maintainers/index.md
+      - 架构与设计:
+          - 分层架构: maintainers/architecture/architecture.md
+          - 自定义 Backend 指南: maintainers/architecture/custom-backends.md
+          - 渲染后端开发指南: maintainers/architecture/render-backend-development.md
+          - Filehost 资源解析方案: maintainers/architecture/filehost-resource-resolution.md
+      - 协作流程:
+          - 贡献指南: maintainers/contributing/contributing.md
+          - 工程协作与规范: maintainers/contributing/engineering-guide.md
+          - 编码规范: maintainers/contributing/coding-standards.md
+          - 提交消息指南: maintainers/contributing/commit-message.md
+      - 质量与发布:
+          - 测试矩阵: maintainers/quality/testing-matrix.md
+          - CI Actions: maintainers/quality/ci-actions.md
+          - 文档版本管理: maintainers/quality/versioning.md

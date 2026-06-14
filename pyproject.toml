@@ -1,23 +1,29 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.7.0.alpha.3"
+version = "0.7.0"
 description = "通过浏览器渲染图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
-requires-python = ">=3.9,<4.0"
+requires-python = ">=3.10,<4.0"
 license = { file = "LICENSE" }
 dependencies = [
-    "aiofiles>=0.8.0",
+    "anyio>=4.12.0",
+    "exceptiongroup>=1.3.0",
     "jinja2>=3.0.3",
-    "markdown>=3.3.6",
+    "markdown>=3.10.0",
     "nonebot-plugin-localstore>=0.7.4",
     "nonebot2>=2.4.2",
-    "playwright>=1.48.0",
+    "playwright>=1.58.0",
     "pygments>=2.10.0",
     "pymdown-extensions>=9.1",
     "python-markdown-math>=0.8",
     "tenacity>=9.1.2",
+    "typing-extensions>=4.15.0",
 ]
+[project.optional-dependencies]
+filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
+sentry = ["nonebot-plugin-sentry>=2.0.0"]
+prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
@@ -26,53 +32,206 @@ dependencies = [
 [dependency-groups]
 dev = [
     "nonebot-adapter-onebot>=2.4.6",
-    "nonebot2[fastapi]>=2.3.3",
+    "nonebot2[fastapi]>=2.4.4",
+    "ruff>=0.15.2",
+    "basedpyright>=1.38.4",
+    "ty>=0.0.26",
+]
+docs = [
+    "zensical>=0.0.41",
+    "mike @ git+https://github.com/squidfunk/mike.git",
+    "mdformat>=1.0.0",
+    "mdformat-mkdocs>=4.4.2",
+    "mkdocstrings-python>=2.0.1",
+]
+test = [
     "nonebug>=0.4.2",
-    "pytest-cov>=5.0",
-    "pytest-xdist>=3.6",
-    "pytest-mock>=3.6",
-    "pillow>=11.0.0",
-    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=7.0.0",
+    "pytest-xdist>=3.8.0",
+    "respx>=0.22.0",
+    "pytest-mock>=3.15.1",
+    "trio>=0.33.0",
+    "pillow>=12.0.0",
 ]
 
+
 [tool.pytest.ini_options]
-asyncio_default_fixture_loop_scope = "session"
-#addopts = "--cov=nonebot_plugin_htmlrender --cov-report=term-missing"
-asyncio_mode = "auto"
+addopts = "-p no:nonebug --cov=nonebot_plugin_htmlrender --cov-report=term-missing"
+anyio_mode = "auto"
+markers = [
+    "anyio: run async tests via anyio backend",
+    "requires_browser: test needs a real Playwright browser",
+]
+# In-house deprecation noise from compat shells (`_compat.*`, deprecated
+# data_source re-exports). Tests intentionally exercise these legacy paths.
+filterwarnings = [
+    "ignore:`.+` is deprecated\\. Use `.+` instead\\.:DeprecationWarning",
+    "ignore:Importing Playwright helpers from .+\\.data_source.+ is deprecated\\..+:DeprecationWarning",
+]
+
+[tool.coverage.run]
+omit = [
+    # Telemetry / observability
+    "nonebot_plugin_htmlrender/utils/telemetry/*",
+    "nonebot_plugin_htmlrender/backend/playwright/telemetry.py",
+    # Signal & process management
+    "nonebot_plugin_htmlrender/utils/signal.py",
+    "nonebot_plugin_htmlrender/utils/process.py",
+    # Installation helpers
+    "nonebot_plugin_htmlrender/utils/install.py",
+    "nonebot_plugin_htmlrender/backend/playwright/install.py",
+    # Backward compat re-export shells
+    "nonebot_plugin_htmlrender/_compat.py",
+    "nonebot_plugin_htmlrender/browser.py",
+    "nonebot_plugin_htmlrender/data_source.py",
+    "nonebot_plugin_htmlrender/backend/playwright/data_source.py",
+    # Bootstrap hacks
+    "nonebot_plugin_htmlrender/_bootstrap.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "\\.\\.\\.$",
+]
 
 [tool.ruff]
 line-length = 88
-target-version = "py39"
+indent-width = 4
+target-version = "py310"
+exclude = [
+    ".bzr",
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".git-rewrite",
+    ".hg",
+    ".ipynb_checkpoints",
+    ".mypy_cache",
+    ".nox",
+    ".pants.d",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".svn",
+    ".tox",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "_build",
+    "buck-out",
+    "build",
+    "dist",
+    "node_modules",
+    "site-packages",
+    "venv",
+]
 
-[tool.ruff.format]
-line-ending = "lf"
 
 [tool.ruff.lint]
 select = [
-    "F",     # Pyflakes
-    "W",     # pycodestyle warnings
-    "E",     # pycodestyle errors
-    "I",     # isort
-    "UP",    # pyupgrade
+    "F", # pyflakes
+    "E", # pycodestyle errors
+    "W", # pycodestyle warnings
+    "I", # isort
+    "N", # PEP8-naming
+    "UP", # pyupgrade
+    "YTT", # flake8-2020
     "ASYNC", # flake8-async
-    "C4",    # flake8-comprehensions
-    "T10",   # flake8-debugger
-    "T20",   # flake8-print
-    "PYI",   # flake8-pyi
-    "PT",    # flake8-pytest-style
-    "Q",     # flake8-quotes
-    "TID",   # flake8-tidy-imports
-    "RUF",   # Ruff-specific rules
+    "S", # flake8-bandit
+    "BLE", # flake8-blind-except
+    "FBT", # flake8-boolean-trap
+    "B", # flake8-bugbear
+    "A", # flake8-builtins
+    "COM", # flake8-commas
+    "C4", # flake8-comprehensions
+    "DTZ", # flake8-datetimez
+    "T10", # flake8-debugger
+    "FA", # flake8-future-annotations
+    "ISC", # flake8-implicit-str-concat
+    "ICN", # flake8-import-conventions
+    "PIE", # flake8-pie
+    "T20", # flake8-print
+    "PYI", # flake8-pyi
+    "Q", # flake8-quotes
+    "RSE", # flake8-raise
+    "RET", # flake8-return
+    "SLOT", # flake8-slots
+    "SIM", # flake8-simplify
+    "TID", # flake8-tidy-imports
+    "TC", # flake8-type-checking
+    "ARG", # flake8-unused-arguments
+    "PTH", # flake8-use-pathlib
+    # "ERA",   # eradicate
+    "PD", # pandas-vet
+    "PGH", # pygrep-hooks
+    "PL", # pylint
+    "TRY", # tryceratops
+    "FLY", # flynt
+    "FAST", # FastAPI
+    "PERF", # Perflint
+    "FURB", # refurb
+    "RUF", # Ruff-specific rules
 ]
 ignore = [
-    "E402",   # module-import-not-at-top-of-file
-    "UP037",  # quoted-annotation
-    "RUF001", # ambiguous-unicode-character-string
-    "RUF002", # ambiguous-unicode-character-docstring
-    "RUF003", # ambiguous-unicode-character-comment
+    "E402", # module-import-not-at-top-of-file (needed by nonebot require pattern)
+    "E501", # 过长的行由 ruff format 处理, 剩余的都是字符串
+    "UP035", # pyupgrade, 但 typing.Callable 的导入会报错
+    "TRY003", # 简单异常搞这么复杂
+    "TRY300", # 和 RET505 冲突了
+    "TRY301", # 为啥非要把 raise 丢进另外一个 inner fn 里
+    "BLE001", # except Exception as e
+    "PGH003", # 要求 `# type: ignore` 提供理由，但 pyright 和 mypy 等都不是统一标准。
+    "PLC0414", # 用 import-as 表示 re-export
+    "N818", # 要求所有自定义错误以 Error 作后缀，但我们不这么做
+    "RET502", # return = return None
+    "RET503", # 就要 implicit return none
+    "PLC0105", # 我们已经用 R 表示协变，Q 表示逆变了
+    "PLR0913", # 参数就那么多的，你用 builder 什么的不是更逆天？
+    "SIM108", # 迫真 simplicy
+    "RUF009", # 我不想要额外的全局变量。
+    "RUF003", # 中文注释里用全角符号怎么你了
+    "RUF001", # 中文字符串里的全角标点
+    "RUF002", # 中文 docstring 里的全角标点
+    "PTH100", # keep os.path for compatibility
+    "PTH111", # keep os.path for compatibility
+    "SLOT000", # 动态类型需求，主要是 json5 backend
+    "PLR0911",
+    "PLR0912",
+    "PLR0915", # 复杂度高点怎么你了
+    "PYI041", # int 和 float 在运行时的类型没有交集（互不成立 issubclass）
+    "PLW2901", # shallow 怎么你了
+    "S101", # assert 怎么你了，非要 RuntimeError 吗
+    "PLR2004", # magic number 怎么你了
+    "TRY004", # 我要抛啥错误我清楚
+    "COM812", # 强制尾随逗号
+    "TID252", # 相对导入
+    "ISC001", # format warning
+    "S105", # 硬编码路径也要叫吗
 ]
+flake8-quotes = { inline-quotes = "double", multiline-quotes = "double" }
+fixable = ["ALL"]
+unfixable = []
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.flake8-annotations]
+mypy-init-return = true
+
+[tool.ruff.lint.flake8-builtins]
+builtins-ignorelist = ["id"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = false
+docstring-code-line-length = "dynamic"
 
 [tool.ruff.lint.isort]
+length-sort = false
 force-sort-within-sections = true
 known-first-party = ["nonebot_plugin_htmlrender", "tests/*"]
 extra-standard-library = ["typing_extensions"]
@@ -84,20 +243,22 @@ mark-parentheses = false
 [tool.ruff.lint.pyupgrade]
 keep-runtime-typing = true
 
-[tool.pyright]
-pythonVersion = "3.9"
+[tool.basedpyright]
+pythonVersion = "3.11"
 pythonPlatform = "All"
-defineConstant = { PYDANTIC_V2 = true }
+typeCheckingMode = "standard"
+include = ["nonebot_plugin_htmlrender", "tests"]
 executionEnvironments = [
-    { root = "./tests", extraPaths = [
-        "./",
-    ] },
+    { root = "./tests", extraPaths = ["./"] },
     { root = "./" },
 ]
+exclude = [
+    "**/__pycache__",
+    ".venv/**",
+]
 
-typeCheckingMode = "standard"
-reportShadowedImports = false
-disableBytesTypePromotions = true
+[tool.ty.rules]
+deprecated = "ignore"
 
 [build-system]
 requires = ["hatchling"]

@@ -1,0 +1,37 @@
+services:
+  dev:
+    build:
+      context: .
+      dockerfile: tests/infra/dockerfile.remote-test
+      args:
+        PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-bookworm}
+    container_name: htmlrender-dev
+    depends_on:
+      playwright:
+        condition: service_healthy
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      PLAYWRIGHT_WS_ENDPOINT: ws://playwright:53333/playwright
+      HTMLRENDER_TEST_PROFILE: local
+    command:
+      - sh
+      - -lc
+      - |
+        set -e
+        uv sync --locked --all-extras --dev
+        echo "Dev container is ready. Playwright WS endpoint: ${PLAYWRIGHT_WS_ENDPOINT}"
+        tail -f /dev/null
+
+  playwright:
+    image: ${PLAYWRIGHT_IMAGE:-htmlrender-playwright:dev}
+    build:
+      context: .
+      dockerfile: tests/infra/dockerfile.playwright-server
+    container_name: htmlrender-playwright-dev
+    environment:
+      BROWSER_PORT: "53333"
+      BROWSER_WS_ENDPOINT: /playwright
+    ports:
+      - "53333:53333"

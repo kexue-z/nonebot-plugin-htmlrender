@@ -1,0 +1,8 @@
+services:
+  chromium:
+    image: browserless/chromium:latest
+    ports:
+      - "9222:9222"
+    environment:
+      - CONNECTION_TIMEOUT=600000
+    restart: unless-stopped

@@ -1,0 +1,105 @@
+name: Docs
+
+on:
+  push:
+    branches:
+      - master
+    paths:
+      - docs/**
+      - mkdocs.yml
+      - README.md
+      - .github/workflows/docs.yml
+  workflow_dispatch:
+    inputs:
+      debug_enabled:
+        description: Enable extra debug diagnostics
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  deploy:
+    name: Build & Deploy Docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DOCS_LOG: docs-build.log
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          python-version: "3.12"
+          enable-cache: true
+          cache-suffix: docs-${{ github.event_name }}
+
+      - name: Show Runner Context
+        run: |
+          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
+          python --version
+          uv --version
+
+      - name: Sync docs deps
+        run: uv sync --locked --group docs
+
+      - name: Debug Dependency Snapshot
+        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
+        run: |
+          uv pip list
+          uv tree
+
+      - name: Build docs
+        run: |
+          set -o pipefail
+          uv run zensical build --strict 2>&1 | tee "${DOCS_LOG}"
+
+      - name: Upload docs build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: docs-build-logs
+          path: ${{ env.DOCS_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure authenticated origin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Get project version
+        id: version
+        run: |
+          VERSION=$(uv version --short)
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Deploy versioned docs
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          uv run mike deploy --push --update-aliases "${VERSION}" latest
+
+      - name: Set default version
+        run: |
+          uv run mike set-default --push latest
+
+      - name: Show docs url
+        env:
+          DOCS_OWNER: ${{ github.repository_owner }}
+          DOCS_REPO: ${{ github.event.repository.name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "Docs deployed: https://${DOCS_OWNER}.github.io/${DOCS_REPO}/${VERSION}/"

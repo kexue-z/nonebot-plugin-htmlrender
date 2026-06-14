@@ -1,0 +1,47 @@
+from pathlib import Path
+
+from nonebot import require
+
+require("nonebot_plugin_htmlrender")
+
+from arclet.alconna import Alconna, Args
+from nonebot_plugin_alconna import Image, UniMessage, on_alconna
+
+from nonebot_plugin_htmlrender import render_template, render_text
+
+TEMPLATE_DIR = Path(__file__).parent / "templates"
+
+profile = on_alconna(Alconna("profile", Args["username?", str]))
+
+
+@profile.handle()
+async def _(username: str = "NoneBot User") -> None:
+    img = await render_template(
+        str(TEMPLATE_DIR),
+        template_name="profile.html",
+        templates={
+            "avatar_text": username[0].upper(),
+            "username": username,
+            "level": 42,
+            "signature": "Talk is cheap, show me the code.",
+            "stats": [
+                {"label": "Days", "value": "128"},
+                {"label": "Plugins", "value": "15"},
+                {"label": "Messages", "value": "3.2k"},
+            ],
+        },
+        pages={
+            "viewport": {"width": 440, "height": 300},
+            "base_url": TEMPLATE_DIR.as_uri(),
+        },
+    )
+    await profile.finish(UniMessage(Image(raw=img)))
+
+
+text_render = on_alconna(Alconna("textimg", Args["content", str]))
+
+
+@text_render.handle()
+async def _(content: str) -> None:
+    img = await render_text(content, width=600)
+    await text_render.finish(UniMessage(Image(raw=img)))

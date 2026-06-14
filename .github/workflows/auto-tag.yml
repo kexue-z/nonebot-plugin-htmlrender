@@ -1,0 +1,89 @@
+name: Auto Tag on Release Merge
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [master]
+
+concurrency:
+  group: auto-tag-master
+  cancel-in-progress: false
+
+jobs:
+  tag-and-dispatch:
+    name: Tag merged version & dispatch publish
+    # Skip fork PRs: GITHUB_TOKEN from forks is read-only and cannot push tags
+    # or dispatch workflows. Version-bump PRs must originate from same-repo branches.
+    if: >-
+      github.event.pull_request.merged == true &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+      actions: write
+    steps:
+      - name: Checkout master
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: master
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Install the latest version of uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          enable-cache: true
+
+      - name: Read version from pyproject
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(uv version --short)
+          TAG="v${VERSION}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved: ${VERSION} -> tag ${TAG}"
+
+      - name: Check if tag already exists
+        id: check
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
+            echo "exists=true" >> "${GITHUB_OUTPUT}"
+            echo "Tag ${TAG} already exists; skipping."
+          else
+            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create and push tag
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        env:
+          TAG: ${{ steps.version.outputs.tag }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git tag -a "${TAG}" -m "Release ${TAG} (#${PR_NUMBER}: ${PR_TITLE})" -m "Merge commit: ${MERGE_SHA}"
+          git push origin "${TAG}"
+          echo "Pushed tag: ${TAG}"
+
+      - name: Dispatch publish workflow
+        if: steps.check.outputs.exists == 'false'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          gh workflow run publish.yml \
+            --ref master \
+            -f release_tag="${TAG}"
+          echo "Dispatched publish.yml with release_tag=${TAG}"
