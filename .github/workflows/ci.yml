@@ -53,7 +53,6 @@ jobs:
     name: Ty
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [ruff]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -76,7 +75,6 @@ jobs:
     name: Basedpyright
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    needs: [ruff]
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -113,16 +111,13 @@ jobs:
           enable-cache: true
           cache-suffix: package-${{ github.event_name }}
 
-      - name: Sync deps
-        run: uv sync --locked --all-extras --all-groups
-
       - name: Build distributions
         run: |
           set -o pipefail
           uv build 2>&1 | tee "${BUILD_LOG}"
 
       - name: Validate distributions
-        run: uv run --with twine twine check dist/*
+        run: uv run --no-project --with twine twine check dist/*
 
       - name: Show built distributions
         run: |
