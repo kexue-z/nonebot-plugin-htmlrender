@@ -9,8 +9,8 @@
 # /ms-playwright but deletes the playwright-core npm package after install
 # (the image expects projects to bring their own JS dependency). We reinstall
 # it locally under /srv at the matching version so the server entrypoint can
-# `import` it. Pin against uv.lock (Python `playwright`==1.59.0) to keep
-# client/server in lockstep.
+# `import` it. CI passes PLAYWRIGHT_VERSION from uv.lock to keep the Python
+# client and Node server in lockstep.
 ARG PLAYWRIGHT_VERSION=1.59.0
 FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
 

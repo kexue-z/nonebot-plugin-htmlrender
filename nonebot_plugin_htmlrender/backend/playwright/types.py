@@ -200,6 +200,7 @@ class RenderTextKwargs(TypedDict, total=False):
 class RenderMarkdownKwargs(RenderTextKwargs, total=False):
     """``render_markdown`` 的可选参数。"""
 
+    md: str
     md_path: str
 
 

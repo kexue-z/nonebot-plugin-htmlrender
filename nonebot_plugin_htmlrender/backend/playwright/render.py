@@ -244,12 +244,9 @@ class PlaywrightBackend:
         **kwargs: Unpack[RenderMarkdownKwargs],
     ) -> bytes:
         """委托 playwright_operations 执行 Markdown 渲染。"""
-        if "md" in kwargs:
-            return await playwright_operations.render_markdown(
-                session=session, **kwargs
-            )
+        if "md" not in kwargs:
+            kwargs["md"] = markdown_text
         return await playwright_operations.render_markdown(
-            markdown_text,
             session=session,
             **kwargs,
         )

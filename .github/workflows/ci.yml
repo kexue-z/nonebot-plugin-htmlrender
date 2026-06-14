@@ -173,6 +173,50 @@ jobs:
           build-args: |
             PYTHON_BASE_IMAGE=python:3.12-bookworm
 
+      - name: Resolve Playwright version
+        id: playwright-version
+        shell: bash
+        run: |
+          PLAYWRIGHT_VERSION=$(python3 - <<'PY'
+          from pathlib import Path
+
+          try:
+              import tomllib
+          except ModuleNotFoundError:
+              tomllib = None
+
+
+          def parse_package_version(text, package_name):
+              if tomllib is not None:
+                  lock = tomllib.loads(text)
+                  for package in lock["package"]:
+                      if package["name"] == package_name:
+                          return package["version"]
+                  return None
+
+              current_name = None
+              for line in text.splitlines():
+                  stripped = line.strip()
+                  if stripped == "[[package]]":
+                      current_name = None
+                      continue
+                  if stripped.startswith("name = "):
+                      current_name = stripped.split('"', 2)[1]
+                      continue
+                  if current_name == package_name and stripped.startswith("version = "):
+                      return stripped.split('"', 2)[1]
+              return None
+
+
+          version = parse_package_version(Path("uv.lock").read_text(), "playwright")
+          if version is None:
+              raise SystemExit("playwright package not found in uv.lock")
+          print(version)
+          PY
+          )
+          echo "version=${PLAYWRIGHT_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved Playwright version: ${PLAYWRIGHT_VERSION}"
+
       - name: Build playwright server image
         uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
         with:
@@ -182,6 +226,8 @@ jobs:
           tags: ${{ env.PLAYWRIGHT_IMAGE }}
           cache-from: type=gha,scope=playwright-server
           cache-to: type=gha,scope=playwright-server,mode=max
+          build-args: |
+            PLAYWRIGHT_VERSION=${{ steps.playwright-version.outputs.version }}
 
       - name: Build and run remote smoke
         run: docker compose -f tests/infra/docker-compose.remote-test.yaml up --abort-on-container-exit --exit-code-from render
