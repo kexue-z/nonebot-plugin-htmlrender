@@ -44,6 +44,10 @@ docs = [
     "mdformat-mkdocs>=4.4.2",
     "mkdocstrings-python>=2.0.1",
 ]
+remote-smoke = [
+    "nonebot2[fastapi]>=2.5.0",
+    "pillow>=12.0.0",
+]
 test = [
     "nonebug>=0.4.4",
     "pytest-cov>=7.0.0",
