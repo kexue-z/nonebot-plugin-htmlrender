@@ -158,7 +158,7 @@ flowchart TD
 | `get_filehost_request_headers()` | sync | 渲染端调用，得到注入页面请求的 header 字典；filehost 解析未启用时返回空字典 |
 | `ensure_filehost_request_guard_installed(*, reason)` | sync | 安装中间件，幂等；失败仅 warning，不抛 |
 
-`reason` 字段贯穿日志便于追因，常见取值：`plugin_import`（插件导入阶段）、`playwright_startup`（后端启动 step）。
+`reason` 字段贯穿日志便于追因，常见取值：`plugin_startup`（插件启动阶段）、`playwright_startup`（后端启动 step）。
 
 ## Filehost 缓存与租约
 
@@ -272,12 +272,12 @@ sequenceDiagram
 
 ### Ready 流程
 
-`ensure_filehost_runtime_ready(*, reason)` 是 ready 入口，被插件 import 与后端 startup step 共用：
+`ensure_filehost_runtime_ready(*, reason)` 是 ready 入口，被插件 startup 与后端 startup step 共用：
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant Caller as plugin import / startup step
+    participant Caller as plugin startup / startup step
     participant Warm as ensure_filehost_runtime_ready
     participant Plugin as ensure_filehost_plugin_loaded
     participant Guard as ensure_filehost_request_guard_installed
@@ -334,7 +334,7 @@ sequenceDiagram
 
 | API | 形态 | 用途 |
 | --- | --- | --- |
-| `ensure_filehost_runtime_ready(*, reason)` | async | ready 入口；插件 import 与后端 `startup_steps` 第 4 步都会调 |
+| `ensure_filehost_runtime_ready(*, reason)` | async | ready 入口；插件 startup 与后端 `startup_steps` 第 4 步都会调 |
 | `ensure_filehost_plugin_loaded(*, reason, strict=False)` | sync | 单独要求 filehost 插件就绪；`strict=True` 时失败抛错 |
 | `register_filehost_resource_root(path)` | sync | 注册新的资源根，参与下一次预热 |
 | `get_filehost_prewarm_status()` | sync | 返回 `{ready, url, last_error, cached_resources, active_leases}` 字典；可暴露给观测/调试端点 |
