@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from importlib import import_module
+import sys
+from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING
 from unittest.mock import call
 
@@ -24,11 +26,10 @@ def test_plugin_import_bootstraps_telemetry_plugins(mocker: MockerFixture) -> No
     plugin._bootstrap_optional_plugins_on_import()
 
     assert require.call_args_list == [
-        call("nonebot_plugin_filehost"),
         call("nonebot_plugin_sentry"),
         call("nonebot_plugin_prometheus"),
     ]
-    patch_filehost.assert_called_once_with()
+    patch_filehost.assert_not_called()
 
 
 def test_patch_filehost_request_headers_validator_for_pydantic_v2_compat(
@@ -61,8 +62,12 @@ def test_patch_filehost_request_headers_validator_for_pydantic_v2_compat(
 def test_plugin_import_bootstraps_filehost_guard_for_playwright_backend(
     mocker: MockerFixture,
 ) -> None:
+    filehost_runtime = import_module(
+        "nonebot_plugin_htmlrender.resources.filehost"
+    )
+
     guard = mocker.patch.object(
-        _bootstrap, "ensure_filehost_request_guard_installed", return_value=True
+        filehost_runtime, "ensure_filehost_request_guard_installed", return_value=True
     )
     mocker.patch.object(
         _bootstrap,
@@ -78,16 +83,14 @@ def test_plugin_import_bootstraps_filehost_guard_for_playwright_backend(
 def test_plugin_import_skips_filehost_guard_for_non_playwright_backend(
     mocker: MockerFixture,
 ) -> None:
-    guard = mocker.patch.object(
-        _bootstrap, "ensure_filehost_request_guard_installed", return_value=True
-    )
+    import_module = mocker.patch.object(_bootstrap, "import_module")
     mocker.patch.object(
         _bootstrap, "plugin_config", mocker.Mock(render_backend=RenderBackend.SKIA)
     )
 
     plugin._bootstrap_filehost_guard_on_import()
 
-    guard.assert_not_called()
+    import_module.assert_not_called()
 
 
 @pytest.mark.anyio
@@ -155,12 +158,32 @@ async def test_shutdown_htmlrender_delegates_to_shutdown_render(
     shutdown.assert_awaited_once_with()
 
 
+def test_compat_runtime_cleanups_import_runtime_on_call(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender import _compat  # noqa: PLC0415
+
+    fake_runtime = ModuleType("nonebot_plugin_htmlrender.backend.playwright.runtime")
+    clean_cache = mocker.Mock()
+    reconcile_cache = mocker.Mock()
+    fake_runtime.__dict__["clean_playwright_cache"] = clean_cache
+    fake_runtime.__dict__["reconcile_legacy_playwright_cache"] = reconcile_cache
+    mocker.patch.dict(
+        sys.modules,
+        {"nonebot_plugin_htmlrender.backend.playwright.runtime": fake_runtime},
+    )
+
+    _compat.clean_playwright_cache(cleanup=True)
+    _compat.reconcile_legacy_playwright_cache(cleanup=False)
+
+    clean_cache.assert_called_once_with(cleanup=True)
+    reconcile_cache.assert_called_once_with(cleanup=False)
+
+
 @pytest.mark.anyio
 async def test_plugin_init_skips_when_backend_is_none(mocker: MockerFixture) -> None:
     startup = mocker.patch.object(plugin, "startup_render", new=mocker.AsyncMock())
-    ensure_ready = mocker.patch.object(
-        plugin, "ensure_filehost_runtime_ready", new=mocker.AsyncMock()
-    )
+    prepare_playwright = mocker.patch.object(plugin, "_prepare_playwright_startup")
     logger_info = mocker.patch.object(plugin.logger, "info")
     mocker.patch.object(plugin.plugin_config, "render_backend", None)
     mocker.patch.object(
@@ -171,7 +194,7 @@ async def test_plugin_init_skips_when_backend_is_none(mocker: MockerFixture) -> 
     init_kwargs: dict[str, object] = {"sample": "value"}
     await init_func(**init_kwargs)
 
-    ensure_ready.assert_not_awaited()
+    prepare_playwright.assert_not_called()
     startup.assert_not_awaited()
     assert any(
         "No render backend selected; startup skipped." in call.args[0]
@@ -184,12 +207,12 @@ async def test_plugin_init_skips_runtime_when_mode_is_off(
     mocker: MockerFixture,
 ) -> None:
     startup = mocker.patch.object(plugin, "startup_render", new=mocker.AsyncMock())
-    ensure_ready = mocker.patch.object(
-        plugin, "ensure_filehost_runtime_ready", new=mocker.AsyncMock()
-    )
+    prepare_playwright = mocker.patch.object(plugin, "_prepare_playwright_startup")
     probe = mocker.patch.object(plugin, "probe_render", new=mocker.AsyncMock())
     logger_info = mocker.patch.object(plugin.logger, "info")
-    mocker.patch.object(plugin.plugin_config, "render_backend", RenderBackend.SKIA)
+    mocker.patch.object(
+        plugin.plugin_config, "render_backend", RenderBackend.PLAYWRIGHT
+    )
     mocker.patch.object(
         plugin.plugin_config, "render_startup_mode", new=RenderStartupMode.OFF
     )
@@ -197,7 +220,7 @@ async def test_plugin_init_skips_runtime_when_mode_is_off(
     init_kwargs: dict[str, object] = {"slow_mo": 1.0}
     await plugin.init(**init_kwargs)
 
-    ensure_ready.assert_not_awaited()
+    prepare_playwright.assert_not_called()
     startup.assert_not_awaited()
     probe.assert_not_awaited()
     assert any(
@@ -211,9 +234,7 @@ async def test_plugin_init_warms_runtime_without_probe(
     mocker: MockerFixture,
 ) -> None:
     startup = mocker.patch.object(plugin, "startup_render", new=mocker.AsyncMock())
-    ensure_ready = mocker.patch.object(
-        plugin, "ensure_filehost_runtime_ready", new=mocker.AsyncMock()
-    )
+    prepare_playwright = mocker.patch.object(plugin, "_prepare_playwright_startup")
     probe = mocker.patch.object(plugin, "probe_render", new=mocker.AsyncMock())
     logger_opt = mocker.patch.object(plugin.logger, "opt")
     mocker.patch.object(plugin.plugin_config, "render_backend", RenderBackend.SKIA)
@@ -225,7 +246,7 @@ async def test_plugin_init_warms_runtime_without_probe(
     init_kwargs: dict[str, object] = {"slow_mo": 1.0}
     await init_func(**init_kwargs)
 
-    ensure_ready.assert_not_awaited()
+    prepare_playwright.assert_not_called()
     startup.assert_awaited_once_with(slow_mo=1.0)
     probe.assert_not_awaited()
     logger_opt.assert_called_once_with(colors=True)
@@ -236,10 +257,15 @@ async def test_plugin_init_warms_runtime_without_probe(
 async def test_plugin_init_probes_runtime_when_mode_is_probe(
     mocker: MockerFixture,
 ) -> None:
+    filehost_runtime = import_module(
+        "nonebot_plugin_htmlrender.resources.filehost"
+    )
+
     startup = mocker.patch.object(plugin, "startup_render", new=mocker.AsyncMock())
     ensure_ready = mocker.patch.object(
-        plugin, "ensure_filehost_runtime_ready", new=mocker.AsyncMock()
+        filehost_runtime, "ensure_filehost_runtime_ready", new=mocker.AsyncMock()
     )
+    prepare_playwright = mocker.patch.object(plugin, "_prepare_playwright_startup")
     probe = mocker.patch.object(plugin, "probe_render", new=mocker.AsyncMock())
     mocker.patch.object(
         plugin.plugin_config, "render_backend", RenderBackend.PLAYWRIGHT
@@ -251,6 +277,7 @@ async def test_plugin_init_probes_runtime_when_mode_is_probe(
     init_kwargs: dict[str, object] = {"timeout": 123.0}
     await plugin.init(**init_kwargs)
 
+    prepare_playwright.assert_called_once_with()
     ensure_ready.assert_awaited_once_with(reason="plugin_startup")
     startup.assert_awaited_once_with(timeout=123.0)
     probe.assert_awaited_once_with()
@@ -281,9 +308,14 @@ async def test_plugin_init_raises_runtime_error_when_startup_fails(
 async def test_plugin_shutdown_calls_runtime_and_env_cleanup(
     mocker: MockerFixture,
 ) -> None:
+    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+
     shutdown = mocker.patch.object(plugin, "shutdown_render", new=mocker.AsyncMock())
-    clear_env = mocker.patch.object(plugin, "clear_playwright_env_vars")
+    clear_env = mocker.patch.object(runtime, "clear_playwright_env_vars")
     logger_info = mocker.patch.object(plugin.logger, "info")
+    mocker.patch.object(
+        plugin.plugin_config, "render_backend", RenderBackend.PLAYWRIGHT
+    )
 
     await plugin.shutdown()
 
