@@ -2602,7 +2602,7 @@
 <h3 id="filehost"><span class="twemoji"><svg xmlns="http://www.w3.org/2000/svg" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" class="lucide lucide-folder-symlink" viewBox="0 0 24 24"><path d="M2 9.35V5a2 2 0 0 1 2-2h3.9a2 2 0 0 1 1.69.9l.81 1.2a2 2 0 0 0 1.67.9H20a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h7"/><path d="m8 16 3-3-3-3"/></svg></span> <a href="https://github.com/nonebot/plugin-filehost">filehost</a><a class="headerlink" href="#filehost" title="Permanent link">&para;</a></h3>
 <p>用于远程模式下把本地资源解析为可访问 URL，避免远程浏览器无法读取本地 <code>file://</code> 资源。
 同时会启用资源请求头校验；默认会基于设备标识（<code>py-machineid</code>）派生请求 token。
-插件不会在默认导入阶段加载 filehost；只有资源策略实际选择 <code>filehost</code> 时才会 <code>require("nonebot_plugin_filehost")</code> 并安装请求守卫。
+插件不会在默认导入阶段加载 filehost；只有 Playwright 配置的资源策略实际选择 <code>filehost</code> 时，才会在插件 bootstrap 阶段 <code>require("nonebot_plugin_filehost")</code> 并安装请求守卫。
 推荐搭配 ASGI + FastAPI driver 使用；否则 <code>/filehost/*</code> 请求头守卫可能无法安装。详细配置与运行机制可参考 filehost 项目文档。</p>
 </div>
 <div class="dep-card dep-card-optional">

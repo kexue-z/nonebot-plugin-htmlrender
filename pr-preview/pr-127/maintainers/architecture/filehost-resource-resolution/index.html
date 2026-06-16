@@ -3132,7 +3132,7 @@
 </tr>
 </tbody>
 </table>
-<p><code>reason</code> 字段贯穿日志便于追因，常见取值：<code>plugin_startup</code>（插件启动阶段）、<code>playwright_startup</code>（后端启动 step）。</p>
+<p><code>reason</code> 字段贯穿日志便于追因，常见取值：<code>plugin_import</code>（显式 filehost 策略的导入期 bootstrap）、<code>plugin_startup</code>（插件启动阶段）、<code>playwright_startup</code>（后端启动 step）。</p>
 <h2 id="filehost_3">Filehost 缓存与租约<a class="headerlink" href="#filehost_3" title="Permanent link">&para;</a></h2>
 <p><code>resources/filehost/cache.py</code> 在 filehost URL 之上叠了一层进程级缓存，让重复出现的本地资源（同一张头像、同一份 CSS）只上传一次。</p>
 <h3 id="_12">内部数据结构<a class="headerlink" href="#_12" title="Permanent link">&para;</a></h3>
@@ -3318,7 +3318,7 @@
 </tbody>
 </table>
 <h3 id="ready">Ready 流程<a class="headerlink" href="#ready" title="Permanent link">&para;</a></h3>
-<p><code>ensure_filehost_runtime_ready(*, reason)</code> 是 ready 入口，被插件 startup 与后端 startup step 共用：</p>
+<p>显式选择 filehost 策略时，插件 import 期会先加载 <code>nonebot_plugin_filehost</code> 并安装请求守卫，避免 ASGI app 启动后再追加 middleware。<code>ensure_filehost_runtime_ready(*, reason)</code> 是 ready 入口，被插件 startup 与后端 startup step 共用：</p>
 <pre class="mermaid"><code>sequenceDiagram
     autonumber
     participant Caller as plugin startup / startup step
