@@ -1,4 +1,5 @@
 from contextlib import suppress
+from importlib import import_module
 from pathlib import Path
 from typing import Any, Literal, cast
 from typing_extensions import Unpack
@@ -19,12 +20,6 @@ from nonebot_plugin_htmlrender.resources import (
     is_remote_playwright_mode,
     resolve_html_resources,
     resolve_template_vars,
-)
-from nonebot_plugin_htmlrender.resources.filehost import (
-    create_filehost_lease,
-    get_filehost_request_headers,
-    register_filehost_resource_root,
-    release_filehost_lease,
 )
 from nonebot_plugin_htmlrender.utils import track_render
 
@@ -75,6 +70,34 @@ env = jinja2.Environment(
 EMPTY_PAGE_CONTEXT_KWARGS: PageContextKwargs = {}
 EMPTY_GOTO_KWARGS: GotoKwargs = {}
 EMPTY_LOCATOR_SCREENSHOT_KWARGS: LocatorScreenshotKwargs = {}
+
+
+def create_filehost_lease() -> str:
+    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
+    create_lease = filehost.create_filehost_lease
+
+    return create_lease()
+
+
+async def release_filehost_lease(lease_id: str) -> None:
+    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
+    release_lease = filehost.release_filehost_lease
+
+    await release_lease(lease_id)
+
+
+def get_filehost_request_headers() -> dict[str, str]:
+    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
+    get_headers = filehost.get_filehost_request_headers
+
+    return get_headers()
+
+
+def register_filehost_resource_root(path: str | Path) -> Path:
+    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
+    register_root = filehost.register_filehost_resource_root
+
+    return register_root(path)
 
 
 def _path_to_uri(path: str | Path) -> str:

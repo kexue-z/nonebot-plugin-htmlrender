@@ -1,4 +1,5 @@
-from typing_extensions import Unpack
+from importlib import import_module
+from typing import Any
 
 import nonebot
 from nonebot import require
@@ -8,8 +9,10 @@ from nonebot.plugin import PluginMetadata
 require("nonebot_plugin_localstore")
 
 from nonebot_plugin_htmlrender._bootstrap import (
-    _bootstrap_filehost_guard_on_import,
-    _bootstrap_optional_plugins_on_import,
+    _bootstrap_filehost_guard_on_import as _bootstrap_filehost_guard_on_import,
+)
+from nonebot_plugin_htmlrender._bootstrap import (
+    _bootstrap_optional_plugins_on_import as _bootstrap_optional_plugins_on_import,
 )
 from nonebot_plugin_htmlrender._bootstrap import (
     _patch_filehost_request_headers_validator as _patch_filehost_request_headers_validator,
@@ -44,16 +47,7 @@ from nonebot_plugin_htmlrender._compat import (
 from nonebot_plugin_htmlrender._compat import (
     text_to_pic as text_to_pic,
 )
-
-# Wire the render context provider so that backend operations can obtain
-# pages without importing the render module directly (avoids circular coupling).
-from nonebot_plugin_htmlrender.backend.playwright._page import (
-    register_render_context_provider as _register_ctx_provider,
-)
-from nonebot_plugin_htmlrender.backend.playwright.runtime import (
-    clear_playwright_env_vars,
-)
-from nonebot_plugin_htmlrender.backend.playwright.types import BrowserSessionKwargs
+from nonebot_plugin_htmlrender.backend.factory import ensure_backend_loaded
 from nonebot_plugin_htmlrender.config import Config, plugin_config
 from nonebot_plugin_htmlrender.consts import RenderBackend, RenderStartupMode
 from nonebot_plugin_htmlrender.render import (
@@ -82,10 +76,6 @@ from nonebot_plugin_htmlrender.resources import (
     resolve_template_vars,
     to_resource_url,
 )
-from nonebot_plugin_htmlrender.resources.filehost import ensure_filehost_runtime_ready
-
-_register_ctx_provider(get_render_context)
-del _register_ctx_provider
 
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-htmlrender",
@@ -103,25 +93,34 @@ __plugin_meta__ = PluginMetadata(
 driver = nonebot.get_driver()
 
 
-_bootstrap_filehost_guard_on_import()
+def _prepare_playwright_startup() -> None:
+    ensure_backend_loaded(RenderBackend.PLAYWRIGHT)
+    page_module = import_module("nonebot_plugin_htmlrender.backend.playwright._page")
+    register_render_context_provider = page_module.register_render_context_provider
+    register_render_context_provider(get_render_context)
 
 
 @driver.on_startup
-async def init(**kwargs: Unpack[BrowserSessionKwargs]) -> None:
+async def init(**kwargs: Any) -> None:
     """插件启动时初始化渲染后端。"""
     logger.info("HTMLRender Starting...")
     if plugin_config.render_backend is None:
         logger.info("No render backend selected; startup skipped.")
         return
 
-    if plugin_config.render_backend == RenderBackend.PLAYWRIGHT:
-        await ensure_filehost_runtime_ready(reason="plugin_startup")
-
     try:
         startup_mode = plugin_config.render_startup_mode
         if startup_mode == RenderStartupMode.OFF:
             logger.info("Render startup skipped by configuration.")
             return
+        if plugin_config.render_backend == RenderBackend.PLAYWRIGHT:
+            filehost_module = import_module(
+                "nonebot_plugin_htmlrender.resources.filehost"
+            )
+            ensure_filehost_runtime_ready = filehost_module.ensure_filehost_runtime_ready
+
+            _prepare_playwright_startup()
+            await ensure_filehost_runtime_ready(reason="plugin_startup")
         if startup_mode == RenderStartupMode.WARMUP:
             await startup_render(**kwargs)
         else:
@@ -141,7 +140,13 @@ async def shutdown() -> None:
     """插件关闭时清理渲染资源。"""
     logger.info("HTMLRender Shutting down...")
     await shutdown_render()
-    clear_playwright_env_vars()
+    if plugin_config.render_backend == RenderBackend.PLAYWRIGHT:
+        runtime_module = import_module(
+            "nonebot_plugin_htmlrender.backend.playwright.runtime"
+        )
+        clear_playwright_env_vars = runtime_module.clear_playwright_env_vars
+
+        clear_playwright_env_vars()
     logger.info("HTMLRender Shut down.")
 
 

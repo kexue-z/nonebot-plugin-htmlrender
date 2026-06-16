@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from importlib import import_module
 import inspect
 from io import BytesIO
 from pathlib import Path
@@ -17,7 +18,6 @@ from nonebot_plugin_htmlrender.consts import (
 )
 
 from .config import get_resource_config
-from .filehost import filehost_url
 
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
@@ -45,6 +45,14 @@ class ResourceResolver(Protocol):
             解析后可直接供渲染端使用的资源引用。
         """
         ...
+
+
+async def filehost_url(value: str | Path | bytes, *, lease_id: str | None = None) -> str:
+    """Resolve a filehost URL while keeping filehost imports lazy."""
+    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
+    resolve_filehost_url = filehost.filehost_url
+
+    return await resolve_filehost_url(value, lease_id=lease_id)
 
 
 def is_remote_playwright_mode() -> bool:

@@ -8,12 +8,8 @@ from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.consts import RenderBackend
-from nonebot_plugin_htmlrender.resources.filehost import (
-    ensure_filehost_request_guard_installed,
-)
 
 _OPTIONAL_PLUGIN_IDS = (
-    "nonebot_plugin_filehost",
     "nonebot_plugin_sentry",
     "nonebot_plugin_prometheus",
 )
@@ -22,6 +18,8 @@ _OPTIONAL_PLUGIN_IDS = (
 def _patch_filehost_request_headers_validator() -> None:
     """修补 filehost 请求头验证器以兼容 pydantic。"""
     try:
+        # TODO: Open an upstream issue for nonebot-plugin-filehost to replace
+        # __get_validators__ with __get_pydantic_core_schema__.
         filehost_models = import_module("nonebot_plugin_filehost.models")
         request_headers = getattr(filehost_models, "RequestHeaders", None)
         request_scope_info = getattr(filehost_models, "RequestScopeInfo", None)
@@ -66,8 +64,6 @@ def _bootstrap_optional_plugins_on_import() -> None:
             )
             continue
         require(plugin_name)
-        if plugin_name == "nonebot_plugin_filehost":
-            _patch_filehost_request_headers_validator()
         logger.opt(colors=True).info(
             "Optional plugin <c>{plugin_name}</c> bootstrapped on import.",
             plugin_name=plugin_name,
@@ -76,6 +72,13 @@ def _bootstrap_optional_plugins_on_import() -> None:
 
 def _bootstrap_filehost_guard_on_import() -> None:
     """在导入时安装 filehost 请求守卫。"""
+
     if plugin_config.render_backend != RenderBackend.PLAYWRIGHT:
         return
+
+    filehost_module = import_module("nonebot_plugin_htmlrender.resources.filehost")
+    ensure_filehost_request_guard_installed = (
+        filehost_module.ensure_filehost_request_guard_installed
+    )
+
     ensure_filehost_request_guard_installed(reason="plugin_import")
