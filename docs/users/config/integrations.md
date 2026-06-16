@@ -55,7 +55,7 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 用于远程模式下把本地资源解析为可访问 URL，避免远程浏览器无法读取本地 `file://` 资源。
 同时会启用资源请求头校验；默认会基于设备标识（`py-machineid`）派生请求 token。
-插件不会在默认导入阶段加载 filehost；只有资源策略实际选择 `filehost` 时才会 `require("nonebot_plugin_filehost")` 并安装请求守卫。
+插件不会在默认导入阶段加载 filehost；只有 Playwright 配置的资源策略实际选择 `filehost` 时，才会在插件 bootstrap 阶段 `require("nonebot_plugin_filehost")` 并安装请求守卫。
 推荐搭配 ASGI + FastAPI driver 使用；否则 `/filehost/*` 请求头守卫可能无法安装。详细配置与运行机制可参考 filehost 项目文档。
 
 </div>

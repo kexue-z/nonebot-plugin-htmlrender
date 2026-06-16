@@ -158,7 +158,7 @@ flowchart TD
 | `get_filehost_request_headers()` | sync | 渲染端调用，得到注入页面请求的 header 字典；filehost 解析未启用时返回空字典 |
 | `ensure_filehost_request_guard_installed(*, reason)` | sync | 安装中间件，幂等；失败仅 warning，不抛 |
 
-`reason` 字段贯穿日志便于追因，常见取值：`plugin_startup`（插件启动阶段）、`playwright_startup`（后端启动 step）。
+`reason` 字段贯穿日志便于追因，常见取值：`plugin_import`（显式 filehost 策略的导入期 bootstrap）、`plugin_startup`（插件启动阶段）、`playwright_startup`（后端启动 step）。
 
 ## Filehost 缓存与租约
 
@@ -272,7 +272,7 @@ sequenceDiagram
 
 ### Ready 流程
 
-`ensure_filehost_runtime_ready(*, reason)` 是 ready 入口，被插件 startup 与后端 startup step 共用：
+显式选择 filehost 策略时，插件 import 期会先加载 `nonebot_plugin_filehost` 并安装请求守卫，避免 ASGI app 启动后再追加 middleware。`ensure_filehost_runtime_ready(*, reason)` 是 ready 入口，被插件 startup 与后端 startup step 共用：
 
 ```mermaid
 sequenceDiagram

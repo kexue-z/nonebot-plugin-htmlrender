@@ -51,6 +51,88 @@ def test_default_plugin_import_does_not_load_playwright_or_filehost() -> None:
     assert result.returncode == 0, result.stderr
 
 
+def test_playwright_import_without_filehost_policy_does_not_load_filehost() -> None:
+    result = _run_python(
+        """
+        import importlib.abc
+        import sys
+
+        import nonebot
+
+        nonebot.init(
+            log_level="ERROR",
+            render_backend="playwright",
+            render_startup_mode="off",
+            render_playwright={
+                "resource_resolve_mode": "auto",
+                "remote_local_resource_policy": "passthrough",
+                "local_local_resource_policy": "file",
+            },
+        )
+
+        class _BlockFastAPI(importlib.abc.MetaPathFinder):
+            def find_spec(self, fullname, path=None, target=None):
+                del path, target
+                if fullname == "fastapi" or fullname.startswith("fastapi."):
+                    raise ModuleNotFoundError(fullname)
+                return None
+
+        sys.meta_path.insert(0, _BlockFastAPI())
+        nonebot.require("nonebot_plugin_htmlrender")
+
+        unexpected = {
+            "nonebot_plugin_filehost",
+            "nonebot_plugin_htmlrender.backend.playwright.render",
+            "nonebot_plugin_htmlrender.resources.filehost",
+            "nonebot_plugin_htmlrender.resources.filehost.guard",
+        } & set(sys.modules)
+        if unexpected:
+            raise SystemExit(f"unexpected lazy modules loaded: {sorted(unexpected)}")
+        """
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_playwright_import_with_filehost_policy_loads_filehost_before_startup() -> None:
+    result = _run_python(
+        """
+        import sys
+
+        import nonebot
+
+        nonebot.init(
+            driver="~fastapi",
+            log_level="ERROR",
+            render_backend="playwright",
+            render_startup_mode="off",
+            render_playwright={
+                "resource_resolve_mode": "auto",
+                "remote_local_resource_policy": "filehost",
+                "local_local_resource_policy": "file",
+            },
+        )
+        nonebot.require("nonebot_plugin_htmlrender")
+
+        missing = {
+            "nonebot_plugin_filehost",
+            "nonebot_plugin_htmlrender.resources.filehost",
+            "nonebot_plugin_htmlrender.resources.filehost.guard",
+        } - set(sys.modules)
+        if missing:
+            raise SystemExit(f"expected filehost modules were not loaded: {sorted(missing)}")
+
+        unexpected = {
+            "nonebot_plugin_htmlrender.backend.playwright.render",
+        } & set(sys.modules)
+        if unexpected:
+            raise SystemExit(f"unexpected backend modules loaded: {sorted(unexpected)}")
+        """
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
 def test_compat_import_paths_do_not_load_playwright() -> None:
     result = _run_python(
         """

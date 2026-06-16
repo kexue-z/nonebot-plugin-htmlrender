@@ -19,6 +19,7 @@ from nonebot_plugin_htmlrender._bootstrap import (
 )
 
 _bootstrap_optional_plugins_on_import()
+_bootstrap_filehost_guard_on_import()
 
 from nonebot_plugin_htmlrender._compat import (
     capture_element as capture_element,

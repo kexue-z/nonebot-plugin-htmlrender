@@ -10,7 +10,13 @@ import pytest
 
 import nonebot_plugin_htmlrender as plugin
 from nonebot_plugin_htmlrender import _bootstrap
-from nonebot_plugin_htmlrender.consts import RenderBackend, RenderStartupMode
+from nonebot_plugin_htmlrender.consts import (
+    LocalLocalResourcePolicy,
+    RemoteLocalResourcePolicy,
+    RenderBackend,
+    RenderStartupMode,
+    ResourceResolveMode,
+)
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -62,20 +68,49 @@ def test_patch_filehost_request_headers_validator_for_pydantic_v2_compat(
 def test_plugin_import_bootstraps_filehost_guard_for_playwright_backend(
     mocker: MockerFixture,
 ) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-
-    guard = mocker.patch.object(
-        filehost_runtime, "ensure_filehost_request_guard_installed", return_value=True
+    ensure_loaded = mocker.Mock(return_value=True)
+    guard = mocker.Mock(return_value=True)
+    fake_filehost = SimpleNamespace(
+        ensure_filehost_plugin_loaded=ensure_loaded,
+        ensure_filehost_request_guard_installed=guard,
     )
     mocker.patch.object(
         _bootstrap,
         "plugin_config",
         mocker.Mock(render_backend=RenderBackend.PLAYWRIGHT),
     )
+    mocker.patch.object(
+        _bootstrap, "_playwright_filehost_policy_enabled", return_value=True
+    )
+    import_module_mock = mocker.patch.object(
+        _bootstrap, "import_module", return_value=fake_filehost
+    )
 
     plugin._bootstrap_filehost_guard_on_import()
 
+    import_module_mock.assert_called_once_with(
+        "nonebot_plugin_htmlrender.resources.filehost"
+    )
+    ensure_loaded.assert_called_once_with(reason="plugin_import")
     guard.assert_called_once_with(reason="plugin_import")
+
+
+def test_plugin_import_skips_filehost_guard_without_filehost_policy(
+    mocker: MockerFixture,
+) -> None:
+    import_module_mock = mocker.patch.object(_bootstrap, "import_module")
+    mocker.patch.object(
+        _bootstrap,
+        "plugin_config",
+        mocker.Mock(render_backend=RenderBackend.PLAYWRIGHT),
+    )
+    mocker.patch.object(
+        _bootstrap, "_playwright_filehost_policy_enabled", return_value=False
+    )
+
+    plugin._bootstrap_filehost_guard_on_import()
+
+    import_module_mock.assert_not_called()
 
 
 def test_plugin_import_skips_filehost_guard_for_non_playwright_backend(
@@ -89,6 +124,43 @@ def test_plugin_import_skips_filehost_guard_for_non_playwright_backend(
     plugin._bootstrap_filehost_guard_on_import()
 
     import_module.assert_not_called()
+
+
+def test_playwright_filehost_policy_enabled_detects_explicit_filehost(
+    mocker: MockerFixture,
+) -> None:
+    fake_config = SimpleNamespace(
+        resource_resolve_mode=ResourceResolveMode.AUTO,
+        remote_local_resource_policy=RemoteLocalResourcePolicy.FILEHOST,
+        local_local_resource_policy=LocalLocalResourcePolicy.FILE,
+    )
+    fake_module = SimpleNamespace(
+        get_playwright_config=mocker.Mock(return_value=fake_config)
+    )
+    import_module_mock = mocker.patch.object(
+        _bootstrap, "import_module", return_value=fake_module
+    )
+
+    assert _bootstrap._playwright_filehost_policy_enabled() is True
+    import_module_mock.assert_called_once_with(
+        "nonebot_plugin_htmlrender.backend.playwright.config"
+    )
+
+
+def test_playwright_filehost_policy_enabled_respects_off_mode(
+    mocker: MockerFixture,
+) -> None:
+    fake_config = SimpleNamespace(
+        resource_resolve_mode=ResourceResolveMode.OFF,
+        remote_local_resource_policy=RemoteLocalResourcePolicy.FILEHOST,
+        local_local_resource_policy=LocalLocalResourcePolicy.FILEHOST,
+    )
+    fake_module = SimpleNamespace(
+        get_playwright_config=mocker.Mock(return_value=fake_config)
+    )
+    mocker.patch.object(_bootstrap, "import_module", return_value=fake_module)
+
+    assert _bootstrap._playwright_filehost_policy_enabled() is False
 
 
 @pytest.mark.anyio
