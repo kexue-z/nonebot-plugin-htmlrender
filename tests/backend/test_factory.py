@@ -246,7 +246,9 @@ def test_build_backend_loads_selected_backend(
         {RenderBackend.PLAYWRIGHT: ("fake_backend", "register_fake_backend")},
         clear=True,
     )
-    import_module = mocker.patch.object(factory, "import_module", return_value=fake_module)
+    import_module = mocker.patch.object(
+        factory, "import_module", return_value=fake_module
+    )
 
     built = factory.build_backend(RenderBackend.PLAYWRIGHT)
 

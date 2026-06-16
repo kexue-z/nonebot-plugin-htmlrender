@@ -170,9 +170,8 @@ async def test_plugin_init_prewarms_filehost_for_playwright_backend(
 ) -> None:
     import nonebot_plugin_htmlrender as plugin  # noqa: PLC0415
     from nonebot_plugin_htmlrender.consts import RenderBackend  # noqa: PLC0415
-    filehost_runtime = import_module(
-        "nonebot_plugin_htmlrender.resources.filehost"
-    )
+
+    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
 
     prewarm_mock = mocker.patch.object(
         filehost_runtime,

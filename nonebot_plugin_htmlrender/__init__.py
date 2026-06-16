@@ -117,7 +117,9 @@ async def init(**kwargs: Any) -> None:
             filehost_module = import_module(
                 "nonebot_plugin_htmlrender.resources.filehost"
             )
-            ensure_filehost_runtime_ready = filehost_module.ensure_filehost_runtime_ready
+            ensure_filehost_runtime_ready = (
+                filehost_module.ensure_filehost_runtime_ready
+            )
 
             _prepare_playwright_startup()
             await ensure_filehost_runtime_ready(reason="plugin_startup")

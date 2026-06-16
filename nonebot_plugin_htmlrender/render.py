@@ -706,9 +706,7 @@ async def capture_html_element(
 
 def create_png_config(*args: Any, **kwargs: Any) -> Any:
     """Create a PNG render config through the Playwright compatibility helper."""
-    models = import_module(
-        "nonebot_plugin_htmlrender.backend.playwright.models"
-    )
+    models = import_module("nonebot_plugin_htmlrender.backend.playwright.models")
     create_config = models.create_png_config
 
     return create_config(*args, **kwargs)
@@ -716,9 +714,7 @@ def create_png_config(*args: Any, **kwargs: Any) -> Any:
 
 def create_jpeg_config(*args: Any, **kwargs: Any) -> Any:
     """Create a JPEG render config through the Playwright compatibility helper."""
-    models = import_module(
-        "nonebot_plugin_htmlrender.backend.playwright.models"
-    )
+    models = import_module("nonebot_plugin_htmlrender.backend.playwright.models")
     create_config = models.create_jpeg_config
 
     return create_config(*args, **kwargs)

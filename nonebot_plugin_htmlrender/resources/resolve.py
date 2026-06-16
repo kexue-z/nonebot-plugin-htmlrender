@@ -47,7 +47,9 @@ class ResourceResolver(Protocol):
         ...
 
 
-async def filehost_url(value: str | Path | bytes, *, lease_id: str | None = None) -> str:
+async def filehost_url(
+    value: str | Path | bytes, *, lease_id: str | None = None
+) -> str:
     """Resolve a filehost URL while keeping filehost imports lazy."""
     filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
     resolve_filehost_url = filehost.filehost_url

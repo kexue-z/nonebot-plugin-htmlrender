@@ -270,9 +270,7 @@ async def _launch(
 )
 def clean_playwright_cache(*, cleanup: bool) -> None:
     """已弃用：清理 Playwright 缓存。"""
-    runtime = import_module(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime"
-    )
+    runtime = import_module("nonebot_plugin_htmlrender.backend.playwright.runtime")
     clean_cache = runtime.clean_playwright_cache
 
     clean_cache(cleanup=cleanup)
@@ -285,9 +283,7 @@ def clean_playwright_cache(*, cleanup: bool) -> None:
 )
 def reconcile_legacy_playwright_cache(*, cleanup: bool) -> None:
     """已弃用：协调旧版 Playwright 缓存目录。"""
-    runtime = import_module(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime"
-    )
+    runtime = import_module("nonebot_plugin_htmlrender.backend.playwright.runtime")
     reconcile_cache = runtime.reconcile_legacy_playwright_cache
 
     reconcile_cache(cleanup=cleanup)

@@ -62,9 +62,7 @@ def test_patch_filehost_request_headers_validator_for_pydantic_v2_compat(
 def test_plugin_import_bootstraps_filehost_guard_for_playwright_backend(
     mocker: MockerFixture,
 ) -> None:
-    filehost_runtime = import_module(
-        "nonebot_plugin_htmlrender.resources.filehost"
-    )
+    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
 
     guard = mocker.patch.object(
         filehost_runtime, "ensure_filehost_request_guard_installed", return_value=True
@@ -257,9 +255,7 @@ async def test_plugin_init_warms_runtime_without_probe(
 async def test_plugin_init_probes_runtime_when_mode_is_probe(
     mocker: MockerFixture,
 ) -> None:
-    filehost_runtime = import_module(
-        "nonebot_plugin_htmlrender.resources.filehost"
-    )
+    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
 
     startup = mocker.patch.object(plugin, "startup_render", new=mocker.AsyncMock())
     ensure_ready = mocker.patch.object(

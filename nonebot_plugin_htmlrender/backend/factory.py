@@ -104,7 +104,9 @@ def ensure_backend_loaded(backend: RenderBackend) -> None:
 
     module_name, register_name = loader
     module = import_module(module_name)
-    register = getattr(module, register_name, None) if register_name is not None else None
+    register = (
+        getattr(module, register_name, None) if register_name is not None else None
+    )
     if backend not in _backend_registry and callable(register):
         register()
 
