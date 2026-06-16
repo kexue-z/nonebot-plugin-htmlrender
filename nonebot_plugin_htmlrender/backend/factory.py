@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
 
 from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.consts import RenderBackend
@@ -37,6 +38,12 @@ class RegisteredBackend:
 
 
 _backend_registry: dict[RenderBackend, RegisteredBackend] = {}
+_backend_loaders: dict[RenderBackend, tuple[str, str | None]] = {
+    RenderBackend.PLAYWRIGHT: (
+        "nonebot_plugin_htmlrender.backend.playwright.render",
+        "register_playwright_backend",
+    ),
+}
 
 
 @dataclass(frozen=True)
@@ -86,6 +93,22 @@ def register_backend(
     _backend_registry[backend] = registration
 
 
+def ensure_backend_loaded(backend: RenderBackend) -> None:
+    """Load the implementation module for a backend when the package provides one."""
+    if backend in _backend_registry:
+        return
+
+    loader = _backend_loaders.get(backend)
+    if loader is None:
+        return
+
+    module_name, register_name = loader
+    module = import_module(module_name)
+    register = getattr(module, register_name, None) if register_name is not None else None
+    if backend not in _backend_registry and callable(register):
+        register()
+
+
 def registered_backends() -> tuple[RenderBackend, ...]:
     """返回已注册的渲染后端列表。"""
     return tuple(sorted(_backend_registry, key=lambda item: item.value))
@@ -100,6 +123,7 @@ def get_backend_status(backend: RenderBackend) -> BackendStatus:
     Returns:
         包含注册状态、可用性和原因的 BackendStatus。
     """
+    ensure_backend_loaded(backend)
     registered = _backend_registry.get(backend)
     if registered is None:
         return BackendStatus(
@@ -134,6 +158,7 @@ def backend_statuses() -> tuple[BackendStatus, ...]:
 
 def is_backend_registered(backend: RenderBackend) -> bool:
     """检查指定后端是否已注册。"""
+    ensure_backend_loaded(backend)
     return backend in _backend_registry
 
 
@@ -174,6 +199,7 @@ def build_backend(
             "render_backend is not configured. Set `render_backend` to a backend name."
         )
 
+    ensure_backend_loaded(selected_backend)
     status = get_backend_status(selected_backend)
     if not status.registered:
         available = ", ".join(item.value for item in registered_backends()) or "none"
