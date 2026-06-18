@@ -6,34 +6,14 @@ All deprecated top-level functions are defined here. Other modules
 module so that old import paths keep working.
 """
 
-from collections.abc import AsyncIterator
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
+from importlib import import_module
 from os import getcwd
-from typing import Any, Literal
-from typing_extensions import Unpack, deprecated
+from typing import TYPE_CHECKING, Any, Literal, cast
+from typing_extensions import deprecated
 
-from playwright.async_api import Browser
-
-from nonebot_plugin_htmlrender.backend.playwright.operations import (
-    read_file as read_file,
-)
-from nonebot_plugin_htmlrender.backend.playwright.operations import (
-    read_tpl as read_tpl,
-)
-from nonebot_plugin_htmlrender.backend.playwright.runtime import (
-    clean_playwright_cache as _clean_playwright_cache,
-)
-from nonebot_plugin_htmlrender.backend.playwright.runtime import (
-    reconcile_legacy_playwright_cache as _reconcile_legacy_playwright_cache,
-)
-from nonebot_plugin_htmlrender.backend.playwright.types import (
-    BrowserSessionKwargs,
-    GotoKwargs,
-    HtmlPageKwargs,
-    LocatorScreenshotKwargs,
-    PageContextKwargs,
-    TemplatePageKwargs,
-)
 from nonebot_plugin_htmlrender.render import (
     capture_html_element,
     get_render,
@@ -46,6 +26,39 @@ from nonebot_plugin_htmlrender.render import (
     shutdown_render,
     startup_render,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+    from typing_extensions import Unpack
+
+    from playwright.async_api import Browser
+
+    from nonebot_plugin_htmlrender.backend.playwright.types import (
+        BrowserSessionKwargs,
+        GotoKwargs,
+        HtmlPageKwargs,
+        LocatorScreenshotKwargs,
+        PageContextKwargs,
+        TemplatePageKwargs,
+    )
+
+
+async def read_file(path: str) -> str:
+    operations = import_module(
+        "nonebot_plugin_htmlrender.backend.playwright.operations"
+    )
+    read_file_fn = operations.read_file
+
+    return await read_file_fn(path)
+
+
+async def read_tpl(path: str) -> str:
+    operations = import_module(
+        "nonebot_plugin_htmlrender.backend.playwright.operations"
+    )
+    read_tpl_fn = operations.read_tpl
+
+    return await read_tpl_fn(path)
 
 
 def _require_browser(session: object) -> Browser:
@@ -60,9 +73,12 @@ def _require_browser(session: object) -> Browser:
     Raises:
         RuntimeError: 当前渲染目标不是 Browser 实例时抛出。
     """
+    playwright_api = import_module("playwright.async_api")
+    browser_type = playwright_api.Browser
+
     browser = getattr(session, "handle", None)
-    if isinstance(browser, Browser):
-        return browser
+    if isinstance(browser, browser_type):
+        return cast("Browser", browser)
     raise RuntimeError("Current render target is not a Browser instance.")
 
 
@@ -254,7 +270,10 @@ async def _launch(
 )
 def clean_playwright_cache(*, cleanup: bool) -> None:
     """已弃用：清理 Playwright 缓存。"""
-    _clean_playwright_cache(cleanup=cleanup)
+    runtime = import_module("nonebot_plugin_htmlrender.backend.playwright.runtime")
+    clean_cache = runtime.clean_playwright_cache
+
+    clean_cache(cleanup=cleanup)
 
 
 @deprecated(
@@ -264,7 +283,10 @@ def clean_playwright_cache(*, cleanup: bool) -> None:
 )
 def reconcile_legacy_playwright_cache(*, cleanup: bool) -> None:
     """已弃用：协调旧版 Playwright 缓存目录。"""
-    _reconcile_legacy_playwright_cache(cleanup=cleanup)
+    runtime = import_module("nonebot_plugin_htmlrender.backend.playwright.runtime")
+    reconcile_cache = runtime.reconcile_legacy_playwright_cache
+
+    reconcile_cache(cleanup=cleanup)
 
 
 __all__ = [

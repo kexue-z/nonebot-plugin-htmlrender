@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from enum import Enum
+from importlib import import_module
 import os
 from typing import TYPE_CHECKING, Any
 from typing_extensions import Unpack
@@ -703,10 +704,17 @@ async def capture_html_element(
     return await get_default_render().capture_html_element(url, element, **kwargs)
 
 
-# Re-export model factory helpers for backwards compatibility
-from nonebot_plugin_htmlrender.backend.playwright.models import (
-    create_jpeg_config as create_jpeg_config,
-)
-from nonebot_plugin_htmlrender.backend.playwright.models import (
-    create_png_config as create_png_config,
-)
+def create_png_config(*args: Any, **kwargs: Any) -> Any:
+    """Create a PNG render config through the Playwright compatibility helper."""
+    models = import_module("nonebot_plugin_htmlrender.backend.playwright.models")
+    create_config = models.create_png_config
+
+    return create_config(*args, **kwargs)
+
+
+def create_jpeg_config(*args: Any, **kwargs: Any) -> Any:
+    """Create a JPEG render config through the Playwright compatibility helper."""
+    models = import_module("nonebot_plugin_htmlrender.backend.playwright.models")
+    create_config = models.create_jpeg_config
+
+    return create_config(*args, **kwargs)

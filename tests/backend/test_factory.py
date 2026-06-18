@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
@@ -23,12 +24,15 @@ if TYPE_CHECKING:
 @pytest.fixture
 def isolated_backend_registry() -> Generator[None, None, None]:
     previous = dict(factory._backend_registry)
+    previous_loaders = dict(factory._backend_loaders)
     factory._backend_registry.clear()
     try:
         yield
     finally:
         factory._backend_registry.clear()
         factory._backend_registry.update(previous)
+        factory._backend_loaders.clear()
+        factory._backend_loaders.update(previous_loaders)
 
 
 class _DummyBackend:
@@ -177,6 +181,7 @@ def test_build_backend_uses_config_and_validates_status(
 ) -> None:
     del isolated_backend_registry
 
+    mocker.patch.dict(factory._backend_loaders, {}, clear=True)
     mocker.patch.object(factory.plugin_config, "render_backend", None)
     with pytest.raises(RuntimeError, match="render_backend is not configured"):
         factory.build_backend()
@@ -208,11 +213,98 @@ def test_build_backend_uses_config_and_validates_status(
     assert built.marker == "pw-ok"
 
 
-def test_backend_statuses_cover_all_enum_values(
+def test_build_backend_does_not_load_backend_when_config_is_missing(
     isolated_backend_registry: None,
+    mocker: MockerFixture,
 ) -> None:
     del isolated_backend_registry
 
+    import_module = mocker.patch.object(factory, "import_module")
+    mocker.patch.object(factory.plugin_config, "render_backend", None)
+
+    with pytest.raises(RuntimeError, match="render_backend is not configured"):
+        factory.build_backend()
+
+    import_module.assert_not_called()
+
+
+def test_build_backend_loads_selected_backend(
+    isolated_backend_registry: None,
+    mocker: MockerFixture,
+) -> None:
+    del isolated_backend_registry
+
+    def _register_backend() -> None:
+        factory.register_backend(
+            RenderBackend.PLAYWRIGHT,
+            lambda: _DummyBackend(RenderBackend.PLAYWRIGHT, marker="loaded"),
+        )
+
+    fake_module = SimpleNamespace(register_fake_backend=_register_backend)
+    mocker.patch.dict(
+        factory._backend_loaders,
+        {RenderBackend.PLAYWRIGHT: ("fake_backend", "register_fake_backend")},
+        clear=True,
+    )
+    import_module = mocker.patch.object(
+        factory, "import_module", return_value=fake_module
+    )
+
+    built = factory.build_backend(RenderBackend.PLAYWRIGHT)
+
+    import_module.assert_called_once_with("fake_backend")
+    assert isinstance(built, _DummyBackend)
+    assert built.marker == "loaded"
+
+
+def test_get_backend_status_loads_known_backend(
+    isolated_backend_registry: None,
+    mocker: MockerFixture,
+) -> None:
+    del isolated_backend_registry
+
+    def _register_backend() -> None:
+        factory.register_backend(
+            RenderBackend.PLAYWRIGHT,
+            lambda: _DummyBackend(RenderBackend.PLAYWRIGHT, marker="status"),
+        )
+
+    fake_module = SimpleNamespace(register_fake_backend=_register_backend)
+    mocker.patch.dict(
+        factory._backend_loaders,
+        {RenderBackend.PLAYWRIGHT: ("fake_backend", "register_fake_backend")},
+        clear=True,
+    )
+    mocker.patch.object(factory, "import_module", return_value=fake_module)
+
+    status = factory.get_backend_status(RenderBackend.PLAYWRIGHT)
+
+    assert status.registered is True
+    assert status.available is True
+
+
+def test_get_backend_status_does_not_load_unknown_backend(
+    isolated_backend_registry: None,
+    mocker: MockerFixture,
+) -> None:
+    del isolated_backend_registry
+
+    import_module = mocker.patch.object(factory, "import_module")
+
+    status = factory.get_backend_status(RenderBackend.SKIA)
+
+    import_module.assert_not_called()
+    assert status.registered is False
+    assert status.available is False
+
+
+def test_backend_statuses_cover_all_enum_values(
+    isolated_backend_registry: None,
+    mocker: MockerFixture,
+) -> None:
+    del isolated_backend_registry
+
+    mocker.patch.dict(factory._backend_loaders, {}, clear=True)
     statuses = factory.backend_statuses()
     assert len(statuses) == len(tuple(RenderBackend))
     assert all(status.backend in RenderBackend for status in statuses)

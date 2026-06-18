@@ -1,3 +1,4 @@
+from importlib import import_module
 import os
 from pathlib import Path
 from types import SimpleNamespace
@@ -170,10 +171,14 @@ async def test_plugin_init_prewarms_filehost_for_playwright_backend(
     import nonebot_plugin_htmlrender as plugin  # noqa: PLC0415
     from nonebot_plugin_htmlrender.consts import RenderBackend  # noqa: PLC0415
 
-    prewarm_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.ensure_filehost_runtime_ready",
+    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
+
+    prewarm_mock = mocker.patch.object(
+        filehost_runtime,
+        "ensure_filehost_runtime_ready",
         new=mocker.AsyncMock(return_value=True),
     )
+    prepare_mock = mocker.patch.object(plugin, "_prepare_playwright_startup")
     startup_render_mock = mocker.patch(
         "nonebot_plugin_htmlrender.startup_render",
         new=mocker.AsyncMock(),
@@ -181,12 +186,13 @@ async def test_plugin_init_prewarms_filehost_for_playwright_backend(
     mocker.patch.object(
         plugin.plugin_config, "render_backend", RenderBackend.PLAYWRIGHT
     )
-    mocker.patch.object(plugin.plugin_config, "render_startup_mode", new="off")
+    mocker.patch.object(plugin.plugin_config, "render_startup_mode", new="warmup")
 
     await plugin.init()
 
+    prepare_mock.assert_called_once_with()
     prewarm_mock.assert_awaited_once_with(reason="plugin_startup")
-    startup_render_mock.assert_not_awaited()
+    startup_render_mock.assert_awaited_once_with()
 
 
 @pytest.mark.anyio
@@ -196,10 +202,7 @@ async def test_plugin_init_skips_filehost_prewarm_for_non_playwright_backend(
     import nonebot_plugin_htmlrender as plugin  # noqa: PLC0415
     from nonebot_plugin_htmlrender.consts import RenderBackend  # noqa: PLC0415
 
-    prewarm_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.ensure_filehost_runtime_ready",
-        new=mocker.AsyncMock(return_value=True),
-    )
+    prepare_mock = mocker.patch.object(plugin, "_prepare_playwright_startup")
     startup_render_mock = mocker.patch(
         "nonebot_plugin_htmlrender.startup_render",
         new=mocker.AsyncMock(),
@@ -209,7 +212,7 @@ async def test_plugin_init_skips_filehost_prewarm_for_non_playwright_backend(
 
     await plugin.init()
 
-    prewarm_mock.assert_not_awaited()
+    prepare_mock.assert_not_called()
     startup_render_mock.assert_not_awaited()
 
 

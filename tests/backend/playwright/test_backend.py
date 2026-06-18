@@ -132,7 +132,7 @@ async def test_startup_steps_include_filehost_prewarm(
         "nonebot_plugin_htmlrender.backend.playwright.render.record_playwright_runtime_state"
     )
     prewarm_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.ensure_filehost_runtime_ready",
+        "nonebot_plugin_htmlrender.resources.filehost.ensure_filehost_runtime_ready",
         new=mocker.AsyncMock(return_value=True),
     )
 

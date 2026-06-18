@@ -47,7 +47,6 @@ from nonebot_plugin_htmlrender.resources.config import (
     ResourceConfig,
     register_resource_config_provider,
 )
-from nonebot_plugin_htmlrender.resources.filehost import ensure_filehost_runtime_ready
 from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
 
 from ..base import BackendCapability, RenderRuntime, RenderSession
@@ -122,6 +121,10 @@ class PlaywrightBackend:
             await run_sync(record_playwright_runtime_state)
 
         async def _prewarm_filehost() -> None:
+            from nonebot_plugin_htmlrender.resources.filehost import (  # noqa: PLC0415
+                ensure_filehost_runtime_ready,
+            )
+
             await ensure_filehost_runtime_ready(reason="playwright_startup")
 
         return (_prepare_env, _clean_cache, _record_runtime_state, _prewarm_filehost)
@@ -757,8 +760,13 @@ def _build_resource_config() -> ResourceConfig:
 
 register_resource_config_provider(_build_resource_config)
 
-register_backend(
-    RenderBackend.PLAYWRIGHT,
-    PlaywrightBackend,
-    availability_checker=is_playwright_backend_available,
-)
+
+def register_playwright_backend() -> None:
+    register_backend(
+        RenderBackend.PLAYWRIGHT,
+        PlaywrightBackend,
+        availability_checker=is_playwright_backend_available,
+    )
+
+
+register_playwright_backend()

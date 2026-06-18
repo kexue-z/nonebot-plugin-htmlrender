@@ -18,15 +18,12 @@ from .factory import (
     registered_backends,
     unavailable_backends,
 )
-from .playwright import PlaywrightBackend, PlaywrightMode
 
 __all__ = [
     "Backend",
     "BackendAvailability",
     "BackendCapability",
     "BackendStatus",
-    "PlaywrightBackend",
-    "PlaywrightMode",
     "RenderRuntime",
     "RenderSession",
     "SupportsHtmlRenderBackend",

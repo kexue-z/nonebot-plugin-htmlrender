@@ -305,7 +305,7 @@ register_backend(
 | 位置 | 当前假设 | 目标 backend 需要判断 |
 | --- | --- | --- |
 | `__init__.py` | 启动时只为 `playwright` 预热 filehost | 目标 backend 是否也需要 startup bootstrap |
-| `_bootstrap.py` | import 时只为 `playwright` 安装 filehost guard | 目标 backend 是否复用 filehost guard |
+| `_bootstrap.py` | 仅在 `playwright` 显式选择 filehost 策略时做导入期 filehost bootstrap | 目标 backend 是否需要额外 bootstrap |
 | `resources/` | 资源解析主要服务 HTML/template 渲染 | 目标 backend 是否需要复用资源解析 |
 | `_compat.py` / `browser.py` | 历史接口偏向 Playwright 语义 | 旧接口是否应支持目标 backend |
 
@@ -318,8 +318,8 @@ register_backend(
 
 当前行为里至少有这些分支只对 `RenderBackend.PLAYWRIGHT` 生效：
 
-- filehost request guard 安装
-- filehost runtime 预热
+- filehost request guard 安装（仅 filehost 策略启用时）
+- filehost runtime 预热（仅 filehost 策略启用时）
 - shutdown 时清理 Playwright 环境变量
 
 这意味着：
