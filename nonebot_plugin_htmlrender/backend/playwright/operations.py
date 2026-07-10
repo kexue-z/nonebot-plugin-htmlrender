@@ -110,6 +110,11 @@ def _enum_value(raw: object) -> str:
     return str(getattr(raw, "value", raw))
 
 
+def _should_navigate_to_base_url(base_url: str) -> bool:
+    """判断浏览器是否应先导航到页面的 base URL。"""
+    return base_url != "about:blank"
+
+
 async def read_file(path: str) -> str:
     """异步读取文件内容。"""
     f = await anyio.open_file(path, mode="r", encoding="utf-8")
@@ -264,7 +269,8 @@ async def render_html(
             ),
         ) as page,
     ):
-        if is_remote_playwright_mode() and (
+        remote_mode = is_remote_playwright_mode()
+        if remote_mode and (
             _enum_value(get_playwright_config().remote_local_resource_policy)
             == RemoteLocalResourcePolicy.FILEHOST.value
         ):
@@ -274,7 +280,9 @@ async def render_html(
             )
 
         _setup_page_logging(page)
-        await page.goto(render_request.render.page.base_url)
+        base_url = render_request.render.page.base_url
+        if _should_navigate_to_base_url(base_url):
+            await page.goto(base_url)
         await page.set_content(
             render_request.content.html,
             wait_until=render_request.content.wait_until,
@@ -444,17 +452,16 @@ async def render_markdown(
             )
             css = github_css + pygments_css
 
-        render_request = HtmlRenderRequest(
-            content=ContentConfig(
-                html=await template.render_async(md=md, css=css, extra=extra)
-            ),
-            render=render
-            or RenderConfig(
+        if render is None:
+            base_url = (
+                _path_to_uri(css_path) if css_path else MARKDOWN_TEMPLATE_FILE.as_uri()
+            )
+            if is_remote_playwright_mode():
+                base_url = "about:blank"
+            render = RenderConfig(
                 page=PageConfig(
                     viewport=ViewportConfig(width=width, height=10),
-                    base_url=_path_to_uri(css_path)
-                    if css_path
-                    else MARKDOWN_TEMPLATE_FILE.as_uri(),
+                    base_url=base_url,
                 ),
                 screenshot=_build_screenshot_config(
                     image_type,
@@ -464,7 +471,13 @@ async def render_markdown(
                     full_page=True,
                     wait_before_screenshot=0,
                 ),
+            )
+
+        render_request = HtmlRenderRequest(
+            content=ContentConfig(
+                html=await template.render_async(md=md, css=css, extra=extra)
             ),
+            render=render,
         )
 
         return await render_html(render_request, session=session)
