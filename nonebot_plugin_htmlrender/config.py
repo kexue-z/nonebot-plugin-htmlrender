@@ -49,6 +49,7 @@ class Config(BaseModel):
         ge=0,
     )
     render_resource_cache_revalidate_seconds: float = Field(default=1.0, ge=0.0)
+    render_template_environment_cache_max_entries: int = Field(default=64, ge=0)
 
     @model_validator(mode="before")
     @classmethod
