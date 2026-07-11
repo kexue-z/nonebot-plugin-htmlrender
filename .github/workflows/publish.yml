@@ -170,13 +170,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          WHEEL_COUNT=$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)
-          SDIST_COUNT=$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)
-          if [[ "${WHEEL_COUNT}" -ne 1 || "${SDIST_COUNT}" -ne 1 ]]; then
-            echo "::error::Expected one wheel and one sdist, found ${WHEEL_COUNT} wheel(s) and ${SDIST_COUNT} sdist(s)."
-            exit 1
-          fi
           uvx --from twine==6.2.0 twine check dist/*
+          make verify-artifacts DIST_DIR=dist
           sha256sum dist/*
 
       - name: Upload release distributions

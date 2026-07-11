@@ -19,6 +19,6 @@ RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 WORKDIR /tmp/remote-smoke
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project --no-default-groups --extra filehost --group remote-smoke
+    uv sync --locked --no-install-project --no-default-groups --group remote-smoke
 
 WORKDIR /app

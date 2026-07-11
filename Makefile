@@ -2,9 +2,12 @@ UV ?= uv
 PYTEST ?= $(UV) run pytest
 ZENSICAL ?= $(UV) run zensical
 TWINE ?= $(UV) run --no-project --with twine==6.2.0 twine
+VERIFY_DISTRIBUTION ?= python3 scripts/verify_distribution.py
+DIST_SMOKE_PYTHON ?= 3.12
 PYTEST_PARALLEL ?= -n auto --dist=loadfile
 TEST_PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.artifacts/playwright-browsers
 DIST_DIR ?= $(CURDIR)/dist
+PLAYWRIGHT_VERSION ?= $(shell $(UV) tree --locked --package playwright --depth 0 2>/dev/null | awk '$$1 == "playwright" { sub(/^v/, "", $$2); print $$2 }')
 
 .DEFAULT_GOAL := prepare
 
@@ -49,16 +52,24 @@ install-prek: ensure-uv ## Install prek and git hooks.
 prepare: sync-all install-prek ## Prepare local dev environment.
 	@echo "==> Environment prepared"
 
-.PHONY: clean-dist build-artifacts
+.PHONY: clean-dist verify-artifacts build-artifacts
 clean-dist: ## Remove local distribution artifacts.
 	@echo "==> Removing distribution artifacts from $(DIST_DIR)"
 	rm -rf $(DIST_DIR)
+
+verify-artifacts: ensure-uv ## Verify archive contents and isolated installs.
+	@echo "==> Verifying built distributions"
+	@$(VERIFY_DISTRIBUTION) "$(DIST_DIR)" \
+		--expected-version "$$($(UV) version --short)" \
+		--python "$(DIST_SMOKE_PYTHON)" \
+		--uv "$(UV)"
 
 build-artifacts: prepare-build clean-dist ## Build manual release artifacts (wheel + sdist).
 	@echo "==> Building wheel and sdist into $(DIST_DIR)"
 	@$(UV) build --no-sources --wheel --sdist --out-dir $(DIST_DIR)
 	@echo "==> Validating package metadata"
 	@$(TWINE) check $(DIST_DIR)/*
+	@$(MAKE) verify-artifacts DIST_DIR="$(DIST_DIR)"
 	@echo "==> Artifacts generated:"
 	@ls -la $(DIST_DIR)
 	@echo "==> Artifact checksums:"
@@ -94,7 +105,7 @@ remote-smoke: ## Run remote browser smoke with cached image and dependencies.
 
 remote-smoke-build: ## Rebuild image, then run remote browser smoke.
 	@echo "==> Rebuilding and running remote browser smoke"
-	docker compose -f tests/infra/docker-compose.remote-test.yaml up --build --abort-on-container-exit --exit-code-from render
+	PLAYWRIGHT_VERSION="$(PLAYWRIGHT_VERSION)" docker compose -f tests/infra/docker-compose.remote-test.yaml up --build --abort-on-container-exit --exit-code-from render
 
 remote-smoke-down: ## Stop remote browser smoke services and remove named volumes.
 	@echo "==> Tearing down remote browser smoke services"

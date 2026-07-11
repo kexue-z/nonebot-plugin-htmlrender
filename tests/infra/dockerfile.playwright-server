@@ -11,7 +11,7 @@
 # it locally under /srv at the matching version so the server entrypoint can
 # `import` it. CI passes PLAYWRIGHT_VERSION from uv.lock to keep the Python
 # client and Node server in lockstep.
-ARG PLAYWRIGHT_VERSION=1.59.0
+ARG PLAYWRIGHT_VERSION=1.60.0
 FROM mcr.microsoft.com/playwright:v${PLAYWRIGHT_VERSION}-noble
 
 ARG PLAYWRIGHT_VERSION

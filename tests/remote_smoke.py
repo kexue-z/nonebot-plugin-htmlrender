@@ -1,23 +1,30 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
+from base64 import b64decode
 from io import BytesIO
 import os
 from pathlib import Path
-from urllib.parse import urlsplit
+import re
+import shutil
+from tempfile import TemporaryDirectory
 
 import nonebot
 from PIL import Image, ImageChops, ImageStat
-import uvicorn
 
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 _TEMPLATE_DIR = _PROJECT_ROOT / "tests" / "templates"
 _IMAGE_FILE = _PROJECT_ROOT / "tests" / "resources" / "test_template_filter.png"
-_RESOURCE_DIR = _IMAGE_FILE.parent
-_ARTIFACT_IMAGE = (
-    _PROJECT_ROOT / "tests" / ".artifacts" / "remote_filehost_rendered.png"
+_KATEX_FONT_CSS = (
+    _PROJECT_ROOT
+    / "nonebot_plugin_htmlrender"
+    / "templates"
+    / "markdown"
+    / "katex"
+    / "katex.min.b64_fonts.css"
 )
+_ARTIFACT_DIR = _PROJECT_ROOT / "tests" / ".artifacts"
+_FONT_DATA_RE = re.compile(r"data:font/woff2;base64,([^\")]+)")
 
 
 def _playwright_config() -> dict[str, object]:
@@ -28,10 +35,6 @@ def _playwright_config() -> dict[str, object]:
         "engine": "chromium",
         "connect_ws": {"endpoint": ws_endpoint},
         "skip_browser_install": True,
-        "resource_resolve_mode": "auto",
-        "remote_local_resource_policy": "filehost",
-        "local_local_resource_policy": "file",
-        "filehost_allowed_paths": [str(_RESOURCE_DIR)],
     }
 
 
@@ -46,109 +49,139 @@ def _mean_abs_diff(rendered: Image.Image, expected: Image.Image) -> float:
     return sum(stat.mean) / len(stat.mean)
 
 
-async def _main() -> None:
-    nonebot.init(
-        driver="~fastapi",
-        host="0.0.0.0",  # noqa: S104
-        port=9012,
-        log_level="INFO",
-        render_backend="playwright",
-        render_startup_mode="probe",
-        render_playwright=_playwright_config(),
+def _assert_png(payload: bytes, *, label: str) -> Image.Image:
+    if not payload.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise RuntimeError(f"{label} did not produce PNG output")
+    image = Image.open(BytesIO(payload))
+    image.load()
+    if image.width <= 0 or image.height <= 0:
+        raise RuntimeError(f"{label} produced an empty image")
+    return image
+
+
+def _prepare_local_fixtures(root: Path) -> tuple[Path, Path]:
+    relative_image = root / "relative.png"
+    background_image = root / "background.png"
+    shutil.copyfile(_IMAGE_FILE, relative_image)
+    shutil.copyfile(_IMAGE_FILE, background_image)
+    shutil.copyfile(
+        _TEMPLATE_DIR / "remote_filehost.html.jinja2",
+        root / "remote_filehost.html.jinja2",
     )
 
-    nonebot.require("nonebot_plugin_htmlrender")
+    font_match = _FONT_DATA_RE.search(_KATEX_FONT_CSS.read_text(encoding="utf-8"))
+    if font_match is None:
+        raise RuntimeError("Could not locate an embedded WOFF2 fixture")
+    (root / "smoke.woff2").write_bytes(b64decode(font_match.group(1)))
 
-    from nonebot import get_asgi  # noqa: PLC0415
+    markdown = root / "document.md"
+    markdown.write_text(
+        "![remote relative image](relative.png)",
+        encoding="utf-8",
+    )
+    stylesheet = root / "text.css"
+    stylesheet.write_text(
+        """
+        @font-face {
+            font-family: "RemoteSmoke";
+            src: url("smoke.woff2") format("woff2");
+        }
+        html, body {
+            margin: 0;
+            min-height: 600px;
+        }
+        .main-box {
+            box-sizing: border-box;
+            min-height: 600px;
+            padding: 32px;
+            color: white;
+            background: #111 url("background.png") center / cover no-repeat;
+            font-family: "RemoteSmoke", sans-serif;
+        }
+        """,
+        encoding="utf-8",
+    )
+    return markdown, stylesheet
+
+
+async def _main() -> None:
+    nonebot.init(
+        driver="~none",
+        log_level="INFO",
+        render_backend="playwright",
+        render_startup_mode="off",
+        render_playwright=_playwright_config(),
+    )
+    nonebot.require("nonebot_plugin_htmlrender")
 
     from nonebot_plugin_htmlrender import (  # noqa: PLC0415
         render_html,
+        render_markdown,
         render_template,
-        resolve_template_vars,
+        render_text,
         shutdown_render,
         startup_render,
     )
 
-    server = uvicorn.Server(
-        uvicorn.Config(
-            app=get_asgi(),
-            host="0.0.0.0",  # noqa: S104
-            port=9012,
-            log_level="info",
-        )
-    )
-    server_task = asyncio.create_task(server.serve())
-    for _ in range(50):
-        if server.started:
-            break
-        await asyncio.sleep(0.1)
-    if not server.started:
-        raise RuntimeError("Failed to start ASGI server for filehost route serving.")
-
+    _ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
     await startup_render()
     try:
-        image_bytes = await render_html(
+        html_bytes = await render_html(
             "<html><body><h1>remote smoke</h1></body></html>",
-            template_path="about:blank",
-        )
-        print(f"remote smoke html passed, image bytes: {len(image_bytes)}")  # noqa: T201
-
-        resolved = await resolve_template_vars(
-            {"avatar": _IMAGE_FILE},
-            template_base=_TEMPLATE_DIR,
-            strict=True,
-            resolver="auto",
-        )
-        avatar_url = resolved["avatar"]
-        if not isinstance(avatar_url, str) or not avatar_url.startswith(
-            ("http://", "https://")
-        ):
-            raise RuntimeError(
-                f"Expected filehost URL for remote resource, got: {avatar_url!r}"
-            )
-        avatar_parts = urlsplit(avatar_url)
-        if not avatar_parts.scheme or not avatar_parts.netloc:
-            raise RuntimeError(f"Invalid resolved filehost URL: {avatar_url!r}")
-        base_url = f"{avatar_parts.scheme}://{avatar_parts.netloc}/"
-
-        template_bytes = await render_template(
-            str(_TEMPLATE_DIR),
-            template_name="remote_filehost.html.jinja2",
-            templates={
-                "title": "remote filehost smoke",
-                "avatar": avatar_url,
-            },
-            pages={
-                "viewport": {"width": 1200, "height": 600},
-                "base_url": base_url,
-            },
-            wait=3000,
             device_scale_factor=1,
-            resolve_resources=False,
-            resource_resolver=None,
-            resource_strict=True,
         )
-        _ARTIFACT_IMAGE.parent.mkdir(parents=True, exist_ok=True)
-        _ARTIFACT_IMAGE.write_bytes(template_bytes)
+        _assert_png(html_bytes, label="plain HTML")
 
-        rendered = Image.open(BytesIO(template_bytes))
+        with TemporaryDirectory(prefix="htmlrender-memory-smoke-") as temporary:
+            markdown_path, stylesheet_path = _prepare_local_fixtures(Path(temporary))
+
+            text_bytes = await render_text(
+                "remote font and background smoke",
+                css_path=str(stylesheet_path),
+                width=1200,
+                device_scale_factor=1,
+            )
+            _assert_png(text_bytes, label="text CSS assets")
+            (_ARTIFACT_DIR / "remote_memory_text.png").write_bytes(text_bytes)
+
+            markdown_bytes = await render_markdown(
+                md_path=str(markdown_path),
+                width=1200,
+                device_scale_factor=1,
+            )
+            _assert_png(markdown_bytes, label="Markdown relative image")
+            (_ARTIFACT_DIR / "remote_memory_markdown.png").write_bytes(markdown_bytes)
+
+            template_bytes = await render_template(
+                temporary,
+                template_name="remote_filehost.html.jinja2",
+                templates={
+                    "title": "remote template resource smoke",
+                    "avatar": "relative.png",
+                },
+                pages={"viewport": {"width": 1200, "height": 600}},
+                wait=100,
+                device_scale_factor=1,
+                resource_strict=True,
+            )
+        (_ARTIFACT_DIR / "remote_memory_template.png").write_bytes(template_bytes)
+
+        rendered = _assert_png(template_bytes, label="template relative image")
         expected = Image.open(_IMAGE_FILE)
         diff_score = _mean_abs_diff(rendered, expected)
         if diff_score > 8.0:
             raise RuntimeError(
-                f"Rendered image differs too much from expected fixture: {diff_score:.2f}"
+                f"Rendered template differs too much from fixture: {diff_score:.2f}"
             )
 
         print(  # noqa: T201
-            "remote smoke filehost passed, "
-            f"resource_url={avatar_url}, image bytes: {len(template_bytes)}, "
-            f"diff={diff_score:.2f}"
+            "remote MEMORY smoke passed: "
+            f"html={len(html_bytes)}, text={len(text_bytes)}, "
+            f"markdown={len(markdown_bytes)}, template={len(template_bytes)}, "
+            f"template_diff={diff_score:.2f}"
         )
     finally:
         await shutdown_render()
-        server.should_exit = True
-        with contextlib.suppress(asyncio.CancelledError, asyncio.TimeoutError):
-            await asyncio.wait_for(server_task, timeout=5)
 
 
 if __name__ == "__main__":

@@ -16,9 +16,6 @@ services:
       - ../..:/app
     environment:
       PLAYWRIGHT_WS_ENDPOINT: ws://playwright:53333/playwright
-      FILEHOST_HOST_OVERRIDE: http://render:9012/
-    ports:
-      - "9012:9012"
     command:
       - sh
       - -lc
@@ -32,6 +29,8 @@ services:
     build:
       context: ../..
       dockerfile: tests/infra/dockerfile.playwright-server
+      args:
+        PLAYWRIGHT_VERSION: ${PLAYWRIGHT_VERSION:-1.60.0}
     container_name: htmlrender-playwright
     environment:
       BROWSER_PORT: "53333"

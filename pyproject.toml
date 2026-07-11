@@ -1,7 +1,7 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.7.1"
-description = "通过浏览器渲染图片"
+version = "0.7.2"
+description = "使用 Playwright 或 Takumi 渲染 HTML、Markdown 与模板图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
 requires-python = ">=3.10,<4.0"

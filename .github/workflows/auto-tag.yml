@@ -1,35 +1,114 @@
 name: Auto Tag on Version Change
 
 on:
-  push:
-    branches: [master]
-    paths:
-      - pyproject.toml
+  workflow_run:
+    workflows:
+      - CI
+      - Coverage
+      - Docs
+      - Prek
+    types:
+      - completed
+    branches:
+      - master
 
 permissions: {}
 
+# Each required workflow emits a completion event. Serialize events for the same
+# source commit so only one run can create its tag or dispatch its publication.
 concurrency:
-  group: auto-tag-${{ github.sha }}
-  cancel-in-progress: true
+  group: auto-tag-${{ github.event.workflow_run.head_sha }}
+  cancel-in-progress: false
 
 jobs:
   tag-and-dispatch:
-    name: Tag version change & dispatch publish
+    name: Gate source, tag version change & dispatch publish
+    if: >-
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.head_branch == 'master'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 30
     permissions:
-      actions: write # Dispatch publish.yml after the tag reaches the remote.
+      actions: write # Read source workflow runs and dispatch publish.yml.
       contents: write # Create the tag at the verified master commit.
+    env:
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
     steps:
-      - name: Checkout the pushed commit
+      - name: Require all release workflows for the exact source SHA
+        id: gates
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          required_workflows=(
+            "CI:ci.yml"
+            "Coverage:coverage.yml"
+            "Docs:docs.yml"
+            "Prek:prek.yml"
+          )
+          ready=true
+
+          {
+            echo "### Release gate for \`${SOURCE_SHA}\`"
+            echo
+            echo "| Workflow | Status | Conclusion | Run |"
+            echo "| --- | --- | --- | --- |"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+          for required in "${required_workflows[@]}"; do
+            workflow_name=${required%%:*}
+            workflow_file=${required#*:}
+            payload=$(gh api --method GET \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/${workflow_file}/runs" \
+              -f branch=master \
+              -f event=push \
+              -f head_sha="${SOURCE_SHA}" \
+              -f per_page=100)
+            workflow_run=$(jq -c \
+              '.workflow_runs | sort_by([.run_number, .run_attempt]) | last // empty' \
+              <<< "${payload}")
+
+            if [[ -z "${workflow_run}" ]]; then
+              ready=false
+              echo "::notice::${workflow_name} has no push run for ${SOURCE_SHA}; no tag will be created."
+              echo "| ${workflow_name} | missing | — | — |" >> "${GITHUB_STEP_SUMMARY}"
+              continue
+            fi
+
+            status=$(jq -r '.status' <<< "${workflow_run}")
+            conclusion=$(jq -r '.conclusion // ""' <<< "${workflow_run}")
+            run_number=$(jq -r '.run_number' <<< "${workflow_run}")
+            run_attempt=$(jq -r '.run_attempt' <<< "${workflow_run}")
+            run_url=$(jq -r '.html_url' <<< "${workflow_run}")
+
+            echo "| ${workflow_name} | ${status} | ${conclusion:-—} | [#${run_number}.${run_attempt}](${run_url}) |" \
+              >> "${GITHUB_STEP_SUMMARY}"
+            if [[ "${status}" != "completed" || "${conclusion}" != "success" ]]; then
+              ready=false
+              echo "::notice::${workflow_name} is ${status}/${conclusion:-none} for ${SOURCE_SHA}; no tag will be created."
+            fi
+          done
+
+          echo "ready=${ready}" >> "${GITHUB_OUTPUT}"
+          if [[ "${ready}" != "true" ]]; then
+            echo "Release gates are not all completed successfully; exiting without a tag."
+          fi
+
+      - name: Checkout the gated source commit
+        if: steps.gates.outputs.ready == 'true'
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: ${{ github.sha }}
+          ref: ${{ env.SOURCE_SHA }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
 
       - name: Install uv
+        if: steps.gates.outputs.ready == 'true'
         uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
@@ -37,30 +116,34 @@ jobs:
           enable-cache: false
 
       - name: Verify source and detect a version change
+        if: steps.gates.outputs.ready == 'true'
         id: version
         shell: bash
-        env:
-          BEFORE_SHA: ${{ github.event.before }}
-          SOURCE_SHA: ${{ github.sha }}
         run: |
           set -euo pipefail
           git fetch --no-tags origin \
             "+refs/heads/master:refs/remotes/origin/master"
           HEAD_SHA=$(git rev-parse HEAD)
           if [[ "${HEAD_SHA}" != "${SOURCE_SHA}" ]]; then
-            echo "::error::Checked out ${HEAD_SHA}, expected pushed commit ${SOURCE_SHA}."
+            echo "::error::Checked out ${HEAD_SHA}, expected gated source ${SOURCE_SHA}."
             exit 1
           fi
           if ! git merge-base --is-ancestor "${SOURCE_SHA}" origin/master; then
-            echo "::error::Pushed commit ${SOURCE_SHA} is not on master."
-            exit 1
-          fi
-          if ! git cat-file -e "${BEFORE_SHA}:pyproject.toml"; then
-            echo "::error::Cannot read pyproject.toml from pre-push commit ${BEFORE_SHA}."
+            echo "::error::Gated source ${SOURCE_SHA} is not on master."
             exit 1
           fi
 
-          PREVIOUS_VERSION=$(git show "${BEFORE_SHA}:pyproject.toml" | python3 -c \
+          if ! PARENT_SHA=$(git rev-parse --verify "${SOURCE_SHA}^1"); then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "Source has no first parent; no automatic release tag is needed."
+            exit 0
+          fi
+          if ! git cat-file -e "${PARENT_SHA}:pyproject.toml"; then
+            echo "::error::Cannot read pyproject.toml from first parent ${PARENT_SHA}."
+            exit 1
+          fi
+
+          PREVIOUS_VERSION=$(git show "${PARENT_SHA}:pyproject.toml" | python3 -c \
             'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')
           VERSION=$(uv version --short)
           if [[ "${VERSION}" == "${PREVIOUS_VERSION}" ]]; then
@@ -107,27 +190,11 @@ jobs:
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
           echo "Detected version change ${PREVIOUS_VERSION} -> ${VERSION}."
 
-      - name: Build and validate release candidates before tagging
-        if: steps.version.outputs.changed == 'true'
-        shell: bash
-        run: |
-          set -euo pipefail
-          uv build --clear --no-sources --wheel --sdist
-          WHEEL_COUNT=$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)
-          SDIST_COUNT=$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)
-          if [[ "${WHEEL_COUNT}" -ne 1 || "${SDIST_COUNT}" -ne 1 ]]; then
-            echo "::error::Expected one wheel and one sdist, found ${WHEEL_COUNT} wheel(s) and ${SDIST_COUNT} sdist(s)."
-            exit 1
-          fi
-          uvx --from twine==6.2.0 twine check dist/*
-          sha256sum dist/*
-
       - name: Decide whether to create or reuse the tag
         if: steps.version.outputs.changed == 'true'
         id: tag
         shell: bash
         env:
-          SOURCE_SHA: ${{ github.sha }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
@@ -146,12 +213,21 @@ jobs:
             echo "create=true" >> "${GITHUB_OUTPUT}"
           fi
 
+      - name: Build and validate release candidates before tagging
+        if: steps.version.outputs.changed == 'true' && steps.tag.outputs.create == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build --clear --no-sources --wheel --sdist
+          uvx --from twine==6.2.0 twine check dist/*
+          make verify-artifacts DIST_DIR=dist
+          sha256sum dist/*
+
       - name: Create and push the tag
         if: steps.version.outputs.changed == 'true' && steps.tag.outputs.create == 'true'
         shell: bash
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          SOURCE_SHA: ${{ github.sha }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
@@ -165,7 +241,7 @@ jobs:
           git push origin "refs/tags/${TAG}"
           echo "Pushed ${TAG} at ${SOURCE_SHA}."
 
-      - name: Dispatch the publish workflow from the tag
+      - name: Dispatch the publish workflow exactly once
         if: steps.version.outputs.changed == 'true'
         shell: bash
         env:
@@ -173,8 +249,36 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
+
+          publish_run_count() {
+            gh api --method GET \
+              -H "Accept: application/vnd.github+json" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              "/repos/${GITHUB_REPOSITORY}/actions/workflows/publish.yml/runs" \
+              -f event=workflow_dispatch \
+              -f head_sha="${SOURCE_SHA}" \
+              -f per_page=100 \
+              --jq '.total_count'
+          }
+
+          if [[ "$(publish_run_count)" -gt 0 ]]; then
+            echo "Publish already has a workflow_dispatch run for ${TAG} at ${SOURCE_SHA}; skipping duplicate dispatch."
+            exit 0
+          fi
+
           gh workflow run publish.yml \
             --repo "${GITHUB_REPOSITORY}" \
             --ref "${TAG}" \
             -f release_tag="${TAG}"
-          echo "Dispatched publish.yml from ${TAG}."
+
+          for attempt in $(seq 1 10); do
+            if [[ "$(publish_run_count)" -gt 0 ]]; then
+              echo "Dispatched publish.yml from ${TAG}."
+              exit 0
+            fi
+            echo "Waiting for publish.yml dispatch to appear (${attempt}/10)."
+            sleep 2
+          done
+
+          echo "::error::publish.yml dispatch was not observable after 20 seconds."
+          exit 1
