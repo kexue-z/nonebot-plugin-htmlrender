@@ -27,11 +27,12 @@ def test_prepare_html_preserves_browser_document_and_extracts_native_css() -> No
     )
 
     assert "<style>" in prepared.html
-    assert "<style>" not in prepared.markup
-    assert prepared.stylesheets == (
+    assert [stylesheet.css for stylesheet in prepared.stylesheets] == [
         ".logo { background: url(https://cdn.example/logo.png) }",
         ".card { color: red }",
-    )
+    ]
+    assert prepared.stylesheets[0].embedded is False
+    assert prepared.stylesheets[1].embedded is True
     assert prepared.assets[0].source == "memory://icon"
     assert RenderRequirement.NETWORK in prepared.requirements
 
@@ -43,6 +44,14 @@ def test_prepare_html_detects_script_and_local_resources() -> None:
     assert prepared.requirements == frozenset(
         {RenderRequirement.JAVASCRIPT, RenderRequirement.LOCAL_RESOURCE}
     )
+
+
+def test_prepare_html_classifies_relative_resources_against_document_base() -> None:
+    prepared = prepare_html(
+        '<base href="https://cdn.example/assets/"><img src="avatar.png">'
+    )
+
+    assert prepared.requirements == frozenset({RenderRequirement.NETWORK})
 
 
 @pytest.mark.parametrize("ratio", [0.0, -1.0, math.nan, math.inf, -math.inf])
@@ -60,10 +69,11 @@ async def test_prepare_text_uses_shared_template_and_css(tmp_path: Path) -> None
 
     assert "&lt;hello&gt;" in prepared.html
     assert any(
-        ".text { color: rebeccapurple; }" in stylesheet
+        ".text { color: rebeccapurple; }" in stylesheet.css
         for stylesheet in prepared.stylesheets
     )
-    assert prepared.base_url == css.resolve().as_uri()
+    assert prepared.base_url is None
+    assert prepared.stylesheets[0].base_url == css.resolve().as_uri()
 
 
 @pytest.mark.anyio
@@ -78,7 +88,7 @@ async def test_prepare_markdown_reads_source_and_marks_math_as_javascript(
     assert "<h1>Title</h1>" in prepared.html
     assert "<script defer>" in prepared.html
     assert RenderRequirement.JAVASCRIPT in prepared.requirements
-    assert any(".katex" in stylesheet for stylesheet in prepared.stylesheets)
+    assert any(".katex" in stylesheet.css for stylesheet in prepared.stylesheets)
 
 
 @pytest.mark.anyio

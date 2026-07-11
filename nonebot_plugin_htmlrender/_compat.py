@@ -1,4 +1,4 @@
-# ruff: noqa: A002, FBT001, FBT002, PTH109
+# ruff: noqa: A002, FBT001, FBT002
 """Backward-compatible deprecated API surface.
 
 All deprecated top-level functions are defined here. Other modules
@@ -10,7 +10,6 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from importlib import import_module
-from os import getcwd
 from typing import TYPE_CHECKING, Any, Literal, cast
 from typing_extensions import deprecated
 
@@ -186,7 +185,6 @@ async def template_to_pic(
     """已弃用：将模板渲染为图片，请使用 ``render_template``。"""
     default_pages: TemplatePageKwargs = {
         "viewport": {"width": 500, "height": 10},
-        "base_url": f"file://{getcwd()}",
     }
     return await render_template(
         template_path,

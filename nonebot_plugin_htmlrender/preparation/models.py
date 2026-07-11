@@ -26,16 +26,25 @@ class PreparedAsset:
 
 
 @dataclass(frozen=True, slots=True)
+class PreparedStylesheet:
+    """One stylesheet with its own resource-resolution base."""
+
+    css: str
+    base_url: str | None = None
+    embedded: bool = False
+    media: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class PreparedHtml:
     """Canonical HTML payload shared by browser and native renderers.
 
-    ``html`` retains the original document for browser engines. ``markup`` removes
-    document-level style blocks for engines that accept CSS separately.
+    ``html`` always retains the original browser document. ``base_url`` is only a
+    resource-resolution base; browser navigation is configured independently.
     """
 
     html: str
-    markup: str
-    stylesheets: tuple[str, ...] = ()
+    stylesheets: tuple[PreparedStylesheet, ...] = ()
     base_url: str | None = None
     assets: tuple[PreparedAsset, ...] = ()
     requirements: frozenset[RenderRequirement] = field(default_factory=frozenset)
@@ -60,4 +69,10 @@ class RasterOptions:
             raise ValueError("quality must be between 0 and 100")
 
 
-__all__ = ("PreparedAsset", "PreparedHtml", "RasterOptions", "RenderRequirement")
+__all__ = (
+    "PreparedAsset",
+    "PreparedHtml",
+    "PreparedStylesheet",
+    "RasterOptions",
+    "RenderRequirement",
+)

@@ -1,30 +1,25 @@
 """Backend-neutral content preparation facade."""
 
-from .content import (
-    MARKDOWN_TEMPLATE_FILE,
-    MARKDOWN_TEMPLATES_PATH,
-    TEMPLATES_PATH,
-    TEXT_TEMPLATE_FILE,
-    TEXT_TEMPLATES_PATH,
-    prepare_markdown,
-    prepare_template,
-    prepare_text,
-)
+from .content import prepare_markdown, prepare_template, prepare_text
 from .html import prepare_html
-from .models import PreparedAsset, PreparedHtml, RasterOptions, RenderRequirement
+from .models import (
+    PreparedAsset,
+    PreparedHtml,
+    PreparedStylesheet,
+    RasterOptions,
+    RenderRequirement,
+)
+from .template_assets import stage_template_variables
 
 __all__ = (
-    "MARKDOWN_TEMPLATES_PATH",
-    "MARKDOWN_TEMPLATE_FILE",
-    "TEMPLATES_PATH",
-    "TEXT_TEMPLATES_PATH",
-    "TEXT_TEMPLATE_FILE",
     "PreparedAsset",
     "PreparedHtml",
+    "PreparedStylesheet",
     "RasterOptions",
     "RenderRequirement",
     "prepare_html",
     "prepare_markdown",
     "prepare_template",
     "prepare_text",
+    "stage_template_variables",
 )

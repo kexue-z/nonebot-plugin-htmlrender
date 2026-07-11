@@ -9,31 +9,41 @@ import anyio
 from anyio.to_thread import run_sync
 import markdown
 
-from nonebot_plugin_htmlrender.resources import FileCachePolicy, read_resource_text
+from nonebot_plugin_htmlrender.resources import (
+    PackageResourceSource,
+    read_resource_text,
+)
 from nonebot_plugin_htmlrender.resources.templating import (
     FilterCallable,
     render_template_html,
 )
 
 from .html import prepare_html
+from .materialize import materialize_local_assets
+from .models import PreparedStylesheet
+from .template_assets import stage_template_variables
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from .models import PreparedHtml
 
-TEMPLATES_PATH = Path(__file__).resolve().parents[1] / "templates"
-TEXT_TEMPLATES_PATH = TEMPLATES_PATH / "text"
-MARKDOWN_TEMPLATES_PATH = TEMPLATES_PATH / "markdown"
-TEXT_TEMPLATE_FILE = TEXT_TEMPLATES_PATH / "text.html"
-MARKDOWN_TEMPLATE_FILE = MARKDOWN_TEMPLATES_PATH / "markdown.html"
+BUILTIN_TEMPLATES = PackageResourceSource(
+    "nonebot_plugin_htmlrender",
+    "templates",
+)
+TEXT_TEMPLATES = PackageResourceSource(
+    "nonebot_plugin_htmlrender",
+    "templates/text",
+)
+MARKDOWN_TEMPLATES = PackageResourceSource(
+    "nonebot_plugin_htmlrender",
+    "templates/markdown",
+)
 
 
 async def _read_builtin(path: str) -> str:
-    return await read_resource_text(
-        TEMPLATES_PATH / path,
-        policy=FileCachePolicy.IMMUTABLE,
-    )
+    return await read_resource_text(BUILTIN_TEMPLATES.resource(path))
 
 
 async def _read_builtins(*paths: str) -> tuple[str, ...]:
@@ -67,15 +77,16 @@ async def prepare_text(
         else await _read_builtin("text/text.css")
     )
     html = await render_template_html(
-        TEXT_TEMPLATES_PATH,
-        TEXT_TEMPLATE_FILE.name,
-        {"text": text, "css": css},
+        TEXT_TEMPLATES,
+        "text.html",
+        {"text": text, "css": ""},
         immutable=True,
     )
-    base_url = (
-        await run_sync(_path_uri, css_path) if css_path else TEXT_TEMPLATE_FILE.as_uri()
+    stylesheet_base = await run_sync(_path_uri, css_path) if css_path else None
+    return prepare_html(
+        html,
+        stylesheets=(PreparedStylesheet(css=css, base_url=stylesheet_base),),
     )
-    return prepare_html(html, base_url=base_url)
 
 
 async def prepare_markdown(
@@ -83,6 +94,7 @@ async def prepare_markdown(
     *,
     markdown_path: str = "",
     css_path: str = "",
+    resource_strict: bool | None = None,
 ) -> PreparedHtml:
     if not markdown_text:
         if not markdown_path:
@@ -127,17 +139,21 @@ async def prepare_markdown(
         css = github_css + pygments_css
 
     html = await render_template_html(
-        MARKDOWN_TEMPLATES_PATH,
-        MARKDOWN_TEMPLATE_FILE.name,
-        {"md": rendered_markdown, "css": css, "extra": extra},
+        MARKDOWN_TEMPLATES,
+        "markdown.html",
+        {"md": rendered_markdown, "css": "", "extra": extra},
         immutable=True,
     )
-    base_url = (
-        await run_sync(_path_uri, css_path)
-        if css_path
-        else MARKDOWN_TEMPLATE_FILE.as_uri()
+    markup_base = await run_sync(_path_uri, markdown_path) if markdown_path else None
+    stylesheet_base = await run_sync(_path_uri, css_path) if css_path else None
+    prepared = prepare_html(
+        html,
+        base_url=markup_base,
+        stylesheets=(PreparedStylesheet(css=css, base_url=stylesheet_base),),
     )
-    return prepare_html(html, base_url=base_url)
+    if resource_strict is None:
+        return prepared
+    return await materialize_local_assets(prepared, strict=resource_strict)
 
 
 async def prepare_template(
@@ -147,21 +163,24 @@ async def prepare_template(
     *,
     filters: Mapping[str, FilterCallable] | None = None,
 ) -> PreparedHtml:
+    staged_variables, assets = await stage_template_variables(
+        variables,
+        template_base=template_path,
+    )
     html = await render_template_html(
         template_path,
         template_name,
-        variables,
+        staged_variables,
         filters=filters,
     )
-    return prepare_html(html, base_url=await run_sync(_directory_uri, template_path))
+    return prepare_html(
+        html,
+        base_url=await run_sync(_directory_uri, template_path),
+        assets=assets,
+    )
 
 
 __all__ = (
-    "MARKDOWN_TEMPLATES_PATH",
-    "MARKDOWN_TEMPLATE_FILE",
-    "TEMPLATES_PATH",
-    "TEXT_TEMPLATES_PATH",
-    "TEXT_TEMPLATE_FILE",
     "prepare_markdown",
     "prepare_template",
     "prepare_text",
