@@ -101,37 +101,7 @@ RULES: tuple[LayerRule, ...] = (
 
 # (module, imported target) -> planned removal note. Shrinks per phase;
 # stale entries fail the test so the ratchet only moves one way.
-_PLAYWRIGHT_MODELS = _absolute("backend.playwright.models")
-LEGACY_EDGES: dict[tuple[str, str], str] = {
-    (
-        _absolute("backend.takumi.operations"),
-        f"{_PLAYWRIGHT_MODELS}.HtmlRenderRequest",
-    ): "phase 4: neutral request DTOs",
-    (
-        _absolute("backend.takumi.operations"),
-        f"{_PLAYWRIGHT_MODELS}.TemplateConfig",
-    ): "phase 4: neutral request DTOs",
-    (
-        _absolute("backend.takumi.operations"),
-        f"{_PLAYWRIGHT_MODELS}.TemplateRenderRequest",
-    ): "phase 4: neutral request DTOs",
-    (
-        _absolute("backend.takumi.operations"),
-        f"{_PLAYWRIGHT_MODELS}.RenderConfig",
-    ): "phase 4: neutral request DTOs",
-    (
-        _absolute("backend.takumi.render"),
-        f"{_PLAYWRIGHT_MODELS}.HtmlRenderRequest",
-    ): "phase 4: neutral request DTOs",
-    (
-        _absolute("backend.takumi.render"),
-        f"{_PLAYWRIGHT_MODELS}.TemplateConfig",
-    ): "phase 4: neutral request DTOs",
-    (
-        _absolute("backend.takumi.render"),
-        f"{_PLAYWRIGHT_MODELS}.TemplateRenderRequest",
-    ): "phase 4: neutral request DTOs",
-}
+LEGACY_EDGES: dict[tuple[str, str], str] = {}
 
 
 @dataclass(frozen=True)

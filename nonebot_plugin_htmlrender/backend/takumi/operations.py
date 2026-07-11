@@ -2,13 +2,8 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 import math
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
-from nonebot_plugin_htmlrender.backend.playwright.models import (
-    HtmlRenderRequest,
-    TemplateConfig,
-    TemplateRenderRequest,
-)
 from nonebot_plugin_htmlrender.preparation import (
     PreparedHtml,
     RasterOptions,
@@ -26,12 +21,114 @@ from .runtime import TakumiRuntimeState, render_defaults
 from .source import materialize_takumi_document
 
 if TYPE_CHECKING:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (
-        RenderConfig,
-    )
+    from pathlib import Path
+
     from nonebot_plugin_htmlrender.resources.templating import FilterCallable
 
     from .types import StaticImageFormat, TakumiImageInput
+
+
+class ViewportLike(Protocol):
+    """Viewport shape of browser-era render requests."""
+
+    @property
+    def width(self) -> int: ...
+
+    @property
+    def height(self) -> int: ...
+
+
+class PageConfigLike(Protocol):
+    """Page shape of browser-era render requests."""
+
+    @property
+    def viewport(self) -> ViewportLike: ...
+
+    @property
+    def document_url(self) -> str | None: ...
+
+    @property
+    def user_agent(self) -> str | None: ...
+
+    @property
+    def extra_http_headers(self) -> Mapping[str, str] | None: ...
+
+
+class ScreenshotConfigLike(Protocol):
+    """Screenshot shape of browser-era render requests."""
+
+    @property
+    def format(self) -> str: ...
+
+    @property
+    def device_scale_factor(self) -> float: ...
+
+    @property
+    def full_page(self) -> bool: ...
+
+    @property
+    def wait_before_screenshot(self) -> int: ...
+
+
+class RenderConfigLike(Protocol):
+    """Structural stand-in for browser-shaped render configuration.
+
+    Takumi never imports the Playwright request models; legacy requests are
+    accepted structurally until the shared browser-shaped contracts are
+    deleted with the 0.8 breaking cleanup.
+    """
+
+    @property
+    def page(self) -> PageConfigLike: ...
+
+    @property
+    def screenshot(self) -> ScreenshotConfigLike: ...
+
+
+class ContentConfigLike(Protocol):
+    """Content shape of browser-era html render requests."""
+
+    @property
+    def html(self) -> str: ...
+
+    @property
+    def additional_wait(self) -> int: ...
+
+
+class HtmlRenderRequestLike(Protocol):
+    """Structural stand-in for the browser-shaped html render request."""
+
+    @property
+    def content(self) -> ContentConfigLike: ...
+
+    @property
+    def render(self) -> RenderConfigLike: ...
+
+
+class TemplateConfigLike(Protocol):
+    """Structural stand-in for the browser-shaped template configuration."""
+
+    @property
+    def template_path(self) -> str | Path: ...
+
+    @property
+    def template_name(self) -> str: ...
+
+    @property
+    def template_vars(self) -> Mapping[str, object]: ...
+
+    @property
+    def custom_filters(self) -> Mapping[str, FilterCallable] | None: ...
+
+
+class TemplateRenderRequestLike(Protocol):
+    """Structural stand-in for the browser-shaped template render request."""
+
+    @property
+    def template(self) -> TemplateConfigLike: ...
+
+    @property
+    def render(self) -> RenderConfigLike: ...
 
 
 def device_dimension(value: int | None, device_pixel_ratio: float) -> int | None:
@@ -96,7 +193,7 @@ def _reject_browser_page_options(options: Mapping[str, object]) -> None:
 
 
 def _render_config_spec(
-    render: RenderConfig,
+    render: RenderConfigLike,
 ) -> tuple[int, int | None, float, StaticImageFormat, int | None]:
     page = render.page
     screenshot = render.screenshot
@@ -201,7 +298,7 @@ async def rasterize_html(
 
 async def render_html(
     state: TakumiRuntimeState,
-    request: HtmlRenderRequest | str,
+    request: HtmlRenderRequestLike | str,
     *,
     wait: int = 0,
     template_path: str | None = None,
@@ -212,50 +309,50 @@ async def render_html(
     full_page: bool = True,
     **page_options: object,
 ) -> bytes:
-    if isinstance(request, HtmlRenderRequest):
-        _reject_wait(request.content.additional_wait)
-        width, height, ratio, image_format, request_quality = _render_config_spec(
-            request.render
+    if isinstance(request, str):
+        _reject_wait(wait)
+        viewport = page_options.pop("viewport", None)
+        width, viewport_height = _viewport_dimensions(
+            viewport,
+            default_width=800,
+            default_height=600,
         )
-        prepared = prepare_html(request.content.html)
+        _reject_browser_page_options(
+            {
+                **page_options,
+                "template_path": template_path,
+                "screenshot_timeout": screenshot_timeout,
+            }
+        )
+        prepared = prepare_html(request, base_url=template_path)
         return await render_prepared_html(
             state,
             prepared,
             width=width,
-            height=height,
-            image_format=image_format,
-            quality=request_quality,
-            device_pixel_ratio=ratio,
+            height=None if full_page else viewport_height,
+            image_format=image_type,
+            quality=quality,
+            device_pixel_ratio=device_scale_factor,
         )
 
-    _reject_wait(wait)
-    viewport = page_options.pop("viewport", None)
-    width, viewport_height = _viewport_dimensions(
-        viewport,
-        default_width=800,
-        default_height=600,
+    _reject_wait(request.content.additional_wait)
+    width, height, ratio, image_format, request_quality = _render_config_spec(
+        request.render
     )
-    _reject_browser_page_options(
-        {
-            **page_options,
-            "template_path": template_path,
-            "screenshot_timeout": screenshot_timeout,
-        }
-    )
-    prepared = prepare_html(request, base_url=template_path)
+    prepared = prepare_html(request.content.html)
     return await render_prepared_html(
         state,
         prepared,
         width=width,
-        height=None if full_page else viewport_height,
-        image_format=image_type,
-        quality=quality,
-        device_pixel_ratio=device_scale_factor,
+        height=height,
+        image_format=image_format,
+        quality=request_quality,
+        device_pixel_ratio=ratio,
     )
 
 
 def _spec_from_optional_render(
-    render: RenderConfig | None,
+    render: RenderConfigLike | None,
     *,
     width: int,
     image_type: Literal["jpeg", "png"],
@@ -277,7 +374,7 @@ async def render_text(
     quality: int | None = None,
     device_scale_factor: float = 2.0,
     screenshot_timeout: float | None = 30_000,
-    render: RenderConfig | None = None,
+    render: RenderConfigLike | None = None,
 ) -> bytes:
     del screenshot_timeout
     prepared = await prepare_text(text, css_path=css_path)
@@ -314,7 +411,7 @@ async def render_markdown(
     device_scale_factor: float = 2.0,
     screenshot_timeout: float | None = 30_000,
     resource_strict: bool = True,
-    render: RenderConfig | None = None,
+    render: RenderConfigLike | None = None,
 ) -> bytes:
     del screenshot_timeout
     source = md or markdown_text
@@ -345,24 +442,24 @@ async def render_markdown(
 
 
 async def _prepare_template_config(
-    template: TemplateConfig | str,
+    template: TemplateConfigLike | str,
     *,
     template_name: str | None,
     filters: Mapping[str, Any] | None,
     variables: Mapping[str, object],
 ) -> PreparedHtml:
-    if isinstance(template, TemplateConfig):
+    if isinstance(template, str):
+        if template_name is None:
+            raise ValueError("template_name is required when template is a path string")
+        template_path: str | Path = template
+        resolved_name = template_name
+        resolved_filters = filters
+        resolved_variables = dict(variables)
+    else:
         template_path = template.template_path
         resolved_name = template.template_name
         resolved_filters = template.custom_filters or filters
         resolved_variables = {**template.template_vars, **variables}
-    else:
-        if template_name is None:
-            raise ValueError("template_name is required when template is a path string")
-        template_path = template
-        resolved_name = template_name
-        resolved_filters = filters
-        resolved_variables = dict(variables)
 
     return await prepare_template(
         template_path,
@@ -373,24 +470,24 @@ async def _prepare_template_config(
 
 
 async def render_template_html(
-    template: TemplateConfig | str,
+    template: TemplateConfigLike | str,
     *,
     template_name: str | None = None,
     filters: Mapping[str, Any] | None = None,
     **variables: object,
 ) -> str:
-    if isinstance(template, TemplateConfig):
+    if isinstance(template, str):
+        if template_name is None:
+            raise ValueError("template_name is required when template is a path string")
+        template_path: str | Path = template
+        resolved_name = template_name
+        resolved_filters = filters
+        resolved_variables: Mapping[str, object] = variables
+    else:
         template_path = template.template_path
         resolved_name = template.template_name
         resolved_filters = template.custom_filters or filters
         resolved_variables = {**template.template_vars, **variables}
-    else:
-        if template_name is None:
-            raise ValueError("template_name is required when template is a path string")
-        template_path = template
-        resolved_name = template_name
-        resolved_filters = filters
-        resolved_variables = variables
 
     return await render_jinja_template_html(
         template_path,
@@ -402,7 +499,7 @@ async def render_template_html(
 
 async def render_template(
     state: TakumiRuntimeState,
-    request: TemplateRenderRequest | str,
+    request: TemplateRenderRequestLike | str,
     *,
     template_name: str | None = None,
     templates: dict[str, Any] | None = None,
@@ -425,17 +522,7 @@ async def render_template(
             "Use TakumiExtension with explicit image bytes instead."
         )
 
-    if isinstance(request, TemplateRenderRequest):
-        prepared = await _prepare_template_config(
-            request.template,
-            template_name=None,
-            filters=None,
-            variables={},
-        )
-        width, height, ratio, image_format, render_quality = _render_config_spec(
-            request.render
-        )
-    else:
+    if isinstance(request, str):
         prepared = await _prepare_template_config(
             request,
             template_name=template_name,
@@ -451,9 +538,19 @@ async def render_template(
         )
         _reject_browser_page_options(page_options)
         height = None
-        ratio = device_scale_factor
-        image_format = image_type
+        ratio: float = device_scale_factor
+        image_format: StaticImageFormat = image_type
         render_quality = quality
+    else:
+        prepared = await _prepare_template_config(
+            request.template,
+            template_name=None,
+            filters=None,
+            variables={},
+        )
+        width, height, ratio, image_format, render_quality = _render_config_spec(
+            request.render
+        )
 
     return await render_prepared_html(
         state,

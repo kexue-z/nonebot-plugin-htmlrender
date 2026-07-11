@@ -29,12 +29,13 @@ from .runtime import (
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from nonebot_plugin_htmlrender.backend.playwright.models import (
-        HtmlRenderRequest,
-        TemplateConfig,
-        TemplateRenderRequest,
-    )
     from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
+
+    from .operations import (
+        HtmlRenderRequestLike,
+        TemplateConfigLike,
+        TemplateRenderRequestLike,
+    )
 
 ExtensionT = TypeVar("ExtensionT")
 _SUPPORTED_TAKUMI_VERSION = "0.2.0"
@@ -145,7 +146,7 @@ class TakumiBackend:
     async def render_html(
         self,
         session: RenderSession,
-        request: HtmlRenderRequest | str,
+        request: HtmlRenderRequestLike | str,
         **kwargs: Any,
     ) -> bytes:
         async with track_render("takumi.render_html", backend=self.backend):
@@ -179,7 +180,7 @@ class TakumiBackend:
     async def render_template(
         self,
         session: RenderSession,
-        request: TemplateRenderRequest | str,
+        request: TemplateRenderRequestLike | str,
         **kwargs: Any,
     ) -> bytes:
         async with track_render("takumi.render_template", backend=self.backend):
@@ -188,7 +189,7 @@ class TakumiBackend:
 
     async def render_template_html(
         self,
-        template: TemplateConfig | str,
+        template: TemplateConfigLike | str,
         **kwargs: Any,
     ) -> str:
         async with track_render("takumi.render_template_html", backend=self.backend):
