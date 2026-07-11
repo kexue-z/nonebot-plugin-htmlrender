@@ -1,3 +1,12 @@
+from .api import (
+    TAKUMI_EXTENSION as TAKUMI_EXTENSION,
+)
+from .api import (
+    TakumiCompiledDocument as TakumiCompiledDocument,
+)
+from .api import (
+    TakumiExtension as TakumiExtension,
+)
 from .config import (
     TakumiConfig as TakumiConfig,
 )
@@ -21,8 +30,11 @@ from .types import (
 )
 
 __all__ = [
+    "TAKUMI_EXTENSION",
     "TakumiBackendError",
+    "TakumiCompiledDocument",
     "TakumiConfig",
+    "TakumiExtension",
     "TakumiFontConfig",
     "TakumiImageResource",
     "TakumiResourceError",

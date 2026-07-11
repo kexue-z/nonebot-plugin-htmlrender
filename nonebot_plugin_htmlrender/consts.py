@@ -45,6 +45,7 @@ class RenderBackend(StrEnum):
     PLAYWRIGHT = "playwright"
     PILLOW = "pillow"
     HTMLKIT = "htmlkit"
+    TAKUMI = "takumi"
 
 
 class RenderStartupMode(StrEnum):
