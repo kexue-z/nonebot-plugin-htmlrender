@@ -9,6 +9,7 @@ from .models import (
     RasterOptions,
     RenderRequirement,
 )
+from .resolve import resolve_html_resources
 from .template_assets import stage_template_variables
 
 __all__ = (
@@ -21,5 +22,6 @@ __all__ = (
     "prepare_markdown",
     "prepare_template",
     "prepare_text",
+    "resolve_html_resources",
     "stage_template_variables",
 )

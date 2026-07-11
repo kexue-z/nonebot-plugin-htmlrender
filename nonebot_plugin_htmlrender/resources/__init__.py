@@ -48,9 +48,6 @@ from .source import (
     PackageResourceSource as PackageResourceSource,
 )
 from .template import (
-    resolve_html_resources as resolve_html_resources,
-)
-from .template import (
     resolve_template_vars as resolve_template_vars,
 )
 from .template import (
@@ -72,7 +69,6 @@ __all__ = [
     "is_remote_playwright_mode",
     "read_resource_bytes",
     "read_resource_text",
-    "resolve_html_resources",
     "resolve_template_vars",
     "to_resource_url",
 ]

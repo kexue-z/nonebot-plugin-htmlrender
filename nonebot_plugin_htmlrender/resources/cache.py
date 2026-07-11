@@ -13,13 +13,14 @@ from typing import TYPE_CHECKING
 import anyio
 from anyio.to_thread import run_sync
 
-from nonebot_plugin_htmlrender.config import plugin_config
-
 from .budget import ResourceCacheBudget
+from .config import get_resource_cache_settings
+from .observation import get_cache_observer
 
 if TYPE_CHECKING:
     from os import stat_result
 
+    from .observation import CacheObserver
     from .source import PackageResource
 
 
@@ -128,15 +129,18 @@ class FileResourceCache:
         max_bytes: int,
         revalidate_seconds: float,
         budget: ResourceCacheBudget | None = None,
+        observer: CacheObserver | None = None,
     ) -> None:
         if max_entries < 0 or max_bytes < 0 or revalidate_seconds < 0:
             raise ValueError("Resource cache limits must not be negative")
         self.max_entries = max_entries
         self.max_bytes = max_bytes
         self.revalidate_seconds = revalidate_seconds
+        # An explicitly provided budget keeps its own observer.
         self._budget = budget or ResourceCacheBudget(
             max_entries=max_entries,
             max_bytes=max_bytes,
+            observer=observer if observer is not None else get_cache_observer(),
         )
         if (
             self._budget.max_entries != max_entries
@@ -470,10 +474,11 @@ _state = _ResourceCacheState()
 
 
 def get_resource_cache() -> FileResourceCache:
+    settings = get_resource_cache_settings()
     config = (
-        plugin_config.render_resource_cache_max_entries,
-        plugin_config.render_resource_cache_max_bytes,
-        plugin_config.render_resource_cache_revalidate_seconds,
+        settings.max_entries,
+        settings.max_bytes,
+        settings.revalidate_seconds,
     )
     if _state.cache is None or _state.config != config:
         _state.cache = FileResourceCache(

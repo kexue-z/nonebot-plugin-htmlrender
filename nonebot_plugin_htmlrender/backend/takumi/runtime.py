@@ -17,6 +17,7 @@ from nonebot_plugin_htmlrender.resources.weighted_cache import (
     SyncWeightedSingleflightLRU,
     WeightedCacheStats,
 )
+from nonebot_plugin_htmlrender.utils.telemetry import TelemetryCacheObserver
 
 from .errors import TakumiInputError, TakumiRuntimeError
 from .source import normalize_image_input
@@ -269,7 +270,8 @@ class TakumiRuntimeState:
         self._compiled = SyncWeightedSingleflightLRU(
             max_entries=self.config.compiled_cache_max_entries,
             max_weight=self.config.compiled_cache_max_bytes,
-            telemetry_name="takumi_compiled",
+            observer=TelemetryCacheObserver(),
+            cache_name="takumi_compiled",
         )
         self._drained.set()
 

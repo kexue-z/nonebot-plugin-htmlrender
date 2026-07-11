@@ -16,9 +16,8 @@ from typing import TYPE_CHECKING
 import anyio
 from anyio.to_thread import run_sync
 
-from nonebot_plugin_htmlrender.config import plugin_config
-
 from .budget import ResourceCacheBudget
+from .config import get_resource_cache_settings
 
 if TYPE_CHECKING:
     from importlib.abc import Traversable
@@ -272,9 +271,10 @@ _PACKAGE_CACHE_STATE = _PackageCacheState()
 def get_package_resource_cache() -> PackageResourceCache:
     from .cache import get_resource_cache  # noqa: PLC0415
 
+    settings = get_resource_cache_settings()
     config = (
-        plugin_config.render_resource_cache_max_entries,
-        plugin_config.render_resource_cache_max_bytes,
+        settings.max_entries,
+        settings.max_bytes,
     )
     budget = get_resource_cache()._budget
     if (

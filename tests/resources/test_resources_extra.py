@@ -110,22 +110,24 @@ async def test_resolve_html_resources_and_should_resolve_short_circuit(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    mocker.patch.object(_template_mod, "_should_resolve", return_value=False)
-    html = '<img src="./x.png">'
-    assert await resources.resolve_html_resources(html, template_base=tmp_path) == html
+    from nonebot_plugin_htmlrender.preparation import (  # noqa: PLC0415
+        resolve as resolve_mod,
+    )
 
-    mocker.patch.object(_template_mod, "_should_resolve", return_value=True)
-    mocker.patch.object(
-        _template_mod,
-        "_resolve_html_attr_resources",
-        new=mocker.AsyncMock(return_value="a"),
+    mocker.patch.object(resolve_mod, "should_resolve_resources", return_value=False)
+    html = '<img src="./x.png">'
+    assert await resolve_mod.resolve_html_resources(html, template_base=tmp_path) == (
+        html
     )
+
+    mocker.patch.object(resolve_mod, "should_resolve_resources", return_value=True)
     mocker.patch.object(
-        _template_mod,
-        "_resolve_css_url_resources",
-        new=mocker.AsyncMock(return_value="b"),
+        resolve_mod,
+        "resolve_url_tokens",
+        new=mocker.AsyncMock(return_value=["./resolved.png"]),
     )
-    assert await resources.resolve_html_resources(html, template_base=tmp_path) == "b"
+    rewritten = await resolve_mod.resolve_html_resources(html, template_base=tmp_path)
+    assert rewritten == '<img src="./resolved.png">'
 
 
 def test_resource_helpers_path_and_policy_branches(

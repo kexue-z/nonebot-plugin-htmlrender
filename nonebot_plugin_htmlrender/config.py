@@ -9,6 +9,14 @@ import nonebot_plugin_localstore as store
 from pydantic import BaseModel, Field
 
 from nonebot_plugin_htmlrender.consts import RenderBackend, RenderStartupMode
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceCacheSettings,
+    register_resource_cache_settings_provider,
+)
+from nonebot_plugin_htmlrender.resources.observation import (
+    register_cache_observer_provider,
+)
+from nonebot_plugin_htmlrender.utils.telemetry import TelemetryCacheObserver
 
 plugin_cache_dir: Path = store.get_plugin_cache_dir()
 plugin_config_dir: Path = store.get_plugin_config_dir()
@@ -63,3 +71,18 @@ class Config(BaseModel):
 
 
 plugin_config = get_plugin_config(Config)
+
+
+def _plugin_resource_cache_settings() -> ResourceCacheSettings:
+    return ResourceCacheSettings(
+        max_entries=plugin_config.render_resource_cache_max_entries,
+        max_bytes=plugin_config.render_resource_cache_max_bytes,
+        revalidate_seconds=plugin_config.render_resource_cache_revalidate_seconds,
+        template_environment_max_entries=(
+            plugin_config.render_template_environment_cache_max_entries
+        ),
+    )
+
+
+register_resource_cache_settings_provider(_plugin_resource_cache_settings)
+register_cache_observer_provider(TelemetryCacheObserver)

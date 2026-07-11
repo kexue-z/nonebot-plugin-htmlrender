@@ -8,10 +8,12 @@ from dataclasses import dataclass
 import threading
 from typing import TYPE_CHECKING, Hashable, Protocol, TypeVar
 
-from nonebot_plugin_htmlrender.utils.telemetry import record_cache_metrics
+from .observation import NoopCacheObserver, record_cache_observation
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
+
+    from .observation import CacheObserver
 
 K = TypeVar("K", bound=Hashable, contravariant=True)
 
@@ -44,11 +46,20 @@ class _BudgetEntry:
 class ResourceCacheBudget:
     """One process-local LRU budget shared by every resource source."""
 
-    def __init__(self, *, max_entries: int, max_bytes: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_entries: int,
+        max_bytes: int,
+        observer: CacheObserver | None = None,
+    ) -> None:
         if max_entries < 0 or max_bytes < 0:
             raise ValueError("Resource cache limits must not be negative")
         self.max_entries = max_entries
         self.max_bytes = max_bytes
+        self._observer: CacheObserver = (
+            observer if observer is not None else NoopCacheObserver()
+        )
         self._entries: OrderedDict[tuple[int, Hashable], _BudgetEntry] = OrderedDict()
         self._participants: dict[int, Callable[[], None]] = {}
         self._lock = threading.RLock()
@@ -185,7 +196,9 @@ class ResourceCacheBudget:
             self._reported_evictions = self._evictions
             entries = len(self._entries)
             resident_bytes = self._resident_bytes
-        record_cache_metrics("resource", events, entries, resident_bytes)
+        record_cache_observation(
+            self._observer, "resource", events, entries, resident_bytes
+        )
 
 
 __all__ = ["CacheBudgetStats", "ResourceCacheBudget"]

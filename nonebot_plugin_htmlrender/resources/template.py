@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from html import unescape
 from typing import TYPE_CHECKING, Any, cast
 
 import anyio
@@ -171,52 +170,27 @@ async def _resolve_any(
     return value
 
 
-async def _resolve_html_attr_resources(
-    html: str,
+def should_resolve_resources(resolver: ResourceResolver | str | None) -> bool:
+    """Whether resource resolution is enabled for this resolver selection."""
+    return _should_resolve(resolver)
+
+
+async def resolve_url_tokens(
+    values: Sequence[str],
     *,
-    template_base: Path | None,
-    strict: bool,
-    resolver: ResourceResolver | str | None,
+    template_base: str | Path | None = None,
+    strict: bool = False,
+    resolver: ResourceResolver | str | None = None,
     lease_id: str | None = None,
-) -> str:
-    """Resolve real HTML/CSS resource tokens without scanning comments/scripts."""
-
-    from nonebot_plugin_htmlrender.preparation.references import (  # noqa: PLC0415
-        inspect_html_references,
-        rewrite_html_references,
-    )
-
-    references = tuple(dict.fromkeys(inspect_html_references(html).references))
-    resolved_values = await _resolve_url_tokens_many(
-        references,
-        template_base=template_base,
+) -> list[str]:
+    """Resolve URL-shaped tokens (HTML/CSS references) concurrently."""
+    return await _resolve_url_tokens_many(
+        values,
+        template_base=_normalize_template_base(template_base),
         strict=strict,
         resolver=resolver,
         lease_id=lease_id,
     )
-    replacements = dict(zip(references, resolved_values, strict=True))
-
-    def rewrite(reference: str) -> str | None:
-        replacement = replacements.get(reference)
-        if replacement is not None:
-            return replacement
-        return replacements.get(unescape(reference))
-
-    return rewrite_html_references(html, rewrite)
-
-
-async def _resolve_css_url_resources(
-    html: str,
-    *,
-    template_base: Path | None,
-    strict: bool,
-    resolver: ResourceResolver | str | None,
-    lease_id: str | None = None,
-) -> str:
-    """Compatibility stage; CSS tokens are resolved with their owning HTML token."""
-
-    del template_base, strict, resolver, lease_id
-    return html
 
 
 async def resolve_template_vars(
@@ -242,35 +216,6 @@ async def resolve_template_vars(
     if not isinstance(resolved, dict):
         raise ResourceResolveError("Resolved template vars must remain a dictionary.")
     return cast("dict[str, Any]", resolved)
-
-
-async def resolve_html_resources(
-    html: str,
-    *,
-    template_base: str | Path | None = None,
-    strict: bool = False,
-    resolver: ResourceResolver | str | None = None,
-    lease_id: str | None = None,
-) -> str:
-    """解析 HTML 内容中的所有资源引用。"""
-    if not _should_resolve(resolver):
-        return html
-
-    base_path = _normalize_template_base(template_base)
-    rewritten = await _resolve_html_attr_resources(
-        html,
-        template_base=base_path,
-        strict=strict,
-        resolver=resolver,
-        lease_id=lease_id,
-    )
-    return await _resolve_css_url_resources(
-        rewritten,
-        template_base=base_path,
-        strict=strict,
-        resolver=resolver,
-        lease_id=lease_id,
-    )
 
 
 async def to_resource_url(

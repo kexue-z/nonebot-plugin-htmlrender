@@ -13,7 +13,6 @@ from nonebot_plugin_htmlrender.resources import (
     PackageResourceSource,
     read_resource_text,
 )
-from nonebot_plugin_htmlrender.resources import budget as budget_module
 from nonebot_plugin_htmlrender.resources.budget import ResourceCacheBudget
 from nonebot_plugin_htmlrender.resources.cache import (
     FileResourceCache,
@@ -28,14 +27,17 @@ from nonebot_plugin_htmlrender.resources.source import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from pytest_mock import MockerFixture
+    from tests.resources.conftest import FailingCacheObserver, RecordingCacheObserver
 
 
 def test_resource_budget_exports_atomic_event_deltas(
-    mocker: MockerFixture,
+    recording_observer: RecordingCacheObserver,
 ) -> None:
-    export = mocker.patch.object(budget_module, "record_cache_metrics")
-    budget = ResourceCacheBudget(max_entries=4, max_bytes=32)
+    budget = ResourceCacheBudget(
+        max_entries=4,
+        max_bytes=32,
+        observer=recording_observer,
+    )
     budget.record_hit()
     budget.record_miss()
     budget.record_load()
@@ -44,20 +46,35 @@ def test_resource_budget_exports_atomic_event_deltas(
     budget.export_metrics()
     budget.export_metrics()
 
-    assert export.call_args_list == [
-        mocker.call(
+    assert recording_observer.calls == [
+        (
             "resource",
             {"hit": 1, "miss": 1, "load": 1, "wait": 1, "eviction": 0},
             0,
             0,
         ),
-        mocker.call(
+        (
             "resource",
             {"hit": 0, "miss": 0, "load": 0, "wait": 0, "eviction": 0},
             0,
             0,
         ),
     ]
+
+
+def test_resource_budget_survives_failing_observer(
+    failing_observer: FailingCacheObserver,
+) -> None:
+    budget = ResourceCacheBudget(
+        max_entries=4,
+        max_bytes=32,
+        observer=failing_observer,
+    )
+    budget.record_hit()
+
+    budget.export_metrics()
+
+    assert budget.stats().hits == 1
 
 
 def test_resource_sources_use_stable_identities_and_reject_traversal(

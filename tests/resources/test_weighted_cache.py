@@ -7,13 +7,12 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from nonebot_plugin_htmlrender.resources import weighted_cache
 from nonebot_plugin_htmlrender.resources.weighted_cache import (
     SyncWeightedSingleflightLRU,
 )
 
 if TYPE_CHECKING:
-    from pytest_mock import MockerFixture
+    from tests.resources.conftest import FailingCacheObserver, RecordingCacheObserver
 
 
 def test_weighted_cache_enforces_entry_and_weight_limits() -> None:
@@ -106,22 +105,37 @@ def test_weighted_cache_broadcasts_factory_errors() -> None:
 
 
 def test_weighted_cache_exports_event_deltas_and_state(
-    mocker: MockerFixture,
+    recording_observer: RecordingCacheObserver,
 ) -> None:
-    export = mocker.patch.object(weighted_cache, "record_cache_metrics")
     cache = SyncWeightedSingleflightLRU[str, str](
         max_entries=1,
         max_weight=8,
-        telemetry_name="takumi_compiled",
+        observer=recording_observer,
+        cache_name="takumi_compiled",
     )
 
     cache.get_or_insert("a", weight=3, factory=lambda: "A")
     cache.get_or_insert("a", weight=3, factory=lambda: "unused")
     cache.get_or_insert("b", weight=4, factory=lambda: "B")
 
-    assert export.call_args_list[-1] == mocker.call(
+    assert recording_observer.calls[-1] == (
         "takumi_compiled",
         {"hit": 0, "miss": 1, "load": 1, "wait": 0, "eviction": 1},
         1,
         4,
     )
+
+
+def test_weighted_cache_survives_failing_observer(
+    failing_observer: FailingCacheObserver,
+) -> None:
+    cache = SyncWeightedSingleflightLRU[str, str](
+        max_entries=4,
+        max_weight=64,
+        observer=failing_observer,
+        cache_name="takumi_compiled",
+    )
+
+    assert cache.get_or_insert("a", weight=3, factory=lambda: "A") == "A"
+    assert cache.get_or_insert("a", weight=3, factory=lambda: "unused") == "A"
+    assert cache.stats().hits == 1

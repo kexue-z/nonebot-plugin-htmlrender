@@ -14,9 +14,8 @@ from anyio.to_thread import run_sync
 import jinja2
 from jinja2.ext import Extension
 
-from nonebot_plugin_htmlrender.config import plugin_config
-from nonebot_plugin_htmlrender.utils.telemetry import record_cache_metrics
-
+from .config import get_resource_cache_settings
+from .observation import get_cache_observer, record_cache_observation
 from .source import FilesystemResourceSource, PackageResourceSource
 
 if TYPE_CHECKING:
@@ -80,20 +79,23 @@ class _CacheCounters:
     evictions: int = 0
 
 
-_DEFAULT_MAX_ENTRIES = 64
 _CACHE_LOCK = threading.RLock()
 _ENVIRONMENT_CACHE: OrderedDict[_EnvironmentKey, _EnvironmentEntry] = OrderedDict()
 _CACHE_COUNTERS = _CacheCounters()
 
 
 def _get_cache_max_entries() -> int:
-    """读取环境缓存上限，并兼容配置字段尚未注册的导入阶段。"""
-    configured = getattr(
-        plugin_config,
-        "render_template_environment_cache_max_entries",
-        _DEFAULT_MAX_ENTRIES,
+    """读取环境缓存上限。"""
+    return max(0, int(get_resource_cache_settings().template_environment_max_entries))
+
+
+def _record_cache(events: Mapping[str, int], entries: int) -> None:
+    record_cache_observation(
+        get_cache_observer(),
+        "template_environment",
+        events,
+        entries,
     )
-    return max(0, int(configured))
 
 
 def _normalize_source(
@@ -212,7 +214,7 @@ def _get_environment_entry(
                 evictions += _enforce_cache_limit_locked(max_entries)
             events = {"miss": 1, "eviction": evictions}
         entries = len(_ENVIRONMENT_CACHE)
-    record_cache_metrics("template_environment", events, entries)
+    _record_cache(events, entries)
     return entry
 
 
@@ -273,7 +275,7 @@ def clear_template_environment_cache() -> None:
         _CACHE_COUNTERS.hits = 0
         _CACHE_COUNTERS.misses = 0
         _CACHE_COUNTERS.evictions = 0
-    record_cache_metrics("template_environment", {}, 0)
+    _record_cache({}, 0)
 
 
 def invalidate_template_environment_cache(template_path: TemplateSource) -> int:
@@ -285,7 +287,7 @@ def invalidate_template_environment_cache(template_path: TemplateSource) -> int:
         for key in keys:
             del _ENVIRONMENT_CACHE[key]
         entries = len(_ENVIRONMENT_CACHE)
-    record_cache_metrics("template_environment", {}, entries)
+    _record_cache({}, entries)
     return len(keys)
 
 

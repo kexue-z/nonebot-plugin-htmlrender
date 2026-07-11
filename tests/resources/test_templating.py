@@ -15,6 +15,8 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
+    from tests.resources.conftest import RecordingCacheObserver
+
 
 @pytest.fixture(autouse=True)
 def _clear_environment_cache() -> Iterator[None]:
@@ -303,10 +305,9 @@ def test_clear_cache_resets_entries_and_statistics(
 
 
 def test_template_cache_exports_hit_miss_and_current_entries(
-    mocker: MockerFixture,
+    cache_observer: RecordingCacheObserver,
     tmp_path: Path,
 ) -> None:
-    export = mocker.patch.object(templating, "record_cache_metrics")
     root = tmp_path / "templates"
     _write_template(root, "unused")
 
@@ -323,7 +324,7 @@ def test_template_cache_exports_hit_miss_and_current_entries(
         filters=(),
     )
 
-    assert export.call_args_list == [
-        mocker.call("template_environment", {"miss": 1, "eviction": 0}, 1),
-        mocker.call("template_environment", {"hit": 1, "eviction": 0}, 1),
+    assert cache_observer.calls[-2:] == [
+        ("template_environment", {"miss": 1, "eviction": 0}, 1, None),
+        ("template_environment", {"hit": 1, "eviction": 0}, 1, None),
     ]

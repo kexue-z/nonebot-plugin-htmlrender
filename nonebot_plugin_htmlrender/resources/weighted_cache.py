@@ -7,10 +7,12 @@ from dataclasses import dataclass
 import threading
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
-from nonebot_plugin_htmlrender.utils.telemetry import record_cache_metrics
+from .observation import record_cache_observation
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from .observation import CacheObserver
 
 K = TypeVar("K")
 V = TypeVar("V")
@@ -49,7 +51,8 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
         *,
         max_entries: int,
         max_weight: int,
-        telemetry_name: str | None = None,
+        observer: CacheObserver | None = None,
+        cache_name: str | None = None,
     ) -> None:
         if max_entries < 0 or max_weight < 0:
             raise ValueError("Weighted cache limits must not be negative")
@@ -64,7 +67,8 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
         self._loads = 0
         self._waits = 0
         self._evictions = 0
-        self._telemetry_name = telemetry_name
+        self._observer = observer
+        self._cache_name = cache_name
         self._reported_hits = 0
         self._reported_misses = 0
         self._reported_loads = 0
@@ -148,7 +152,7 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
         self._export_metrics()
 
     def _export_metrics(self) -> None:
-        if self._telemetry_name is None:
+        if self._observer is None or self._cache_name is None:
             return
         with self._lock:
             events = {
@@ -165,8 +169,9 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
             self._reported_evictions = self._evictions
             entries = len(self._entries)
             resident_weight = self._resident_weight
-        record_cache_metrics(
-            self._telemetry_name,
+        record_cache_observation(
+            self._observer,
+            self._cache_name,
             events,
             entries,
             resident_weight,

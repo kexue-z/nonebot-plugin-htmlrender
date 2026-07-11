@@ -131,38 +131,6 @@ LEGACY_EDGES: dict[tuple[str, str], str] = {
         _absolute("backend.takumi.render"),
         f"{_PLAYWRIGHT_MODELS}.TemplateRenderRequest",
     ): "phase 4: neutral request DTOs",
-    (
-        _absolute("resources.budget"),
-        _absolute("utils.telemetry.record_cache_metrics"),
-    ): "phase 3: CacheObserver injection",
-    (
-        _absolute("resources.weighted_cache"),
-        _absolute("utils.telemetry.record_cache_metrics"),
-    ): "phase 3: CacheObserver injection",
-    (
-        _absolute("resources.templating"),
-        _absolute("utils.telemetry.record_cache_metrics"),
-    ): "phase 3: CacheObserver injection",
-    (
-        _absolute("resources.cache"),
-        _absolute("config.plugin_config"),
-    ): "phase 3: settings injection",
-    (
-        _absolute("resources.source"),
-        _absolute("config.plugin_config"),
-    ): "phase 3: settings injection",
-    (
-        _absolute("resources.templating"),
-        _absolute("config.plugin_config"),
-    ): "phase 3: settings injection",
-    (
-        _absolute("resources.template"),
-        _absolute("preparation.references.inspect_html_references"),
-    ): "phase 3: html reference scanning moves out of resources",
-    (
-        _absolute("resources.template"),
-        _absolute("preparation.references.rewrite_html_references"),
-    ): "phase 3: html reference scanning moves out of resources",
 }
 
 

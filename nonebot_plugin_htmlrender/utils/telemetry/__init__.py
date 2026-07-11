@@ -30,6 +30,19 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.consts import RenderBackend
 
 
+class TelemetryCacheObserver:
+    """Cache observer adapter exporting through the telemetry facade."""
+
+    def record(
+        self,
+        cache: str,
+        events: Mapping[str, int],
+        entries: int,
+        resident_bytes: int | None = None,
+    ) -> None:
+        record_cache_metrics(cache, events, entries, resident_bytes)
+
+
 @contextmanager
 def _entered_trace(
     trace_context: object | None,

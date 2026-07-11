@@ -59,8 +59,45 @@ def get_resource_config() -> ResourceConfig:
     return _DEFAULT_CONFIG
 
 
+@dataclass(frozen=True)
+class ResourceCacheSettings:
+    """Sizing for the shared resource caches, injected by the composition root."""
+
+    max_entries: int = 256
+    max_bytes: int = 64 * 1024 * 1024
+    revalidate_seconds: float = 1.0
+    template_environment_max_entries: int = 64
+
+
+ResourceCacheSettingsProvider = Callable[[], ResourceCacheSettings]
+
+_cache_settings_provider: ResourceCacheSettingsProvider | None = None
+_DEFAULT_CACHE_SETTINGS = ResourceCacheSettings()
+
+
+def register_resource_cache_settings_provider(
+    provider: ResourceCacheSettingsProvider | None,
+) -> ResourceCacheSettingsProvider | None:
+    """Install the cache sizing provider; returns the previous one."""
+    global _cache_settings_provider  # noqa: PLW0603
+    previous = _cache_settings_provider
+    _cache_settings_provider = provider
+    return previous
+
+
+def get_resource_cache_settings() -> ResourceCacheSettings:
+    """Return the composed cache sizing, falling back to defaults."""
+    if _cache_settings_provider is not None:
+        return _cache_settings_provider()
+    return _DEFAULT_CACHE_SETTINGS
+
+
 __all__ = [
+    "ResourceCacheSettings",
+    "ResourceCacheSettingsProvider",
     "ResourceConfig",
+    "get_resource_cache_settings",
     "get_resource_config",
+    "register_resource_cache_settings_provider",
     "register_resource_config_provider",
 ]

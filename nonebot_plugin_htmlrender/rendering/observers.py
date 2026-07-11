@@ -5,6 +5,10 @@ from __future__ import annotations
 from contextlib import nullcontext
 from typing import TYPE_CHECKING, final
 
+from nonebot_plugin_htmlrender.resources.observation import (
+    NoopCacheObserver as NoopCacheObserver,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from contextlib import AbstractContextManager
@@ -20,17 +24,3 @@ class NoopOperationObserver:
         attributes: Mapping[str, str],  # noqa: ARG002 -- protocol-conforming no-op
     ) -> AbstractContextManager[None]:
         return nullcontext()
-
-
-@final
-class NoopCacheObserver:
-    """Observer that discards every cache statistics delta."""
-
-    def record(
-        self,
-        cache: str,  # noqa: ARG002 -- protocol-conforming no-op
-        events: Mapping[str, int],  # noqa: ARG002 -- protocol-conforming no-op
-        entries: int,  # noqa: ARG002 -- protocol-conforming no-op
-        resident_bytes: int | None = None,  # noqa: ARG002 -- protocol-conforming no-op
-    ) -> None:
-        return None

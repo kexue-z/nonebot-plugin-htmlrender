@@ -284,7 +284,7 @@ async def test_resolve_html_resources_rewrites_attrs_and_css_urls_with_filehost(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.preparation.resolve import (  # noqa: PLC0415
         resolve_html_resources,
     )
 
@@ -339,7 +339,7 @@ async def test_resolve_html_resources_keeps_external_and_anchor_links(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.preparation.resolve import (  # noqa: PLC0415
         resolve_html_resources,
     )
 

@@ -4,6 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Protocol
 
+from nonebot_plugin_htmlrender.resources.observation import (
+    CacheObserver as CacheObserver,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from contextlib import AbstractContextManager
@@ -37,18 +41,6 @@ class OperationObserver(Protocol):
         operation: str,
         attributes: Mapping[str, str],
     ) -> AbstractContextManager[None]: ...
-
-
-class CacheObserver(Protocol):
-    """Receives low-cardinality cache statistics deltas."""
-
-    def record(
-        self,
-        cache: str,
-        events: Mapping[str, int],
-        entries: int,
-        resident_bytes: int | None = None,
-    ) -> None: ...
 
 
 class ApplicationLifecycle(Protocol):

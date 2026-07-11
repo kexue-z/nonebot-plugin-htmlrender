@@ -38,13 +38,13 @@ from nonebot_plugin_htmlrender.preparation.references import (
     inspect_html_references,
     rewrite_css_references,
 )
+from nonebot_plugin_htmlrender.preparation.resolve import resolve_html_resources
 from nonebot_plugin_htmlrender.resources import (
     FileCachePolicy,
     PackageResourceSource,
     ResourceResolver,
     is_remote_playwright_mode,
     read_resource_text,
-    resolve_html_resources,
     resolve_template_vars,
 )
 from nonebot_plugin_htmlrender.resources.templating import (
