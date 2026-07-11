@@ -28,7 +28,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.10", "3.11", "3.12", "3.13", "3.14"]
         target:
           - runs-on: ubuntu-latest
             arch: x64
@@ -43,20 +43,23 @@ jobs:
       PYTEST_LOG: pytest-py${{ matrix.python-version }}-${{ matrix.target.arch }}.log
 
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: ${{ matrix.python-version }}
+          version: "0.11.28"
           enable-cache: true
-          cache-suffix: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}-${{ github.event_name }}
+          cache-suffix: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}
 
       - name: Show Runner Context
+        env:
+          EVENT_NAME: ${{ github.event_name }}
         run: |
-          echo "Event: ${{ github.event_name }}"
+          echo "Event: ${EVENT_NAME}"
           echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
           echo "Python: $PYTHON_VERSION, ARCH: $ARCH"
           uname -a
@@ -80,7 +83,8 @@ jobs:
           uv run pytest tests \
             --cov=nonebot_plugin_htmlrender \
             --cov-report=term-missing \
-            --cov-report=xml:${COVERAGE_XML} \
+            --cov-report="xml:${COVERAGE_XML}" \
+            --cov-fail-under=90 \
             -ra 2>&1 | tee "${PYTEST_LOG}"
 
       - name: Show Failure Diagnostics
@@ -95,7 +99,7 @@ jobs:
 
       - name: Upload Coverage + Pytest Logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: coverage-debug-py${{ matrix.python-version }}-${{ matrix.target.arch }}
           path: |
@@ -105,9 +109,28 @@ jobs:
           retention-days: 14
 
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@671740ac38dd9b0130fbe1cec585b89eea48d3de
+        uses: codecov/codecov-action@fb8b3582c8e4def4969c97caa2f19720cb33a72f # v7.0.0
         with:
           files: ./${{ env.COVERAGE_XML }}
           flags: py${{ matrix.python-version }}-${{ matrix.target.arch }}
           env_vars: ARCH,PYTHON_VERSION
           verbose: true
+
+  result:
+    name: Coverage Matrix
+    if: always()
+    needs: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require the complete test matrix
+        shell: bash
+        env:
+          COVERAGE_RESULT: ${{ needs.coverage.result }}
+        run: |
+          if [[ "${COVERAGE_RESULT}" != "success" ]]; then
+            echo "::error::At least one coverage matrix entry did not succeed."
+            exit 1
+          fi
+          echo "The complete coverage matrix succeeded."

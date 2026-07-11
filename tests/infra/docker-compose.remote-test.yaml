@@ -6,6 +6,7 @@ services:
       dockerfile: tests/infra/dockerfile.remote-test
       args:
         PYTHON_BASE_IMAGE: ${PYTHON_BASE_IMAGE:-python:3.12-bookworm}
+        UV_VERSION: ${UV_VERSION:-0.11.28}
     container_name: htmlrender-remote-test
     depends_on:
       playwright:

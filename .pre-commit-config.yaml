@@ -46,6 +46,7 @@ repos:
     rev: v1.24.1
     hooks:
       - id: zizmor
+        args: [--pedantic]
         priority: 0
 
   - repo: https://github.com/python-jsonschema/check-jsonschema

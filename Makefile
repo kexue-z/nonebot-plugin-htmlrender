@@ -1,6 +1,7 @@
 UV ?= uv
 PYTEST ?= $(UV) run pytest
 ZENSICAL ?= $(UV) run zensical
+TWINE ?= $(UV) run --no-project --with twine==6.2.0 twine
 PYTEST_PARALLEL ?= -n auto --dist=loadfile
 TEST_PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.artifacts/playwright-browsers
 DIST_DIR ?= $(CURDIR)/dist
@@ -55,7 +56,9 @@ clean-dist: ## Remove local distribution artifacts.
 
 build-artifacts: prepare-build clean-dist ## Build manual release artifacts (wheel + sdist).
 	@echo "==> Building wheel and sdist into $(DIST_DIR)"
-	@$(UV) build --wheel --sdist --out-dir $(DIST_DIR)
+	@$(UV) build --no-sources --wheel --sdist --out-dir $(DIST_DIR)
+	@echo "==> Validating package metadata"
+	@$(TWINE) check $(DIST_DIR)/*
 	@echo "==> Artifacts generated:"
 	@ls -la $(DIST_DIR)
 	@echo "==> Artifact checksums:"
@@ -97,10 +100,14 @@ remote-smoke-down: ## Stop remote browser smoke services and remove named volume
 	@echo "==> Tearing down remote browser smoke services"
 	docker compose -f tests/infra/docker-compose.remote-test.yaml down -v
 
-.PHONY: ruff-format ruff-check lint basedpyright ty typecheck check
+.PHONY: ruff-format ruff-format-check ruff-check lint basedpyright ty typecheck check
 ruff-format: ensure-uv ## Format Python files with Ruff.
 	@echo "==> Formatting Python files with Ruff"
 	$(UV) run ruff format nonebot_plugin_htmlrender tests
+
+ruff-format-check: ensure-uv ## Check Python formatting without modifying files.
+	@echo "==> Checking Python formatting with Ruff"
+	$(UV) run ruff format --check nonebot_plugin_htmlrender tests
 
 ruff-check: ensure-uv ## Run Ruff lint checks.
 	@echo "==> Running Ruff checks"
@@ -118,7 +125,7 @@ ty: ensure-uv ## Run ty type checking.
 
 typecheck: basedpyright ## Alias for basedpyright.
 
-check: ruff-format ruff-check basedpyright ty test ## Run format + lint + type checks + tests.
+check: ruff-format-check ruff-check basedpyright ty test ## Run format, lint, type checks, and tests without modifying files.
 
 .PHONY: docs-serve docs-build docs-deploy docs-list
 docs-serve: ensure-uv ## Serve docs site locally.
@@ -127,7 +134,7 @@ docs-serve: ensure-uv ## Serve docs site locally.
 
 docs-build: ensure-uv ## Build docs site.
 	@echo "==> Building docs site"
-	$(ZENSICAL) build
+	$(ZENSICAL) build --strict
 
 docs-deploy: ensure-uv ## Deploy versioned docs locally (e.g. make docs-deploy VERSION=0.7.0).
 	@echo "==> Deploying docs version $(VERSION)"

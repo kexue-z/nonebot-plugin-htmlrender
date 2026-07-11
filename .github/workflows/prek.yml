@@ -20,9 +20,18 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Run pre-commit hooks via prek
-        uses: j178/prek-action@6ad80277337ad479fe43bd70701c3f7f8aa74db3
+      - name: Install prek
+        uses: j178/prek-action@e98a699c41eb69ab013a45817a0406469a748f8d # v2.0.5
+        with:
+          install-only: true
+          prek-version: "0.3.9"
+
+      - name: Run repository hooks
+        run: prek run --all-files --show-diff-on-failure --color=always
+
+      - name: Validate GitHub Actions workflows
+        run: prek run actionlint --all-files --hook-stage=manual --show-diff-on-failure --color=always
