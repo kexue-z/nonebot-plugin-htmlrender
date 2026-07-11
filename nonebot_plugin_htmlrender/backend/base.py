@@ -4,33 +4,23 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import (
     TYPE_CHECKING,
+    Any,
     AsyncContextManager,
     Awaitable,
     Callable,
+    Generic,
     Protocol,
+    TypeVar,
     runtime_checkable,
 )
-from typing_extensions import Self, Unpack
+from typing_extensions import Self
 
 if TYPE_CHECKING:
     from contextlib import AsyncExitStack
     from types import TracebackType
 
-    from nonebot_plugin_htmlrender.backend.playwright.models import (
-        HtmlRenderRequest,
-        TemplateConfig,
-        TemplateRenderRequest,
-    )
-    from nonebot_plugin_htmlrender.backend.playwright.types import (
-        BrowserSessionKwargs,
-        CaptureElementKwargs,
-        PageContextKwargs,
-        RenderHtmlKwargs,
-        RenderMarkdownKwargs,
-        RenderTemplateKwargs,
-        RenderTextKwargs,
-    )
     from nonebot_plugin_htmlrender.consts import RenderBackend
+    from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
 
 
 class StrEnum(str, Enum):
@@ -67,7 +57,10 @@ class BackendCapability(StrEnum):
     """The backend can capture a specific HTML element into image output."""
 
     RASTER_RENDER = "raster_render"
-    """The backend can draw raster output without requiring a DOM engine."""
+    """The backend can draw raster output from backend-specific inputs."""
+
+    HTML_RASTERIZE = "html_rasterize"
+    """The backend can execute a prepared HTML document into raster output."""
 
 
 @dataclass(slots=True)
@@ -151,7 +144,7 @@ class Backend(Protocol):
     async def create_session(
         self,
         runtime: RenderRuntime,
-        **kwargs: Unpack[BrowserSessionKwargs],
+        **kwargs: Any,
     ) -> RenderSession:
         """Create task-scoped resources bound to the given runtime.
 
@@ -163,13 +156,16 @@ class Backend(Protocol):
         """检查渲染会话是否仍然存活。"""
         ...
 
+
+@runtime_checkable
+class SupportsRenderContextBackend(Protocol):
+    """Optional operation for backends exposing a caller-controlled context."""
+
     def get_render_context(
         self,
         session: RenderSession,
-        **kwargs: Unpack[PageContextKwargs],
-    ) -> AsyncContextManager[object]:
-        """创建一次渲染操作的上下文。"""
-        ...
+        **kwargs: Any,
+    ) -> AsyncContextManager[object]: ...
 
 
 @runtime_checkable
@@ -177,41 +173,88 @@ class SupportsHtmlRenderBackend(Protocol):
     async def render_html(
         self,
         session: RenderSession,
-        request: HtmlRenderRequest | str,
-        **kwargs: Unpack[RenderHtmlKwargs],
+        request: Any,
+        **kwargs: Any,
     ) -> bytes: ...
 
+
+@runtime_checkable
+class SupportsHtmlRasterizer(Protocol):
+    async def rasterize_html(
+        self,
+        session: RenderSession,
+        prepared: PreparedHtml,
+        options: RasterOptions,
+    ) -> bytes: ...
+
+
+@runtime_checkable
+class SupportsTextRenderBackend(Protocol):
     async def render_text(
         self,
         session: RenderSession,
         text: str,
-        **kwargs: Unpack[RenderTextKwargs],
+        **kwargs: Any,
     ) -> bytes: ...
 
+
+@runtime_checkable
+class SupportsMarkdownRenderBackend(Protocol):
     async def render_markdown(
         self,
         session: RenderSession,
         markdown_text: str = "",
-        **kwargs: Unpack[RenderMarkdownKwargs],
+        **kwargs: Any,
     ) -> bytes: ...
 
+
+@runtime_checkable
+class SupportsTemplateRenderBackend(Protocol):
     async def render_template(
         self,
         session: RenderSession,
-        request: TemplateRenderRequest | str,
-        **kwargs: Unpack[RenderTemplateKwargs],
+        request: Any,
+        **kwargs: Any,
     ) -> bytes: ...
 
+
+@runtime_checkable
+class SupportsTemplateHtmlRenderBackend(Protocol):
     async def render_template_html(
         self,
-        template: TemplateConfig | str,
-        **kwargs: object,
+        template: Any,
+        **kwargs: Any,
     ) -> str: ...
 
+
+@runtime_checkable
+class SupportsHtmlElementCaptureBackend(Protocol):
     async def capture_html_element(
         self,
         session: RenderSession,
         url: str,
         element: str,
-        **kwargs: Unpack[CaptureElementKwargs],
+        **kwargs: Any,
     ) -> bytes: ...
+
+
+ExtensionT = TypeVar("ExtensionT")
+
+
+@dataclass(frozen=True, slots=True)
+class BackendExtension(Generic[ExtensionT]):
+    """Typed token used to discover an optional backend-specific service."""
+
+    name: str
+    interface: type[ExtensionT]
+
+
+@runtime_checkable
+class SupportsBackendExtensions(Protocol):
+    """Optional typed extension provider for backend-specific capabilities."""
+
+    def get_extension(
+        self,
+        session: RenderSession,
+        extension: BackendExtension[ExtensionT],
+    ) -> ExtensionT | None: ...

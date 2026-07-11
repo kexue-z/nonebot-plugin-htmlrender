@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from enum import Enum
 from importlib import import_module
 import os
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeVar
 from typing_extensions import Unpack
 
 if TYPE_CHECKING:
@@ -27,6 +27,7 @@ if TYPE_CHECKING:
         RenderTextKwargs,
     )
     from nonebot_plugin_htmlrender.consts import RenderBackend
+    from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
 
 _resource_getrusage: Callable[[int], _resource_mod.struct_rusage] | None = None
 _resource_rusage_self: int | None = None
@@ -44,9 +45,18 @@ from nonebot.log import logger
 from nonebot_plugin_htmlrender.backend import (
     Backend,
     BackendCapability,
+    BackendExtension,
     RenderRuntime,
     RenderSession,
+    SupportsBackendExtensions,
+    SupportsHtmlElementCaptureBackend,
+    SupportsHtmlRasterizer,
     SupportsHtmlRenderBackend,
+    SupportsMarkdownRenderBackend,
+    SupportsRenderContextBackend,
+    SupportsTemplateHtmlRenderBackend,
+    SupportsTemplateRenderBackend,
+    SupportsTextRenderBackend,
     build_backend,
 )
 from nonebot_plugin_htmlrender.backend import (
@@ -72,6 +82,8 @@ from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render, with
 UnknownBackend = Backend
 UnknownRuntime = RenderRuntime
 UnknownSession = RenderSession
+BackendOperationT = TypeVar("BackendOperationT")
+ExtensionT = TypeVar("ExtensionT")
 
 
 class StrEnum(str, Enum):
@@ -107,51 +119,28 @@ class RenderCapability(StrEnum):
     """Capture a specific HTML element into image output."""
 
     RASTER_RENDER = "raster_render"
-    """Render raster/image-oriented content."""
+    """Render backend-specific raster/image-oriented content."""
+
+    HTML_RASTERIZE = "html_rasterize"
+    """Execute backend-neutral prepared HTML into raster output."""
 
 
 _RENDER_TO_BACKEND_CAPABILITIES: dict[
     RenderCapability, frozenset[BackendCapability]
 ] = {
     RenderCapability.CONTEXT: frozenset({BackendCapability.RENDER_CONTEXT}),
-    RenderCapability.HTML_RENDER: frozenset(
-        {
-            BackendCapability.RENDER_CONTEXT,
-            BackendCapability.HTML_RENDER,
-        }
-    ),
-    RenderCapability.TEXT_RENDER: frozenset(
-        {
-            BackendCapability.RENDER_CONTEXT,
-            BackendCapability.HTML_RENDER,
-            BackendCapability.TEXT_RENDER,
-        }
-    ),
-    RenderCapability.MARKDOWN_RENDER: frozenset(
-        {
-            BackendCapability.RENDER_CONTEXT,
-            BackendCapability.HTML_RENDER,
-            BackendCapability.MARKDOWN_RENDER,
-        }
-    ),
-    RenderCapability.TEMPLATE_RENDER: frozenset(
-        {
-            BackendCapability.RENDER_CONTEXT,
-            BackendCapability.HTML_RENDER,
-            BackendCapability.TEMPLATE_RENDER,
-        }
-    ),
+    RenderCapability.HTML_RENDER: frozenset({BackendCapability.HTML_RENDER}),
+    RenderCapability.TEXT_RENDER: frozenset({BackendCapability.TEXT_RENDER}),
+    RenderCapability.MARKDOWN_RENDER: frozenset({BackendCapability.MARKDOWN_RENDER}),
+    RenderCapability.TEMPLATE_RENDER: frozenset({BackendCapability.TEMPLATE_RENDER}),
     RenderCapability.TEMPLATE_HTML_RENDER: frozenset(
         {BackendCapability.TEMPLATE_HTML_RENDER}
     ),
     RenderCapability.HTML_ELEMENT_CAPTURE: frozenset(
-        {
-            BackendCapability.RENDER_CONTEXT,
-            BackendCapability.HTML_RENDER,
-            BackendCapability.HTML_ELEMENT_CAPTURE,
-        }
+        {BackendCapability.HTML_ELEMENT_CAPTURE}
     ),
     RenderCapability.RASTER_RENDER: frozenset({BackendCapability.RASTER_RENDER}),
+    RenderCapability.HTML_RASTERIZE: frozenset({BackendCapability.HTML_RASTERIZE}),
 }
 
 
@@ -203,20 +192,21 @@ class Render:
         """Check whether this render instance exposes a user-facing capability."""
         return capability in self.capabilities
 
-    def _require_html_backend(
+    def _require_backend_operation(
         self,
         capability: RenderCapability,
-    ) -> SupportsHtmlRenderBackend:
-        """校验并返回支持 HTML 渲染的后端。
+        operation_type: type[BackendOperationT],
+    ) -> BackendOperationT:
+        """校验 capability 与对应的细粒度 backend operation。
 
         Args:
             capability: 需要校验的渲染能力。
 
         Returns:
-            支持 HTML 渲染操作的后端实例。
+            实现该 operation protocol 的后端实例。
 
         Raises:
-            RuntimeError: 当后端不支持指定能力或未实现 HTML 渲染操作时。
+            RuntimeError: 当后端未声明能力或没有实现对应 operation 时。
         """
         if not self.has_capability(capability):
             raise RuntimeError(
@@ -225,12 +215,31 @@ class Render:
             )
 
         backend = self._backend
-        if not isinstance(backend, SupportsHtmlRenderBackend):
+        if not isinstance(backend, operation_type):
             raise RuntimeError(
-                f"Backend `{type(backend).__name__}` declares html_render but does not "
-                "implement HTML render operations."
+                f"Backend `{type(backend).__name__}` declares `{capability.value}` but "
+                f"does not implement `{operation_type.__name__}`."
             )
         return backend
+
+    async def require_extension(
+        self,
+        extension: BackendExtension[ExtensionT],
+    ) -> ExtensionT:
+        """Return a typed backend-specific service bound to the active session."""
+        session = await self.get_render()
+        backend = self._backend
+        if not isinstance(backend, SupportsBackendExtensions):
+            raise RuntimeError(
+                f"Backend `{type(backend).__name__}` does not provide extensions."
+            )
+        service = backend.get_extension(session, extension)
+        if service is None:
+            raise RuntimeError(
+                f"Backend `{type(backend).__name__}` does not provide extension "
+                f"`{extension.name}`."
+            )
+        return service
 
     @asynccontextmanager
     async def get_render_context(
@@ -255,13 +264,17 @@ class Render:
                 f"Render `{type(self).__name__}` does not support context capability."
             )
         session = await self.get_render()
+        backend = self._require_backend_operation(
+            RenderCapability.CONTEXT,
+            SupportsRenderContextBackend,
+        )
         async with (
             track_render(
                 "render.get_render_context",
                 backend=self._backend.backend,
                 attrs=_get_render_observation_attrs(self),
             ),
-            self._backend.get_render_context(session, **kwargs) as context,
+            backend.get_render_context(session, **kwargs) as context,
         ):
             yield context
 
@@ -280,13 +293,26 @@ class Render:
             渲染生成的图片字节数据。
         """
         session = await self.get_render()
-        return await self._require_html_backend(
-            RenderCapability.HTML_RENDER
+        return await self._require_backend_operation(
+            RenderCapability.HTML_RENDER,
+            SupportsHtmlRenderBackend,
         ).render_html(
             session,
             request,
             **kwargs,
         )
+
+    async def rasterize_html(
+        self,
+        prepared: PreparedHtml,
+        options: RasterOptions,
+    ) -> bytes:
+        """Rasterize a backend-neutral prepared HTML document."""
+        session = await self.get_render()
+        return await self._require_backend_operation(
+            RenderCapability.HTML_RASTERIZE,
+            SupportsHtmlRasterizer,
+        ).rasterize_html(session, prepared, options)
 
     async def render_text(
         self,
@@ -303,8 +329,9 @@ class Render:
             渲染生成的图片字节数据。
         """
         session = await self.get_render()
-        return await self._require_html_backend(
-            RenderCapability.TEXT_RENDER
+        return await self._require_backend_operation(
+            RenderCapability.TEXT_RENDER,
+            SupportsTextRenderBackend,
         ).render_text(
             session,
             text,
@@ -326,8 +353,9 @@ class Render:
             渲染生成的图片字节数据。
         """
         session = await self.get_render()
-        return await self._require_html_backend(
-            RenderCapability.MARKDOWN_RENDER
+        return await self._require_backend_operation(
+            RenderCapability.MARKDOWN_RENDER,
+            SupportsMarkdownRenderBackend,
         ).render_markdown(session, markdown_text, **kwargs)
 
     async def render_template(
@@ -345,8 +373,9 @@ class Render:
             渲染生成的图片字节数据。
         """
         session = await self.get_render()
-        return await self._require_html_backend(
-            RenderCapability.TEMPLATE_RENDER
+        return await self._require_backend_operation(
+            RenderCapability.TEMPLATE_RENDER,
+            SupportsTemplateRenderBackend,
         ).render_template(session, request, **kwargs)
 
     async def render_template_html(
@@ -363,8 +392,9 @@ class Render:
         Returns:
             渲染生成的 HTML 字符串。
         """
-        return await self._require_html_backend(
-            RenderCapability.TEMPLATE_HTML_RENDER
+        return await self._require_backend_operation(
+            RenderCapability.TEMPLATE_HTML_RENDER,
+            SupportsTemplateHtmlRenderBackend,
         ).render_template_html(template, **kwargs)
 
     async def capture_html_element(
@@ -384,8 +414,9 @@ class Render:
             捕获的元素图片字节数据。
         """
         session = await self.get_render()
-        return await self._require_html_backend(
-            RenderCapability.HTML_ELEMENT_CAPTURE
+        return await self._require_backend_operation(
+            RenderCapability.HTML_ELEMENT_CAPTURE,
+            SupportsHtmlElementCaptureBackend,
         ).capture_html_element(session, url, element, **kwargs)
 
     @with_lock
@@ -643,6 +674,13 @@ async def get_render(**kwargs: Unpack[BrowserSessionKwargs]) -> UnknownSession:
     return await get_default_render().get_render(**kwargs)
 
 
+async def require_render_extension(
+    extension: BackendExtension[ExtensionT],
+) -> ExtensionT:
+    """Resolve a typed extension from the default Render instance."""
+    return await get_default_render().require_extension(extension)
+
+
 async def startup_render(**kwargs: Unpack[BrowserSessionKwargs]) -> UnknownSession:
     """使用默认 Render 实例启动渲染。"""
     return await get_default_render().startup_render(**kwargs)
@@ -667,6 +705,11 @@ async def render_html(
 ) -> bytes:
     """使用默认 Render 实例将 HTML 渲染为图片。"""
     return await get_default_render().render_html(request, **kwargs)
+
+
+async def rasterize_html(prepared: PreparedHtml, options: RasterOptions) -> bytes:
+    """Use the default Render instance to rasterize prepared HTML."""
+    return await get_default_render().rasterize_html(prepared, options)
 
 
 async def render_text(text: str, **kwargs: Unpack[RenderTextKwargs]) -> bytes:

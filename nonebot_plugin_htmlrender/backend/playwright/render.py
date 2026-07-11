@@ -16,6 +16,8 @@ from urllib.request import Request, urlopen
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
+
     from .models import HtmlRenderRequest, TemplateConfig, TemplateRenderRequest
     from .types import (
         BrowserLaunchKwargs,
@@ -54,6 +56,7 @@ from ..factory import BackendAvailability, register_backend
 from . import operations as playwright_operations
 from .config import get_playwright_config
 from .install import install_browser
+from .prepared import materialize_prepared_html
 from .runtime import (
     clear_playwright_env_vars,
     has_installed_browser,
@@ -95,6 +98,7 @@ class PlaywrightBackend:
         {
             BackendCapability.RENDER_CONTEXT,
             BackendCapability.HTML_RENDER,
+            BackendCapability.HTML_RASTERIZE,
             BackendCapability.TEXT_RENDER,
             BackendCapability.MARKDOWN_RENDER,
             BackendCapability.TEMPLATE_RENDER,
@@ -229,6 +233,25 @@ class PlaywrightBackend:
         """委托 playwright_operations 执行 HTML 渲染。"""
         return await playwright_operations.render_html(
             request, session=session, **kwargs
+        )
+
+    async def rasterize_html(
+        self,
+        session: RenderSession,
+        prepared: PreparedHtml,
+        options: RasterOptions,
+    ) -> bytes:
+        """Execute a backend-neutral prepared document in Playwright."""
+        viewport_height = options.height if options.height is not None else 10
+        return await playwright_operations.render_html(
+            materialize_prepared_html(prepared),
+            template_path=prepared.base_url or "about:blank",
+            image_type=options.format,
+            quality=options.quality,
+            device_scale_factor=options.device_pixel_ratio,
+            full_page=options.height is None,
+            viewport={"width": options.width, "height": viewport_height},
+            session=session,
         )
 
     async def render_text(

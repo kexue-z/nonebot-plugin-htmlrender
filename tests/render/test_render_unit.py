@@ -13,6 +13,11 @@ from nonebot_plugin_htmlrender.backend.base import (
     RenderSession,
 )
 from nonebot_plugin_htmlrender.consts import RenderBackend
+from nonebot_plugin_htmlrender.preparation import (
+    PreparedHtml,
+    RasterOptions,
+    prepare_html,
+)
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -24,6 +29,7 @@ class _SimpleBackend:
         {
             BackendCapability.RENDER_CONTEXT,
             BackendCapability.HTML_RENDER,
+            BackendCapability.HTML_RASTERIZE,
             BackendCapability.TEXT_RENDER,
             BackendCapability.MARKDOWN_RENDER,
             BackendCapability.TEMPLATE_RENDER,
@@ -78,6 +84,14 @@ class _SimpleBackend:
     ) -> bytes:
         return str(request).encode()
 
+    async def rasterize_html(
+        self,
+        session: RenderSession,  # noqa: ARG002
+        prepared: PreparedHtml,
+        options: RasterOptions,
+    ) -> bytes:
+        return f"{options.width}:{prepared.markup}".encode()
+
     async def render_text(
         self,
         session: RenderSession,  # noqa: ARG002
@@ -117,6 +131,14 @@ class _SimpleBackend:
         **kwargs: object,  # noqa: ARG002
     ) -> bytes:
         return f"{url}#{element}".encode()
+
+
+class _HtmlOnlyBackend(_SimpleBackend):
+    capabilities = frozenset({BackendCapability.HTML_RENDER})
+
+
+class _RasterOnlyBackend(_SimpleBackend):
+    capabilities = frozenset({BackendCapability.HTML_RASTERIZE})
 
 
 def test_render_backend_status_wrapper_functions(mocker: MockerFixture) -> None:
@@ -165,6 +187,26 @@ async def test_render_default_proxy_delegates_methods(mocker: MockerFixture) -> 
     assert await render.render_template("tpl") == b"tpl"
     assert await render.render_template_html("tpl") == "tpl"
     assert await render.capture_html_element("https://e", "#x") == b"https://e##x"
+
+
+@pytest.mark.anyio
+async def test_html_render_and_rasterize_use_distinct_capabilities() -> None:
+    prepared = prepare_html("<main>ok</main>")
+    options = RasterOptions(width=320)
+
+    html_render = render.create_render(backend=_HtmlOnlyBackend())
+    assert await html_render.render_html("<p>html</p>") == b"<p>html</p>"
+    with pytest.raises(RuntimeError, match="html_rasterize"):
+        await html_render.rasterize_html(prepared, options)
+    await html_render.shutdown_render()
+
+    raster_render = render.create_render(backend=_RasterOnlyBackend())
+    assert (
+        await raster_render.rasterize_html(prepared, options) == b"320:<main>ok</main>"
+    )
+    with pytest.raises(RuntimeError, match="html_render"):
+        await raster_render.render_html("<p>html</p>")
+    await raster_render.shutdown_render()
 
 
 @pytest.mark.anyio

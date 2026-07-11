@@ -48,9 +48,20 @@ from nonebot_plugin_htmlrender._compat import (
 from nonebot_plugin_htmlrender._compat import (
     text_to_pic as text_to_pic,
 )
+from nonebot_plugin_htmlrender.backend.base import BackendExtension
 from nonebot_plugin_htmlrender.backend.factory import ensure_backend_loaded
 from nonebot_plugin_htmlrender.config import Config, plugin_config
 from nonebot_plugin_htmlrender.consts import RenderBackend, RenderStartupMode
+from nonebot_plugin_htmlrender.preparation import (
+    PreparedAsset,
+    PreparedHtml,
+    RasterOptions,
+    RenderRequirement,
+    prepare_html,
+    prepare_markdown,
+    prepare_template,
+    prepare_text,
+)
 from nonebot_plugin_htmlrender.render import (
     available_render_backends,
     capture_html_element,
@@ -62,12 +73,14 @@ from nonebot_plugin_htmlrender.render import (
     is_render_backend_registered,
     list_render_backend_statuses,
     probe_render,
+    rasterize_html,
     registered_render_backends,
     render_html,
     render_markdown,
     render_template,
     render_template_html,
     render_text,
+    require_render_extension,
     shutdown_render,
     startup_render,
     unavailable_render_backends,
@@ -154,6 +167,11 @@ async def shutdown() -> None:
 
 
 __all__ = [
+    "BackendExtension",
+    "PreparedAsset",
+    "PreparedHtml",
+    "RasterOptions",
+    "RenderRequirement",
     "ResourceResolveError",
     "available_render_backends",
     "capture_element",
@@ -168,13 +186,19 @@ __all__ = [
     "is_render_backend_registered",
     "list_render_backend_statuses",
     "md_to_pic",
+    "prepare_html",
+    "prepare_markdown",
+    "prepare_template",
+    "prepare_text",
     "probe_render",
+    "rasterize_html",
     "registered_render_backends",
     "render_html",
     "render_markdown",
     "render_template",
     "render_template_html",
     "render_text",
+    "require_render_extension",
     "resolve_template_vars",
     "shutdown_htmlrender",
     "shutdown_render",
