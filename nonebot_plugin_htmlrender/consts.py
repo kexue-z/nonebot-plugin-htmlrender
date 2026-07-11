@@ -101,6 +101,7 @@ class ResourceResolveMode(StrEnum):
 class RemoteLocalResourcePolicy(StrEnum):
     """远程渲染时对本地资源的处理策略。"""
 
+    MEMORY = "memory"
     PASSTHROUGH = "passthrough"
     FILEHOST = "filehost"
     ERROR = "error"

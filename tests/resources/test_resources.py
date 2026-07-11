@@ -397,6 +397,9 @@ async def test_filehost_prewarm_skips_when_not_enabled(
     assert status["url"] is None
     assert status["last_error"] is None
     assert status["cached_resources"] is not None
+    assert status["cached_url_mappings"] == status["cached_resources"]
+    assert status["ttl_scope"] == "url_mapping"
+    assert status["physical_cleanup_supported"] == "false"
 
 
 @pytest.mark.anyio
@@ -652,6 +655,7 @@ async def test_filehost_url_reuses_cached_path_mapping(
     filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
+    filehost_runtime._FILEHOST_PATH_INDEX.clear()
 
     asset = tmp_path / "style.css"
     asset.write_text("body{}", encoding="utf-8")
@@ -677,6 +681,7 @@ async def test_filehost_directory_prewarm_skips_template_files(
     filehost_runtime._FILEHOST_REGISTERED_ROOTS.clear()
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
+    filehost_runtime._FILEHOST_PATH_INDEX.clear()
 
     assets = tmp_path / "assets"
     assets.mkdir()
@@ -711,21 +716,17 @@ async def test_filehost_directory_prewarm_skips_template_files(
         "nonebot_plugin_htmlrender.resources.filehost.warmup.ensure_filehost_request_guard_installed",
         return_value=True,
     )
-    upload_mock = mocker.patch(
+    snapshot_spy = mocker.spy(
+        import_module("nonebot_plugin_htmlrender.resources.filehost.cache"),
+        "_read_consistent_path_snapshot",
+    )
+    mocker.patch(
         "nonebot_plugin_htmlrender.resources.filehost.cache._filehost_upload",
-        new=mocker.AsyncMock(
-            side_effect=lambda value: (
-                "http://render/prewarm"
-                if isinstance(value, (bytes, bytearray))
-                else f"http://render/{Path(value).name}"
-            )
-        ),
+        new=mocker.AsyncMock(return_value="http://render/filehost/resource"),
     )
 
     assert await filehost_runtime.ensure_filehost_runtime_ready(reason="unit")
-    uploaded_names = [
-        Path(call.args[0]).name for call in upload_mock.await_args_list[1:]
-    ]
+    uploaded_names = [Path(call.args[0]).name for call in snapshot_spy.call_args_list]
     assert "site.css" in uploaded_names
     assert "card.html" not in uploaded_names
 
@@ -738,6 +739,7 @@ async def test_filehost_lease_ref_count_and_ttl_prune(
     filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
+    filehost_runtime._FILEHOST_PATH_INDEX.clear()
     filehost_runtime._FILEHOST_LEASES.clear()
 
     asset = tmp_path / "logo.png"
@@ -762,12 +764,12 @@ async def test_filehost_lease_ref_count_and_ttl_prune(
     assert len(filehost_runtime._FILEHOST_RESOURCE_CACHE) == 1
     entry = next(iter(filehost_runtime._FILEHOST_RESOURCE_CACHE.values()))
     assert entry["lease_ref_count"] == 1
-    assert entry["expires_at_ns"] is None
+    assert entry["mapping_expires_at_ns"] is None
 
     await filehost_runtime.release_filehost_lease(lease)
     entry_after_release = next(iter(filehost_runtime._FILEHOST_RESOURCE_CACHE.values()))
     assert entry_after_release["lease_ref_count"] == 0
-    assert entry_after_release["expires_at_ns"] is not None
+    assert entry_after_release["mapping_expires_at_ns"] is not None
 
     await asyncio.sleep(0.02)
     await filehost_runtime.prune_filehost_cache()

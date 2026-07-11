@@ -20,9 +20,9 @@ class ResourceConfig:
 
     is_remote_mode: bool = False
 
-    resource_resolve_mode: ResourceResolveMode = ResourceResolveMode.OFF
+    resource_resolve_mode: ResourceResolveMode = ResourceResolveMode.AUTO
     remote_local_resource_policy: RemoteLocalResourcePolicy = (
-        RemoteLocalResourcePolicy.PASSTHROUGH
+        RemoteLocalResourcePolicy.MEMORY
     )
     local_local_resource_policy: LocalLocalResourcePolicy = (
         LocalLocalResourcePolicy.FILE

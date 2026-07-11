@@ -7,7 +7,7 @@ import anyio
 import jinja2
 import pytest
 
-from nonebot_plugin_htmlrender.resources import templating
+from nonebot_plugin_htmlrender.resources import PackageResourceSource, templating
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -26,6 +26,24 @@ def _clear_environment_cache() -> Iterator[None]:
 def _write_template(root: Path, content: str, name: str = "card.html") -> None:
     root.mkdir()
     (root / name).write_text(content, encoding="utf-8")
+
+
+@pytest.mark.anyio
+async def test_package_loader_renders_builtin_template() -> None:
+    source = PackageResourceSource(
+        "nonebot_plugin_htmlrender",
+        "templates/text",
+    )
+
+    rendered = await templating.render_template_html(
+        source,
+        "text.html",
+        {"text": "package", "css": ""},
+        immutable=True,
+    )
+
+    assert "package" in rendered
+    assert templating.get_template_environment_cache_stats().entries == 1
 
 
 @pytest.mark.anyio

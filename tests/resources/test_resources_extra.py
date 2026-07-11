@@ -99,10 +99,10 @@ async def test_resolve_scalar_resource_error_policy_and_strict(
             "./x", template_base=None, strict=True, resolver="auto"
         )
 
-    result = await _resolve_mod._resolve_scalar_resource(
-        "./x", template_base=None, strict=False, resolver="auto"
-    )
-    assert result == "./x"
+    with pytest.raises(ResourceResolveError, match="Local resources are not allowed"):
+        await _resolve_mod._resolve_scalar_resource(
+            "./x", template_base=None, strict=False, resolver="auto"
+        )
 
 
 @pytest.mark.anyio

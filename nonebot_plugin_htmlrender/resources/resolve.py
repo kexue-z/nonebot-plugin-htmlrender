@@ -13,6 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.consts import (
+    LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
     ResourceResolveMode,
 )
@@ -20,6 +21,17 @@ from nonebot_plugin_htmlrender.consts import (
 from .config import get_resource_config
 
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
+_EXPLICIT_RESOURCE_POLICIES = frozenset(
+    {
+        LocalLocalResourcePolicy.FILE.value,
+        LocalLocalResourcePolicy.FILEHOST.value,
+        LocalLocalResourcePolicy.PASSTHROUGH.value,
+        RemoteLocalResourcePolicy.MEMORY.value,
+        RemoteLocalResourcePolicy.PASSTHROUGH.value,
+        RemoteLocalResourcePolicy.FILEHOST.value,
+        RemoteLocalResourcePolicy.ERROR.value,
+    }
+)
 
 
 class ResourceResolveError(RuntimeError):
@@ -191,12 +203,12 @@ def _pick_policy(resolver: ResourceResolver | str | object | None) -> str:
         if is_remote_playwright_mode():
             return cfg.remote_local_resource_policy.value
         return cfg.local_local_resource_policy.value
-    if resolver == "filehost":
-        return "filehost"
     if isinstance(resolver, str):
+        if resolver in _EXPLICIT_RESOURCE_POLICIES:
+            return resolver
         raise ValueError(
-            "`resource_resolver` must be one of: None, 'auto', 'filehost', or a "
-            "custom resolver object."
+            "`resource_resolver` must be None, 'auto', an explicit local-resource "
+            "policy, or a custom resolver object."
         )
     if resolver is not None and callable(getattr(resolver, "resolve", None)):
         return "custom"
@@ -211,9 +223,9 @@ def _should_resolve(resolver: ResourceResolver | str | object | None) -> bool:
     """判断是否应执行资源解析。"""
     if resolver is not None and callable(getattr(resolver, "resolve", None)):
         return True
-    if resolver == "filehost":
-        return True
-    if resolver == "auto":
+    if isinstance(resolver, str) and (
+        resolver == "auto" or resolver in _EXPLICIT_RESOURCE_POLICIES
+    ):
         return True
 
     return get_resource_config().resource_resolve_mode != ResourceResolveMode.OFF
@@ -253,6 +265,11 @@ async def _resolve_scalar_resource(
         if policy == RemoteLocalResourcePolicy.PASSTHROUGH.value:
             return value
 
+        if policy == RemoteLocalResourcePolicy.MEMORY.value:
+            # Browser backends materialize this value together with the complete
+            # PreparedHtml graph, where relative bases and CSS dependencies exist.
+            return value
+
         if policy == RemoteLocalResourcePolicy.ERROR.value:
             raise ResourceResolveError(
                 "Local resources are not allowed under current resource policy."
@@ -283,7 +300,7 @@ async def _resolve_scalar_resource(
 
         raise RuntimeError(f"Unsupported resource policy: {policy!r}")
     except Exception as e:
-        if effective_strict:
+        if policy == RemoteLocalResourcePolicy.ERROR.value or effective_strict:
             raise ResourceResolveError(str(e)) from e
         logger.warning(f"Failed to resolve resource {value!r}: {e}")
         return value

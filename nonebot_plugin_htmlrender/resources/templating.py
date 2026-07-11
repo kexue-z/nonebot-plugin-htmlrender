@@ -16,6 +16,8 @@ from jinja2.ext import Extension
 
 from nonebot_plugin_htmlrender.config import plugin_config
 
+from .source import FilesystemResourceSource, PackageResourceSource
+
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
@@ -23,6 +25,9 @@ FilterCallable: TypeAlias = Callable[..., Any]
 ExtensionSpec: TypeAlias = str | type[Extension]
 _FilterItem: TypeAlias = tuple[str, FilterCallable]
 _IdentityPart: TypeAlias = tuple[str, str | int]
+TemplateSource: TypeAlias = (
+    str | Path | FilesystemResourceSource | PackageResourceSource
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -38,7 +43,7 @@ class TemplateEnvironmentCacheStats:
 
 @dataclass(frozen=True, slots=True)
 class _EnvironmentKey:
-    root: Path
+    source_identity: tuple[str, ...]
     immutable: bool
     extensions: tuple[_IdentityPart, ...]
     filters: tuple[tuple[str, int], ...]
@@ -77,8 +82,12 @@ def _get_cache_max_entries() -> int:
     return max(0, int(configured))
 
 
-def _normalize_root(template_path: str | Path) -> Path:
-    return Path(template_path).expanduser().resolve()
+def _normalize_source(
+    template_path: TemplateSource,
+) -> FilesystemResourceSource | PackageResourceSource:
+    if isinstance(template_path, (FilesystemResourceSource, PackageResourceSource)):
+        return template_path
+    return FilesystemResourceSource(Path(template_path))
 
 
 def _snapshot_filters(
@@ -104,14 +113,14 @@ def _extension_identity(extension: ExtensionSpec) -> _IdentityPart:
 
 
 def _build_key(
-    root: Path,
+    source: FilesystemResourceSource | PackageResourceSource,
     *,
     immutable: bool,
     extensions: tuple[ExtensionSpec, ...],
     filters: tuple[_FilterItem, ...],
 ) -> _EnvironmentKey:
     return _EnvironmentKey(
-        root=root,
+        source_identity=tuple(source.identity),
         immutable=immutable,
         extensions=tuple(_extension_identity(extension) for extension in extensions),
         filters=tuple((name, id(filter_func)) for name, filter_func in filters),
@@ -119,14 +128,18 @@ def _build_key(
 
 
 def _build_environment(
-    root: Path,
+    source: FilesystemResourceSource | PackageResourceSource,
     *,
     immutable: bool,
     extensions: tuple[ExtensionSpec, ...],
     filters: tuple[_FilterItem, ...],
 ) -> _EnvironmentEntry:
+    if isinstance(source, PackageResourceSource):
+        loader: jinja2.BaseLoader = jinja2.PackageLoader(source.package, source.root)
+    else:
+        loader = jinja2.FileSystemLoader(source.root)
     environment = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(root),
+        loader=loader,
         extensions=extensions,
         enable_async=True,
         autoescape=jinja2.select_autoescape(),
@@ -144,14 +157,15 @@ def _enforce_cache_limit_locked(max_entries: int) -> None:
 
 
 def _get_environment_entry(
-    root: Path,
+    source: TemplateSource,
     *,
     immutable: bool,
     extensions: tuple[ExtensionSpec, ...],
     filters: tuple[_FilterItem, ...],
 ) -> _EnvironmentEntry:
+    normalized_source = _normalize_source(source)
     key = _build_key(
-        root,
+        normalized_source,
         immutable=immutable,
         extensions=extensions,
         filters=filters,
@@ -168,7 +182,7 @@ def _get_environment_entry(
 
         _CACHE_COUNTERS.misses += 1
         entry = _build_environment(
-            root,
+            normalized_source,
             immutable=immutable,
             extensions=extensions,
             filters=filters,
@@ -182,16 +196,16 @@ def _get_environment_entry(
 
 
 def _load_template(
-    template_path: str | Path,
+    template_path: TemplateSource,
     template_name: str,
     *,
     immutable: bool,
     extensions: tuple[ExtensionSpec, ...],
     filters: tuple[_FilterItem, ...],
 ) -> jinja2.Template:
-    root = _normalize_root(template_path)
+    source = _normalize_source(template_path)
     entry = _get_environment_entry(
-        root,
+        source,
         immutable=immutable,
         extensions=extensions,
         filters=filters,
@@ -201,7 +215,7 @@ def _load_template(
 
 
 async def render_template_html(
-    template_path: str | Path,
+    template_path: TemplateSource,
     template_name: str,
     variables: Mapping[str, Any],
     *,
@@ -236,11 +250,12 @@ def clear_template_environment_cache() -> None:
         _CACHE_COUNTERS.evictions = 0
 
 
-def invalidate_template_environment_cache(template_path: str | Path) -> int:
+def invalidate_template_environment_cache(template_path: TemplateSource) -> int:
     """移除指定模板根目录对应的全部环境，返回移除数量。"""
-    root = _normalize_root(template_path)
+    source = _normalize_source(template_path)
+    identity = tuple(source.identity)
     with _CACHE_LOCK:
-        keys = [key for key in _ENVIRONMENT_CACHE if key.root == root]
+        keys = [key for key in _ENVIRONMENT_CACHE if key.source_identity == identity]
         for key in keys:
             del _ENVIRONMENT_CACHE[key]
         return len(keys)
@@ -263,6 +278,7 @@ __all__ = [
     "ExtensionSpec",
     "FilterCallable",
     "TemplateEnvironmentCacheStats",
+    "TemplateSource",
     "clear_template_environment_cache",
     "get_template_environment_cache_stats",
     "invalidate_template_environment_cache",

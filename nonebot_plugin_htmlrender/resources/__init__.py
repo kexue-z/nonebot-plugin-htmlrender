@@ -38,6 +38,15 @@ from .resolve import (
 from .resolve import (
     is_remote_playwright_mode as is_remote_playwright_mode,
 )
+from .source import (
+    FilesystemResourceSource as FilesystemResourceSource,
+)
+from .source import (
+    PackageResource as PackageResource,
+)
+from .source import (
+    PackageResourceSource as PackageResourceSource,
+)
 from .template import (
     resolve_html_resources as resolve_html_resources,
 )
@@ -53,6 +62,9 @@ __all__ = [
     "FileResourceCache",
     "FileRevision",
     "FileSnapshot",
+    "FilesystemResourceSource",
+    "PackageResource",
+    "PackageResourceSource",
     "ResourceCacheStats",
     "ResourceResolveError",
     "ResourceResolver",

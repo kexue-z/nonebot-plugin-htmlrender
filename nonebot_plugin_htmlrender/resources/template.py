@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-import re
+from html import unescape
 from typing import TYPE_CHECKING, Any, cast
 
 import anyio
@@ -20,15 +20,6 @@ from .resolve import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-
-_HTML_ATTR_RESOURCE_RE = re.compile(
-    r"(?P<prefix>\b(?:src|href|poster)\s*=\s*)(?P<quote>['\"])(?P<value>.*?)(?P=quote)",
-    re.IGNORECASE | re.DOTALL,
-)
-_CSS_URL_RE = re.compile(
-    r"url\(\s*(?P<quote>['\"]?)(?P<value>[^)\"']+)(?P=quote)\s*\)",
-    re.IGNORECASE,
-)
 
 
 async def _resolve_many(
@@ -188,24 +179,30 @@ async def _resolve_html_attr_resources(
     resolver: ResourceResolver | str | None,
     lease_id: str | None = None,
 ) -> str:
-    """解析 HTML 属性中的资源引用。"""
-    output: list[str] = []
-    cursor = 0
-    matches = list(_HTML_ATTR_RESOURCE_RE.finditer(html))
+    """Resolve real HTML/CSS resource tokens without scanning comments/scripts."""
+
+    from nonebot_plugin_htmlrender.preparation.references import (  # noqa: PLC0415
+        inspect_html_references,
+        rewrite_html_references,
+    )
+
+    references = tuple(dict.fromkeys(inspect_html_references(html).references))
     resolved_values = await _resolve_url_tokens_many(
-        [match.group("value") for match in matches],
+        references,
         template_base=template_base,
         strict=strict,
         resolver=resolver,
         lease_id=lease_id,
     )
-    for match, resolved_value in zip(matches, resolved_values, strict=True):
-        output.append(html[cursor : match.start()])
-        quote = match.group("quote")
-        output.append(f"{match.group('prefix')}{quote}{resolved_value}{quote}")
-        cursor = match.end()
-    output.append(html[cursor:])
-    return "".join(output)
+    replacements = dict(zip(references, resolved_values, strict=True))
+
+    def rewrite(reference: str) -> str | None:
+        replacement = replacements.get(reference)
+        if replacement is not None:
+            return replacement
+        return replacements.get(unescape(reference))
+
+    return rewrite_html_references(html, rewrite)
 
 
 async def _resolve_css_url_resources(
@@ -216,24 +213,10 @@ async def _resolve_css_url_resources(
     resolver: ResourceResolver | str | None,
     lease_id: str | None = None,
 ) -> str:
-    """解析 CSS url() 中的资源引用。"""
-    output: list[str] = []
-    cursor = 0
-    matches = list(_CSS_URL_RE.finditer(html))
-    resolved_values = await _resolve_url_tokens_many(
-        [match.group("value") for match in matches],
-        template_base=template_base,
-        strict=strict,
-        resolver=resolver,
-        lease_id=lease_id,
-    )
-    for match, resolved_value in zip(matches, resolved_values, strict=True):
-        output.append(html[cursor : match.start()])
-        quote = match.group("quote")
-        output.append(f"url({quote}{resolved_value}{quote})")
-        cursor = match.end()
-    output.append(html[cursor:])
-    return "".join(output)
+    """Compatibility stage; CSS tokens are resolved with their owning HTML token."""
+
+    del template_base, strict, resolver, lease_id
+    return html
 
 
 async def resolve_template_vars(
