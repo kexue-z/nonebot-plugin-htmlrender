@@ -5,13 +5,11 @@ from enum import Enum
 from typing import (
     TYPE_CHECKING,
     Any,
-    AsyncContextManager,
     Awaitable,
     Callable,
     Generic,
     Protocol,
     TypeVar,
-    runtime_checkable,
 )
 from typing_extensions import Self
 
@@ -20,7 +18,6 @@ if TYPE_CHECKING:
     from types import TracebackType
 
     from nonebot_plugin_htmlrender.consts import RenderBackend
-    from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
 
 
 class StrEnum(str, Enum):
@@ -157,87 +154,6 @@ class Backend(Protocol):
         ...
 
 
-@runtime_checkable
-class SupportsRenderContextBackend(Protocol):
-    """Optional operation for backends exposing a caller-controlled context."""
-
-    def get_render_context(
-        self,
-        session: RenderSession,
-        **kwargs: Any,
-    ) -> AsyncContextManager[object]: ...
-
-
-@runtime_checkable
-class SupportsHtmlRenderBackend(Protocol):
-    async def render_html(
-        self,
-        session: RenderSession,
-        request: Any,
-        **kwargs: Any,
-    ) -> bytes: ...
-
-
-@runtime_checkable
-class SupportsHtmlRasterizer(Protocol):
-    async def rasterize_html(
-        self,
-        session: RenderSession,
-        prepared: PreparedHtml,
-        options: RasterOptions,
-    ) -> bytes: ...
-
-
-@runtime_checkable
-class SupportsTextRenderBackend(Protocol):
-    async def render_text(
-        self,
-        session: RenderSession,
-        text: str,
-        **kwargs: Any,
-    ) -> bytes: ...
-
-
-@runtime_checkable
-class SupportsMarkdownRenderBackend(Protocol):
-    async def render_markdown(
-        self,
-        session: RenderSession,
-        markdown_text: str = "",
-        **kwargs: Any,
-    ) -> bytes: ...
-
-
-@runtime_checkable
-class SupportsTemplateRenderBackend(Protocol):
-    async def render_template(
-        self,
-        session: RenderSession,
-        request: Any,
-        **kwargs: Any,
-    ) -> bytes: ...
-
-
-@runtime_checkable
-class SupportsTemplateHtmlRenderBackend(Protocol):
-    async def render_template_html(
-        self,
-        template: Any,
-        **kwargs: Any,
-    ) -> str: ...
-
-
-@runtime_checkable
-class SupportsHtmlElementCaptureBackend(Protocol):
-    async def capture_html_element(
-        self,
-        session: RenderSession,
-        url: str,
-        element: str,
-        **kwargs: Any,
-    ) -> bytes: ...
-
-
 ExtensionT = TypeVar("ExtensionT")
 
 
@@ -247,14 +163,3 @@ class BackendExtension(Generic[ExtensionT]):
 
     name: str
     interface: type[ExtensionT]
-
-
-@runtime_checkable
-class SupportsBackendExtensions(Protocol):
-    """Optional typed extension provider for backend-specific capabilities."""
-
-    def get_extension(
-        self,
-        session: RenderSession,
-        extension: BackendExtension[ExtensionT],
-    ) -> ExtensionT | None: ...

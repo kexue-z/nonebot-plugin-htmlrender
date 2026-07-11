@@ -1,10 +1,8 @@
-from contextlib import suppress
 from html import unescape
 from importlib import import_module
 import mimetypes
 from pathlib import Path
-from typing import Any, Literal, cast
-from typing_extensions import Unpack
+from typing import cast
 from urllib.parse import urldefrag, urlsplit
 
 from anyio import CancelScope
@@ -15,15 +13,10 @@ from nonebot_plugin_htmlrender.consts import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
     RenderBackend,
-    ResourceResolveMode,
 )
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedHtml,
-    prepare_html,
-    prepare_markdown,
-    prepare_template,
-    prepare_text,
 )
 from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
@@ -38,40 +31,23 @@ from nonebot_plugin_htmlrender.preparation.references import (
     inspect_html_references,
     rewrite_css_references,
 )
-from nonebot_plugin_htmlrender.preparation.resolve import resolve_html_resources
 from nonebot_plugin_htmlrender.resources import (
-    FileCachePolicy,
     PackageResourceSource,
-    ResourceResolver,
     is_remote_playwright_mode,
-    read_resource_text,
-    resolve_template_vars,
-)
-from nonebot_plugin_htmlrender.resources.templating import (
-    render_template_html as render_jinja_template_html,
 )
 from nonebot_plugin_htmlrender.utils import track_render
 
 from ._page import (
     SupportsBrowserSession,
     _setup_page_logging,
-    check_remote_pna_context,
     install_filehost_request_route,
     open_page_context,
     register_render_context_provider,
 )
 from .models import (
     ContentConfig,
-    HtmlRenderRequest,
     JpegScreenshotOptions,
-    PageConfig,
     RenderConfig,
-    TemplateConfig,
-    TemplateRenderRequest,
-    ViewportConfig,
-    _build_html_render_request,
-    _build_screenshot_config,
-    _build_template_render_request,
     _page_context_kwargs,
 )
 from .prepared import (
@@ -82,10 +58,8 @@ from .prepared import (
 from .telemetry import log_page_telemetry
 from .types import (
     GotoKwargs,
-    HtmlPageKwargs,
     LocatorScreenshotKwargs,
     PageContextKwargs,
-    TemplatePageKwargs,
 )
 
 EMPTY_PAGE_CONTEXT_KWARGS: PageContextKwargs = {}
@@ -180,17 +154,6 @@ def _local_resource_policy(*, remote_mode: bool) -> str:
         )
     )
     return _enum_value(policy)
-
-
-def _effective_resource_resolver(
-    resolver: ResourceResolver | str | None,
-    *,
-    policy: str,
-) -> ResourceResolver | str:
-    """Bind automatic resolution to the policy selected for the actual session."""
-    if resolver is None or (isinstance(resolver, str) and resolver == "auto"):
-        return policy
-    return resolver
 
 
 def _prepared_references(
@@ -333,57 +296,6 @@ async def _publish_prepared_assets(
     return urls
 
 
-async def read_file(path: str) -> str:
-    """异步读取文件内容。"""
-    return await read_resource_text(path)
-
-
-async def read_tpl(path: str) -> str:
-    """读取模板目录下的文件内容。"""
-    return await read_resource_text(
-        BUILTIN_TEMPLATES.resource(path),
-        policy=FileCachePolicy.IMMUTABLE,
-    )
-
-
-async def render_template_html(
-    template: TemplateConfig | str,
-    template_name: str | None = None,
-    filters: dict[str, Any] | None = None,
-    **kwargs: Any,
-) -> str:
-    """使用 Jinja2 渲染模板为 HTML 字符串。
-
-    Args:
-        template: 模板配置对象或模板目录路径。
-        template_name: 模板文件名，当 template 为路径字符串时必须提供。
-        filters: 自定义 Jinja2 过滤器字典。
-        **kwargs: 传递给模板渲染的变量。
-
-    Returns:
-        渲染后的 HTML 字符串。
-
-    Raises:
-        ValueError: 当 template 为字符串且未提供 template_name 时。
-    """
-    if isinstance(template, TemplateConfig):
-        template_path = template.template_path
-        template_name = template.template_name
-        filters = template.custom_filters or filters
-        kwargs = {**template.template_vars, **kwargs}
-    else:
-        if template_name is None:
-            raise ValueError("template_name is required when template is a path string")
-        template_path = template
-
-    return await render_jinja_template_html(
-        template_path,
-        template_name,
-        kwargs,
-        filters=filters,
-    )
-
-
 async def _execute_browser_load_plan(
     plan: BrowserLoadPlan,
     *,
@@ -513,371 +425,6 @@ async def render_prepared_html(
                 await release_filehost_lease(filehost_lease_id)
 
 
-async def render_html(
-    request: HtmlRenderRequest | str,
-    wait: int = 0,
-    template_path: str | None = None,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: int | None = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: float | None = 30_000,
-    *,
-    full_page: bool = True,
-    session: SupportsBrowserSession | None = None,
-    **kwargs: Unpack[HtmlPageKwargs],
-) -> bytes:
-    """将 HTML 内容渲染为截图图片。
-
-    Args:
-        request: HTML 渲染请求对象或 HTML 字符串。
-        wait: 截图前的等待时间（毫秒）。
-        template_path: 页面 base_url，用于解析相对路径资源。
-        image_type: 输出图片格式。
-        quality: JPEG 图片质量（0-100），仅 jpeg 格式有效。
-        device_scale_factor: 设备像素比，控制图片清晰度。
-        screenshot_timeout: 截图超时时间（毫秒）。
-        full_page: 是否截取整个页面。
-        session: 浏览器会话，为 None 时使用默认会话。
-        **kwargs: 额外的页面配置参数。
-
-    Returns:
-        渲染生成的图片字节数据。
-    """
-    if isinstance(request, HtmlRenderRequest):
-        render_request = request
-        resource_base_url = None
-    else:
-        resource_base_url = template_path
-        viewport = kwargs.pop("viewport", None)
-        user_agent = kwargs.pop("user_agent", None)
-        extra_http_headers = kwargs.pop("extra_http_headers", None)
-        viewport_value = (
-            cast("dict[str, int]", dict(viewport)) if viewport is not None else None
-        )
-        user_agent_value = user_agent if isinstance(user_agent, str) else None
-        headers_value = (
-            extra_http_headers
-            if isinstance(extra_http_headers, dict)
-            and all(
-                isinstance(k, str) and isinstance(v, str)
-                for k, v in extra_http_headers.items()
-            )
-            else None
-        )
-        render_request = _build_html_render_request(
-            request,
-            template_path=template_path,
-            image_type=image_type,
-            quality=quality,
-            device_scale_factor=device_scale_factor,
-            screenshot_timeout=screenshot_timeout,
-            full_page=full_page,
-            wait=wait,
-            viewport=viewport_value,
-            user_agent=user_agent_value,
-            extra_http_headers=headers_value,
-        )
-
-    prepared = prepare_html(
-        render_request.content.html,
-        base_url=resource_base_url,
-    )
-    async with track_render(
-        "playwright.html_render.render_html",
-        backend=RenderBackend.PLAYWRIGHT,
-    ):
-        return await render_prepared_html(
-            prepared,
-            content=render_request.content,
-            render=render_request.render,
-            session=session,
-            page_kwargs=cast("PageContextKwargs", kwargs),
-        )
-
-
-async def render_text(
-    text: str,
-    css_path: str = "",
-    width: int = 500,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: int | None = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: float | None = 30_000,
-    *,
-    render: RenderConfig | None = None,
-    session: SupportsBrowserSession | None = None,
-) -> bytes:
-    """将纯文本渲染为图片。
-
-    Args:
-        text: 待渲染的纯文本内容。
-        css_path: 自定义 CSS 文件路径，为空时使用默认样式。
-        width: 视口宽度（像素）。
-        image_type: 输出图片格式。
-        quality: JPEG 图片质量（0-100）。
-        device_scale_factor: 设备像素比。
-        screenshot_timeout: 截图超时时间（毫秒）。
-        resource_strict: 无法解析本地资源时是否立即失败。
-        render: 自定义渲染配置，为 None 时自动构建。
-        session: 浏览器会话。
-
-    Returns:
-        渲染生成的图片字节数据。
-    """
-    async with track_render(
-        "playwright.html_render.render_text",
-        backend=RenderBackend.PLAYWRIGHT,
-    ):
-        prepared = await prepare_text(text, css_path=css_path)
-
-        render_config = render or RenderConfig(
-            page=PageConfig(
-                viewport=ViewportConfig(width=width, height=10),
-            ),
-            screenshot=_build_screenshot_config(
-                image_type,
-                quality=quality,
-                device_scale_factor=device_scale_factor,
-                screenshot_timeout=screenshot_timeout,
-                full_page=True,
-                wait_before_screenshot=0,
-            ),
-        )
-        return await render_prepared_html(
-            prepared,
-            content=ContentConfig(html=prepared.html),
-            render=render_config,
-            session=session,
-            strict_assets=True,
-            telemetry_op="playwright.html_render.render_text",
-        )
-
-
-async def render_markdown(
-    md: str = "",
-    md_path: str = "",
-    css_path: str = "",
-    width: int = 500,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: int | None = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: float | None = 30_000,
-    *,
-    resource_strict: bool = False,
-    render: RenderConfig | None = None,
-    session: SupportsBrowserSession | None = None,
-) -> bytes:
-    """将 Markdown 内容渲染为图片。
-
-    Args:
-        md: Markdown 文本内容。
-        md_path: Markdown 文件路径，与 md 二选一。
-        css_path: 自定义 CSS 文件路径，为空时使用默认样式。
-        width: 视口宽度（像素）。
-        image_type: 输出图片格式。
-        quality: JPEG 图片质量（0-100）。
-        device_scale_factor: 设备像素比。
-        screenshot_timeout: 截图超时时间（毫秒）。
-        render: 自定义渲染配置。
-        session: 浏览器会话。
-
-    Returns:
-        渲染生成的图片字节数据。
-
-    Raises:
-        ValueError: 当 md 和 md_path 均未提供时。
-    """
-    async with track_render(
-        "playwright.html_render.render_markdown",
-        backend=RenderBackend.PLAYWRIGHT,
-    ):
-        prepared = await prepare_markdown(
-            md,
-            markdown_path=md_path,
-            css_path=css_path,
-        )
-
-        if render is None:
-            render = RenderConfig(
-                page=PageConfig(
-                    viewport=ViewportConfig(width=width, height=10),
-                ),
-                screenshot=_build_screenshot_config(
-                    image_type,
-                    quality=quality,
-                    device_scale_factor=device_scale_factor,
-                    screenshot_timeout=screenshot_timeout,
-                    full_page=True,
-                    wait_before_screenshot=0,
-                ),
-            )
-
-        return await render_prepared_html(
-            prepared,
-            content=ContentConfig(html=prepared.html),
-            render=render,
-            session=session,
-            strict_assets=resource_strict,
-            telemetry_op="playwright.html_render.render_markdown",
-        )
-
-
-async def render_template(
-    request: TemplateRenderRequest | str,
-    template_name: str | None = None,
-    templates: dict[str, Any] | None = None,
-    filters: dict[str, Any] | None = None,
-    pages: TemplatePageKwargs | None = None,
-    wait: int = 0,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: int | None = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: float | None = 30_000,
-    *,
-    session: SupportsBrowserSession | None = None,
-    resolve_resources: bool | None = None,
-    resource_resolver: ResourceResolver | str | None = None,
-    resource_strict: bool = False,
-) -> bytes:
-    """将 Jinja2 模板渲染为图片。
-
-    支持资源解析和 filehost 模式，可自动将模板中引用的本地资源
-    上传至 filehost 服务以供远程浏览器访问。
-
-    Args:
-        request: 模板渲染请求对象或模板目录路径。
-        template_name: 模板文件名，当 request 为路径字符串时必须提供。
-        templates: 传递给模板的变量字典。
-        filters: 自定义 Jinja2 过滤器字典。
-        pages: 页面配置（视口、base_url 等）。
-        wait: 截图前的等待时间（毫秒）。
-        image_type: 输出图片格式。
-        quality: JPEG 图片质量（0-100）。
-        device_scale_factor: 设备像素比。
-        screenshot_timeout: 截图超时时间（毫秒）。
-        session: 浏览器会话。
-        resolve_resources: 是否解析模板资源，为 None 时根据配置决定。
-        resource_resolver: 资源解析器，为 None 时使用自动检测。
-        resource_strict: 资源解析失败时是否抛出异常。
-
-    Returns:
-        渲染生成的图片字节数据。
-
-    Raises:
-        ValueError: 当 request 为字符串且未提供 template_name 时。
-    """
-    async with track_render(
-        "playwright.html_render.render_template",
-        backend=RenderBackend.PLAYWRIGHT,
-    ):
-        if isinstance(request, TemplateRenderRequest):
-            render_request = request
-        else:
-            if template_name is None:
-                raise ValueError(
-                    "template_name is required when request is a path string"
-                )
-            render_request = _build_template_render_request(
-                request,
-                template_name,
-                template_vars=templates or {},
-                custom_filters=filters,
-                pages=pages,
-                image_type=image_type,
-                quality=quality,
-                device_scale_factor=device_scale_factor,
-                screenshot_timeout=screenshot_timeout,
-                wait=wait,
-            )
-
-        remote_mode = _is_remote_session(session)
-        local_resource_policy = _local_resource_policy(remote_mode=remote_mode)
-        should_resolve_resources = resolve_resources
-        if should_resolve_resources is None:
-            should_resolve_resources = (
-                get_playwright_config().resource_resolve_mode != ResourceResolveMode.OFF
-            )
-
-        effective_resolver = _effective_resource_resolver(
-            resource_resolver,
-            policy=local_resource_policy,
-        )
-        resolver_uses_filehost = (
-            should_resolve_resources
-            and isinstance(effective_resolver, str)
-            and effective_resolver == RemoteLocalResourcePolicy.FILEHOST.value
-        )
-        render_uses_filehost = (
-            local_resource_policy == RemoteLocalResourcePolicy.FILEHOST.value
-        )
-
-        if resolver_uses_filehost or render_uses_filehost:
-            # Registration is prewarm/indexing metadata owned by the filehost adapter.
-            with suppress(Exception):
-                register_filehost_resource_root(render_request.template.template_path)
-
-        lease_id = create_filehost_lease() if resolver_uses_filehost else None
-        try:
-            if should_resolve_resources:
-                resolved_template_vars = await resolve_template_vars(
-                    render_request.template.template_vars,
-                    template_base=render_request.template.template_path,
-                    strict=resource_strict,
-                    resolver=effective_resolver,
-                    lease_id=lease_id,
-                )
-                render_request = TemplateRenderRequest(
-                    template=TemplateConfig(
-                        template_path=render_request.template.template_path,
-                        template_name=render_request.template.template_name,
-                        template_vars=resolved_template_vars,
-                        custom_filters=render_request.template.custom_filters,
-                    ),
-                    render=render_request.render,
-                )
-
-            if remote_mode:
-                check_remote_pna_context(
-                    base_url=(render_request.render.page.document_url or "about:blank"),
-                    template_vars=render_request.template.template_vars,
-                    strict=resource_strict,
-                )
-
-            prepared = await prepare_template(
-                render_request.template.template_path,
-                render_request.template.template_name,
-                render_request.template.template_vars,
-                filters=render_request.template.custom_filters,
-            )
-
-            if should_resolve_resources:
-                rendered_html = await resolve_html_resources(
-                    prepared.html,
-                    template_base=render_request.template.template_path,
-                    strict=resource_strict,
-                    resolver=effective_resolver,
-                    lease_id=lease_id,
-                )
-                prepared = prepare_html(
-                    rendered_html,
-                    base_url=prepared.base_url,
-                    assets=prepared.assets,
-                )
-            return await render_prepared_html(
-                prepared,
-                content=ContentConfig(html=prepared.html),
-                render=render_request.render,
-                session=session,
-                strict_assets=resource_strict,
-                filehost_lease_id=lease_id,
-                telemetry_op="playwright.html_render.render_template",
-            )
-        finally:
-            if lease_id is not None:
-                with CancelScope(shield=True):
-                    await release_filehost_lease(lease_id)
-
-
 async def capture_html_element(
     url: str,
     element: str,
@@ -924,12 +471,6 @@ async def capture_html_element(
 
 __all__ = [
     "capture_html_element",
-    "read_file",
-    "read_tpl",
     "register_render_context_provider",
-    "render_html",
-    "render_markdown",
-    "render_template",
-    "render_template_html",
-    "render_text",
+    "render_prepared_html",
 ]

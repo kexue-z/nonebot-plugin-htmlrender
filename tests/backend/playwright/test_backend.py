@@ -1,13 +1,9 @@
 from inspect import unwrap
 from pathlib import Path
 from types import SimpleNamespace
-from typing import TYPE_CHECKING, cast
 
 import pytest
 from pytest_mock import MockerFixture
-
-if TYPE_CHECKING:
-    from nonebot_plugin_htmlrender.backend.base import RenderSession
 
 
 def test_resolve_mode_variants(mocker: MockerFixture) -> None:
@@ -730,99 +726,6 @@ def test_backend_is_alive_and_redact_parse_error(mocker: MockerFixture) -> None:
         side_effect=ValueError,
     )
     assert backend._redact_url("invalid url") == "invalid url"
-
-
-@pytest.mark.anyio
-async def test_rasterize_html_delegates_prepared_document_without_file_navigation(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
-        PlaywrightBackend,
-    )
-    from nonebot_plugin_htmlrender.preparation import (  # noqa: PLC0415
-        RasterOptions,
-        prepare_html,
-    )
-
-    prepared = prepare_html("<main>ok</main>", base_url="file:///tmp/card.html")
-    render_prepared = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.render_prepared_html",
-        new=mocker.AsyncMock(return_value=b"image"),
-    )
-
-    result = await PlaywrightBackend().rasterize_html(
-        cast("RenderSession", object()),
-        prepared,
-        RasterOptions(
-            width=320,
-            height=180,
-            device_pixel_ratio=1.5,
-            format="jpeg",
-            quality=72,
-        ),
-    )
-
-    assert result == b"image"
-    call = render_prepared.await_args
-    assert call is not None
-    assert call.args[0] is prepared
-    kwargs = call.kwargs
-    assert kwargs["strict_assets"] is True
-    render = kwargs["render"]
-    assert render.page.base_url == "about:blank"
-    assert render.page.document_url is None
-    assert render.page.viewport.model_dump() == {"width": 320, "height": 180}
-    assert render.screenshot.format == "jpeg"
-    assert render.screenshot.quality == 72
-
-
-@pytest.mark.anyio
-async def test_get_render_context_and_backend_operation_wrappers(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
-        PlaywrightBackend,
-    )
-
-    backend = PlaywrightBackend()
-
-    render_html = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.render_html",
-        new=mocker.AsyncMock(return_value=b"h"),
-    )
-    render_text = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.render_text",
-        new=mocker.AsyncMock(return_value=b"t"),
-    )
-    render_markdown = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.render_markdown",
-        new=mocker.AsyncMock(return_value=b"m"),
-    )
-    render_template = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.render_template",
-        new=mocker.AsyncMock(return_value=b"tp"),
-    )
-    render_template_html = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.render_template_html",
-        new=mocker.AsyncMock(return_value="th"),
-    )
-    capture = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.playwright_operations.capture_html_element",
-        new=mocker.AsyncMock(return_value=b"c"),
-    )
-
-    assert await backend.render_html(object(), "<p/>") == b"h"  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-    assert await backend.render_text(object(), "x") == b"t"  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-    assert await backend.render_markdown(object(), markdown_text="x") == b"m"  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-    assert await backend.render_template(object(), "tpl") == b"tp"  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-    assert await backend.render_template_html("tpl") == "th"
-    assert await backend.capture_html_element(object(), "u", "#e") == b"c"  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
-    render_html.assert_awaited_once()
-    render_text.assert_awaited_once()
-    render_markdown.assert_awaited_once()
-    render_template.assert_awaited_once()
-    render_template_html.assert_awaited_once()
-    capture.assert_awaited_once()
 
 
 @pytest.mark.anyio

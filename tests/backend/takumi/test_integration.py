@@ -14,16 +14,18 @@ from nonebot_plugin_htmlrender.backend.takumi.api import (
     TakumiExtension,
 )
 from nonebot_plugin_htmlrender.backend.takumi.operations import (
-    render_markdown,
-    render_template,
-    render_text,
+    rasterize_html,
 )
 from nonebot_plugin_htmlrender.backend.takumi.runtime import (
     create_runtime_state,
 )
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
+    RasterOptions,
     prepare_html,
+    prepare_markdown,
+    prepare_template,
+    prepare_text,
 )
 
 if TYPE_CHECKING:
@@ -337,29 +339,32 @@ async def test_shared_text_markdown_and_template_preparation(
 ) -> None:
     state = await create_runtime_state(TakumiConfig())
     try:
-        text = await render_text(
+        text_prepared = await prepare_text("你好 <tag> & text")
+        text = await rasterize_html(
             state,
-            "你好 <tag> & text",
-            width=240,
-            device_scale_factor=1,
+            text_prepared,
+            RasterOptions(width=240, device_pixel_ratio=1.0),
         )
-        markdown = await render_markdown(
+        markdown_prepared = await prepare_markdown("# 标题\n\n`<tag>`")
+        markdown = await rasterize_html(
             state,
-            "# 标题\n\n`<tag>`",
-            width=360,
-            device_scale_factor=1,
+            markdown_prepared,
+            RasterOptions(width=360, device_pixel_ratio=1.0),
         )
 
         (tmp_path / "card.html").write_text(
             '<div style="width:80px;height:30px;background:#fff">{{ value }}</div>',
             encoding="utf-8",
         )
-        template = await render_template(
-            state,
+        template_prepared = await prepare_template(
             str(tmp_path),
-            template_name="card.html",
-            templates={"value": "<unsafe> & Unicode 字符"},
-            device_scale_factor=1,
+            "card.html",
+            {"value": "<unsafe> & Unicode 字符"},
+        )
+        template = await rasterize_html(
+            state,
+            template_prepared,
+            RasterOptions(width=500, device_pixel_ratio=1.0),
         )
 
         assert text.startswith(b"\x89PNG")

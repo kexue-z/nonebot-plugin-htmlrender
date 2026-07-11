@@ -5,15 +5,12 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from nonebot_plugin_htmlrender.backend.base import BackendCapability, BackendExtension
 from nonebot_plugin_htmlrender.backend.takumi import (
     TAKUMI_EXTENSION,
     TakumiConfig,
     TakumiExtension,
-    TakumiUnsupportedError,
 )
 from nonebot_plugin_htmlrender.backend.takumi.render import (
-    TakumiBackend,
     is_takumi_backend_available,
 )
 from nonebot_plugin_htmlrender.backend.takumi.runtime import TakumiRuntimeState
@@ -43,55 +40,9 @@ def _state() -> TakumiRuntimeState:
     )
 
 
-def test_capability_set_exposes_common_features_without_element_capture() -> None:
-    capabilities = TakumiBackend.capabilities
-    assert capabilities == frozenset(
-        {
-            BackendCapability.HTML_RENDER,
-            BackendCapability.HTML_RASTERIZE,
-            BackendCapability.TEXT_RENDER,
-            BackendCapability.MARKDOWN_RENDER,
-            BackendCapability.TEMPLATE_RENDER,
-            BackendCapability.TEMPLATE_HTML_RENDER,
-        }
-    )
-    assert BackendCapability.HTML_ELEMENT_CAPTURE not in capabilities
-
-
-@pytest.mark.anyio
-async def test_runtime_session_context_and_typed_extension(
-    mocker: MockerFixture,
-) -> None:
-    state = _state()
-    mocker.patch(
-        "nonebot_plugin_htmlrender.backend.takumi.render.get_takumi_config",
-        return_value=TakumiConfig(),
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.backend.takumi.render.create_runtime_state",
-        new=mocker.AsyncMock(return_value=state),
-    )
-    backend = TakumiBackend()
-    runtime = await backend.create_runtime()
-    session = await backend.create_session(runtime)
-
-    assert backend.is_alive(session)
-    extension = backend.get_extension(session, TAKUMI_EXTENSION)
-    assert isinstance(extension, TakumiExtension)
-    assert extension._state is state
-    assert (
-        backend.get_extension(
-            session,
-            BackendExtension("unknown", object),
-        )
-        is None
-    )
-
-    with pytest.raises(TakumiUnsupportedError, match="session options"):
-        await backend.create_session(runtime, endpoint="ws://browser")
-
-    await runtime.aclose()
-    assert not backend.is_alive(session)
+def test_extension_token_identity() -> None:
+    assert TAKUMI_EXTENSION.name == "takumi.v1"
+    assert TAKUMI_EXTENSION.interface is TakumiExtension
 
 
 @pytest.mark.parametrize(
@@ -124,7 +75,6 @@ def test_availability_checks_exact_native_version(
         assert reason in (status.reason or "")
 
 
-@pytest.mark.anyio
 async def test_extension_telemetry_covers_success_and_error_without_content(
     mocker: MockerFixture,
 ) -> None:

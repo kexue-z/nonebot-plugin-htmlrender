@@ -1,11 +1,11 @@
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any, Literal, cast
+from typing import TYPE_CHECKING, Literal, cast
 import warnings
 
 from nonebot.compat import field_validator, model_validator
 from pydantic import BaseModel, ConfigDict, Field
 
-from .types import PageContextKwargs, TemplatePageKwargs
+from .types import PageContextKwargs
 
 if TYPE_CHECKING:
     from .types import ViewportSize
@@ -214,60 +214,6 @@ class ContentConfig(BaseModel):
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
 
-class TemplateConfig(BaseModel):
-    """Template configuration."""
-
-    template_path: str = Field(description="Template folder path")
-    template_name: str = Field(description="Template file name")
-    template_vars: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Template variables",
-    )
-    custom_filters: dict[str, Any] = Field(
-        default_factory=dict, description="Custom Jinja2 filters"
-    )
-
-    @field_validator("template_path")
-    @classmethod
-    def validate_template_path(cls, v: str) -> str:
-        """校验模板目录路径非空。
-
-        Args:
-            v: 待校验的模板目录路径。
-
-        Returns:
-            去除前后空白后的合法路径字符串。
-
-        Raises:
-            ValueError: 当路径为空字符串时抛出。
-        """
-        v = v.strip()
-        if not v:
-            raise ValueError("template_path cannot be empty")
-        return v
-
-    @field_validator("template_name")
-    @classmethod
-    def validate_template_name(cls, v: str) -> str:
-        """校验模板文件名非空。
-
-        Args:
-            v: 待校验的模板文件名。
-
-        Returns:
-            去除前后空白后的合法模板文件名。
-
-        Raises:
-            ValueError: 当文件名为空字符串时抛出。
-        """
-        v = v.strip()
-        if not v:
-            raise ValueError("template_name cannot be empty")
-        return v
-
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
 class RenderConfig(BaseModel):
     """Complete rendering configuration."""
 
@@ -282,78 +228,6 @@ class RenderConfig(BaseModel):
     )
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-class HtmlRenderRequest(BaseModel):
-    """HTML rendering request."""
-
-    content: ContentConfig = Field(description="Content configuration")
-    render: RenderConfig = Field(
-        default_factory=RenderConfig,
-        description="Render configuration",
-    )
-
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-class TemplateRenderRequest(BaseModel):
-    """Template rendering request."""
-
-    template: TemplateConfig = Field(description="Template configuration")
-    render: RenderConfig = Field(
-        default_factory=RenderConfig, description="Render configuration"
-    )
-
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
-
-
-def create_png_config(
-    *,
-    quality_optimized: bool = False,
-    viewport_width: int = 800,
-    viewport_height: int = 600,
-) -> RenderConfig:
-    """创建 PNG 格式的渲染配置。
-
-    Args:
-        quality_optimized: 为 True 时使用更高的设备像素比。
-        viewport_width: 视口宽度（像素）。
-        viewport_height: 视口高度（像素）。
-
-    Returns:
-        配置了 PNG 截图选项的 RenderConfig。
-    """
-    return RenderConfig(
-        page=PageConfig(
-            viewport=ViewportConfig(width=viewport_width, height=viewport_height)
-        ),
-        screenshot=PngScreenshotOptions(
-            device_scale_factor=3.0 if quality_optimized else 2.0
-        ),
-    )
-
-
-def create_jpeg_config(
-    quality: int = 80,
-    viewport_width: int = 800,
-    viewport_height: int = 600,
-) -> RenderConfig:
-    """创建 JPEG 格式的渲染配置。
-
-    Args:
-        quality: 图片质量（0-100）。
-        viewport_width: 视口宽度（像素）。
-        viewport_height: 视口高度（像素）。
-
-    Returns:
-        配置了 JPEG 截图选项的 RenderConfig。
-    """
-    return RenderConfig(
-        page=PageConfig(
-            viewport=ViewportConfig(width=viewport_width, height=viewport_height)
-        ),
-        screenshot=JpegScreenshotOptions(quality=quality),
-    )
 
 
 def _build_screenshot_config(
@@ -394,97 +268,3 @@ def _page_context_kwargs(render: RenderConfig) -> PageContextKwargs:
     if render.page.extra_http_headers:
         kwargs["extra_http_headers"] = render.page.extra_http_headers
     return kwargs
-
-
-def _build_html_render_request(
-    html: str,
-    *,
-    template_path: str | None,
-    image_type: Literal["jpeg", "png"],
-    quality: int | None,
-    device_scale_factor: float,
-    screenshot_timeout: float | None,
-    full_page: bool,
-    wait: int,
-    viewport: dict[str, int] | None = None,
-    user_agent: str | None = None,
-    extra_http_headers: dict[str, str] | None = None,
-) -> HtmlRenderRequest:
-    """从散列参数构建 HtmlRenderRequest。"""
-    # Kept in this legacy builder signature; operations applies it to
-    # PreparedHtml.base_url rather than turning it into browser navigation.
-    del template_path
-    page = PageConfig(
-        viewport=ViewportConfig(**(viewport or {"width": 800, "height": 600})),
-        user_agent=user_agent,
-        extra_http_headers=extra_http_headers or {},
-    )
-    screenshot = _build_screenshot_config(
-        image_type,
-        quality=quality,
-        device_scale_factor=device_scale_factor,
-        screenshot_timeout=screenshot_timeout,
-        full_page=full_page,
-        wait_before_screenshot=wait,
-    )
-    return HtmlRenderRequest(
-        content=ContentConfig(
-            html=html,
-            additional_wait=wait,
-        ),
-        render=RenderConfig(page=page, screenshot=screenshot),
-    )
-
-
-def _build_template_render_request(
-    template_path: str,
-    template_name: str,
-    *,
-    template_vars: dict[str, Any],
-    custom_filters: dict[str, Any] | None,
-    pages: TemplatePageKwargs | None,
-    image_type: Literal["jpeg", "png"],
-    quality: int | None,
-    device_scale_factor: float,
-    screenshot_timeout: float | None,
-    wait: int,
-) -> TemplateRenderRequest:
-    """从散列参数构建 TemplateRenderRequest。"""
-    page_kwargs = dict(pages or {})
-    viewport = cast(
-        "ViewportSize",
-        page_kwargs.pop("viewport", {"width": 500, "height": 10}),
-    )
-    base_url = cast("str | None", page_kwargs.pop("base_url", None))
-    document_url = cast("str | None", page_kwargs.pop("document_url", None))
-    user_agent = cast("str | None", page_kwargs.pop("user_agent", None))
-    extra_http_headers = cast(
-        "dict[str, str]",
-        page_kwargs.pop("extra_http_headers", {}),
-    )
-
-    return TemplateRenderRequest(
-        template=TemplateConfig(
-            template_path=template_path,
-            template_name=template_name,
-            template_vars=template_vars,
-            custom_filters=custom_filters or {},
-        ),
-        render=RenderConfig(
-            page=PageConfig(
-                viewport=ViewportConfig(**viewport),
-                base_url=base_url,
-                document_url=document_url,
-                user_agent=user_agent,
-                extra_http_headers=extra_http_headers,
-            ),
-            screenshot=_build_screenshot_config(
-                image_type,
-                quality=quality,
-                device_scale_factor=device_scale_factor,
-                screenshot_timeout=screenshot_timeout,
-                full_page=True,
-                wait_before_screenshot=wait,
-            ),
-        ),
-    )

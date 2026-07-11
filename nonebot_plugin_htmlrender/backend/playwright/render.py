@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from enum import Enum
 from functools import partial
@@ -9,28 +8,17 @@ from importlib.metadata import version as pkg_version
 from importlib.util import find_spec
 import re
 import shutil
-from typing import TYPE_CHECKING, Any, Awaitable, Callable, cast
+from typing import TYPE_CHECKING, Awaitable, Callable, cast
 from typing_extensions import Unpack
 from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
-    from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
-
-    from .models import HtmlRenderRequest, TemplateConfig, TemplateRenderRequest
     from .types import (
         BrowserLaunchKwargs,
         BrowserSessionKwargs,
-        CaptureElementKwargs,
         CdpConnectKwargs,
-        PageContextKwargs,
         ProxySettings,
-        RenderHtmlKwargs,
-        RenderMarkdownKwargs,
-        RenderTemplateKwargs,
-        RenderTextKwargs,
         WsConnectKwargs,
     )
 
@@ -39,7 +27,6 @@ from nonebot.log import logger
 from playwright.async_api import (
     Browser,
     BrowserType,
-    Page,
     Playwright,
     async_playwright,
 )
@@ -49,17 +36,9 @@ from nonebot_plugin_htmlrender.consts import BrowserEngine, RenderBackend
 from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
 
 from ..base import BackendCapability, RenderRuntime, RenderSession
-from ..factory import BackendAvailability, register_backend
-from . import operations as playwright_operations
+from ..factory import BackendAvailability
 from .config import PlaywrightConfig, get_playwright_config
 from .install import install_browser
-from .models import (
-    ContentConfig,
-    PageConfig,
-    RenderConfig,
-    ViewportConfig,
-    _build_screenshot_config,
-)
 from .runtime import (
     clear_playwright_env_vars,
     has_installed_browser,
@@ -214,133 +193,6 @@ class PlaywrightBackend:
         """
         browser = session.handle
         return isinstance(browser, Browser) and browser.is_connected()
-
-    @asynccontextmanager
-    async def get_render_context(
-        self,
-        session: RenderSession,
-        **kwargs: Unpack[PageContextKwargs],
-    ) -> AsyncIterator[Page]:
-        """在给定的浏览器会话中创建渲染上下文。
-
-        Args:
-            session: 活跃的 RenderSession，其 handle 应为 Browser。
-            **kwargs: 透传给 browser.new_page() 的额外选项。
-
-        Yields:
-            Page: 可立即使用的 Playwright Page 实例。
-        """
-        async with (
-            track_render("playwright.get_render_context", backend=self.backend),
-            playwright_operations.open_page_context(
-                session=session,
-                **kwargs,
-            ) as page,
-        ):
-            yield page
-
-    async def render_html(
-        self,
-        session: RenderSession,
-        request: HtmlRenderRequest | str,
-        **kwargs: Unpack[RenderHtmlKwargs],
-    ) -> bytes:
-        """委托 playwright_operations 执行 HTML 渲染。"""
-        return await playwright_operations.render_html(
-            request, session=session, **kwargs
-        )
-
-    async def rasterize_html(
-        self,
-        session: RenderSession,
-        prepared: PreparedHtml,
-        options: RasterOptions,
-    ) -> bytes:
-        """Execute a backend-neutral prepared document in Playwright."""
-        viewport_height = options.height if options.height is not None else 10
-        render = RenderConfig(
-            page=PageConfig(
-                viewport=ViewportConfig(
-                    width=options.width,
-                    height=viewport_height,
-                ),
-            ),
-            screenshot=_build_screenshot_config(
-                options.format,
-                quality=options.quality,
-                device_scale_factor=options.device_pixel_ratio,
-                screenshot_timeout=30_000,
-                full_page=options.height is None,
-                wait_before_screenshot=0,
-            ),
-        )
-        return await playwright_operations.render_prepared_html(
-            prepared,
-            content=ContentConfig(html=prepared.html),
-            render=render,
-            session=session,
-            strict_assets=True,
-            telemetry_op="playwright.html_render.rasterize_html",
-        )
-
-    async def render_text(
-        self,
-        session: RenderSession,
-        text: str,
-        **kwargs: Unpack[RenderTextKwargs],
-    ) -> bytes:
-        """委托 playwright_operations 执行文本渲染。"""
-        return await playwright_operations.render_text(text, session=session, **kwargs)
-
-    async def render_markdown(
-        self,
-        session: RenderSession,
-        markdown_text: str = "",
-        **kwargs: Unpack[RenderMarkdownKwargs],
-    ) -> bytes:
-        """委托 playwright_operations 执行 Markdown 渲染。"""
-        if "md" not in kwargs:
-            kwargs["md"] = markdown_text
-        return await playwright_operations.render_markdown(
-            session=session,
-            **kwargs,
-        )
-
-    async def render_template(
-        self,
-        session: RenderSession,
-        request: TemplateRenderRequest | str,
-        **kwargs: Unpack[RenderTemplateKwargs],
-    ) -> bytes:
-        """委托 playwright_operations 执行模板渲染。"""
-        return await playwright_operations.render_template(
-            request,
-            session=session,
-            **kwargs,
-        )
-
-    async def render_template_html(
-        self,
-        template: TemplateConfig | str,
-        **kwargs: Any,
-    ) -> str:
-        """委托 playwright_operations 将模板渲染为 HTML 字符串。"""
-        return await playwright_operations.render_template_html(template, **kwargs)
-
-    async def capture_html_element(
-        self,
-        session: RenderSession,
-        url: str,
-        element: str,
-        **kwargs: Unpack[CaptureElementKwargs],
-    ) -> bytes:
-        """委托 playwright_operations 捕获 HTML 元素截图。"""
-        return await playwright_operations.capture_html_element(
-            url,
-            element,
-            session=session,
-            **kwargs,
-        )
 
     @staticmethod
     def _normalize_endpoint(value: object) -> str | None:
@@ -793,14 +645,3 @@ def is_playwright_backend_available(
             "`skip_browser_install=true`."
         ),
     )
-
-
-def register_playwright_backend() -> None:
-    register_backend(
-        RenderBackend.PLAYWRIGHT,
-        PlaywrightBackend,
-        availability_checker=is_playwright_backend_available,
-    )
-
-
-register_playwright_backend()

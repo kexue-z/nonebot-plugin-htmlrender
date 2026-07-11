@@ -13,7 +13,6 @@ dependencies = [
     "markdown>=3.10.0",
     "nonebot-plugin-localstore>=0.7.4",
     "nonebot2>=2.5.0",
-    "playwright>=1.60.0",
     "pygments>=2.10.0",
     "pymdown-extensions>=11.0",
     "python-markdown-math>=0.8",
@@ -25,6 +24,12 @@ filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 takumi = ["takumi-py==0.2.0"]
+playwright = [
+    "playwright>=1.60.0",
+]
+all = [
+    "nonebot-plugin-htmlrender[filehost,playwright,prometheus,sentry,takumi]",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
@@ -65,12 +70,6 @@ markers = [
     "anyio: run async tests via anyio backend",
     "requires_browser: test needs a real Playwright browser",
 ]
-# In-house deprecation noise from compat shells (`_compat.*`, deprecated
-# data_source re-exports). Tests intentionally exercise these legacy paths.
-filterwarnings = [
-    "ignore:`.+` is deprecated\\. Use `.+` instead\\.:DeprecationWarning",
-    "ignore:Importing Playwright helpers from .+\\.data_source.+ is deprecated\\..+:DeprecationWarning",
-]
 
 [tool.coverage.run]
 omit = [
@@ -83,13 +82,6 @@ omit = [
     # Installation helpers
     "nonebot_plugin_htmlrender/utils/install.py",
     "nonebot_plugin_htmlrender/backend/playwright/install.py",
-    # Backward compat re-export shells
-    "nonebot_plugin_htmlrender/_compat.py",
-    "nonebot_plugin_htmlrender/browser.py",
-    "nonebot_plugin_htmlrender/data_source.py",
-    "nonebot_plugin_htmlrender/backend/playwright/data_source.py",
-    # Bootstrap hacks
-    "nonebot_plugin_htmlrender/_bootstrap.py",
 ]
 
 [tool.coverage.report]
