@@ -31,15 +31,15 @@ tags:
 
     对齐贡献入口、工程规范、编码风格和提交消息格式。
 
-    [工程协作与规范](contributing/engineering-guide.md)
+    [Pull Request 生命周期](contributing/pull-requests.md)
 
 - **质量与发布**
 
     ---
 
-    查看测试分层、CI 工作流和文档版本发布规则。
+    查看测试分层、CI 工作流、软件发布和文档版本规则。
 
-    [测试矩阵](quality/testing-matrix.md)
+    [发布流程](quality/release-process.md)
 
 </div>
 
@@ -62,9 +62,10 @@ tags:
 === "发布文档"
 
     1. [贡献指南](contributing/contributing.md)
-    2. [提交消息指南](contributing/commit-message.md)
-    3. [CI Actions](quality/ci-actions.md)
-    4. [文档版本管理](quality/versioning.md)
+    2. [Pull Request 生命周期](contributing/pull-requests.md)
+    3. [发布流程](quality/release-process.md)
+    4. [CI Actions](quality/ci-actions.md)
+    5. [文档版本管理](quality/versioning.md)
 
 ## 推荐同步阅读的用户文档
 
@@ -85,6 +86,7 @@ tags:
 ## 协作流程
 
 - [贡献指南](contributing/contributing.md)
+- [Pull Request 生命周期](contributing/pull-requests.md)
 - [工程协作与规范](contributing/engineering-guide.md)
 - [编码规范](contributing/coding-standards.md)
 - [提交消息指南](contributing/commit-message.md)
@@ -93,6 +95,7 @@ tags:
 
 - [测试矩阵](quality/testing-matrix.md)
 - [CI Actions](quality/ci-actions.md)
+- [发布流程](quality/release-process.md)
 - [文档版本管理](quality/versioning.md)
 
 ## 当前维护重点

@@ -96,5 +96,9 @@ BREAKING CHANGE: `render_html_to_image` has been removed. Use `render_html`.
 
 ## Squash 与历史整洁
 
-- 合并前建议整理“中间提交”（如 `fix typo`、`wip`）；
-- 保留有意义的提交边界，避免一个大提交覆盖多个独立主题。
+- PR 默认使用 squash merge，PR 标题必须可以直接作为最终 subject；
+- 合并前清理 `fix typo`、`wip`、`fixup!` 等中间提交语义；
+- squash body 保留必要的动机、兼容性说明、breaking change 和 issue 关联；
+- 只有确实需要在 `master` 长期保留多个独立提交边界时，维护者才例外选择 rebase merge。
+
+完整 review、checks 与合并后清理约定见 [Pull Request 生命周期](pull-requests.md)。

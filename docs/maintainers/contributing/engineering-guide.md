@@ -86,25 +86,26 @@ nonebot_plugin_htmlrender/
 - `make remote-smoke-build`：重建远程 smoke 镜像后执行，用于依赖或基础镜像变更
 - `make remote-smoke-down`：停止远程 smoke 服务并清理卷
 - `make ruff-format`：运行 `ruff format`
+- `make ruff-format-check`：以非修改模式运行 `ruff format --check`
 - `make ruff-check` / `make lint`：运行 `ruff check`
 - `make typecheck`：`basedpyright`
 - `make ty`：运行 `ty check`
-- `make check`：按 `ruff-format -> ruff-check -> basedpyright -> ty -> test-ci` 顺序运行本地门禁
-- `make build-artifacts`：手工构建发布产物（`wheel + sdist`）并输出校验和
-- `make docs-serve` / `make docs-build`：zensical 文档预览/构建；
+- `make check`：按非修改的 `ruff-format-check -> ruff-check -> basedpyright -> ty -> test-ci` 顺序运行本地门禁
+- `make build-artifacts`：以 `--no-sources` 构建发布产物，用 pinned `twine` 校验 metadata，并输出校验和
+- `make docs-serve` / `make docs-build`：zensical 文档预览/严格构建；
 - `make docs-deploy VERSION=x.y.z` / `make docs-list`：文档版本管理，详见 [文档版本管理](../quality/versioning.md)。
 
 ## 代码规范与格式要求
 
 本项目以 `pyproject.toml` 为准，核心规则：
 
-- 格式：`ruff format` 风格约束（双引号、空格缩进等）
+- 格式：`ruff format` 风格约束（双引号、空格缩进等），CI 使用 `--check`
 - Lint：`ruff check`（包含 `F/E/W/I/UP/.../RUF` 等规则集）
 - 类型检查：`basedpyright` 与 `ty`
 - 测试：`pytest`（含 `pytest-xdist`、`pytest-cov`）
 
 !!! tip "提交前建议"
-    至少执行一次 `make check`，保证格式化、lint、类型检查和测试同步通过。
+    先用 `make ruff-format` 格式化有意修改的代码，再执行一次 `make check`，保证非修改格式检查、lint、类型检查和测试同步通过。
 
 ## 提交门禁（Commit Gate）
 
@@ -159,6 +160,7 @@ make test-ci           # 快速验证环境
 
 ```bash
 make ruff-format
+make ruff-format-check
 make ruff-check
 make typecheck
 make ty
@@ -183,4 +185,4 @@ make build-artifacts
 ```
 
 !!! note "文档版本发布"
-    合并到 `master` 后的自动部署流程见 [文档版本管理](../quality/versioning.md)；GitHub Actions job 视角见 [CI Actions](../quality/ci-actions.md)。
+    合并到 `master` 后的软件发布流程见 [发布流程](../quality/release-process.md)，文档部署见 [文档版本管理](../quality/versioning.md)；GitHub Actions job 视角见 [CI Actions](../quality/ci-actions.md)。
