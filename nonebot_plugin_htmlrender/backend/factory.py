@@ -43,6 +43,10 @@ _backend_loaders: dict[RenderBackend, tuple[str, str | None]] = {
         "nonebot_plugin_htmlrender.backend.playwright.render",
         "register_playwright_backend",
     ),
+    RenderBackend.TAKUMI: (
+        "nonebot_plugin_htmlrender.backend.takumi.render",
+        "register_takumi_backend",
+    ),
 }
 
 

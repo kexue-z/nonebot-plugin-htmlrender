@@ -26,6 +26,7 @@ def isolated_backend_registry() -> Generator[None, None, None]:
     previous = dict(factory._backend_registry)
     previous_loaders = dict(factory._backend_loaders)
     factory._backend_registry.clear()
+    factory._backend_loaders.clear()
     try:
         yield
     finally:
