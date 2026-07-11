@@ -55,7 +55,7 @@ from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
 from ..base import BackendCapability, RenderRuntime, RenderSession
 from ..factory import BackendAvailability, register_backend
 from . import operations as playwright_operations
-from .config import get_playwright_config
+from .config import PlaywrightConfig, get_playwright_config
 from .install import install_browser
 from .models import (
     ContentConfig,
@@ -714,10 +714,15 @@ def _has_available_channel_browser(channel: str) -> bool:
     )
 
 
-def is_playwright_backend_available() -> BackendAvailability:
+def is_playwright_backend_available(
+    cfg: PlaywrightConfig | None = None,
+) -> BackendAvailability:
     """检查 Playwright 后端是否可用。
 
     依次检查 playwright 包安装状态、配置有效性、远程端点或本地浏览器可用性。
+
+    Args:
+        cfg: 已解析的 Playwright 配置；为 ``None`` 时读取当前配置。
 
     Returns:
         包含可用性状态和原因的 BackendAvailability 对象。
@@ -728,13 +733,14 @@ def is_playwright_backend_available() -> BackendAvailability:
             reason="Python package `playwright` is not installed.",
         )
 
-    try:
-        cfg = get_playwright_config()
-    except Exception as e:
-        return BackendAvailability(
-            available=False,
-            reason=f"Invalid Playwright config: {e}",
-        )
+    if cfg is None:
+        try:
+            cfg = get_playwright_config()
+        except Exception as e:
+            return BackendAvailability(
+                available=False,
+                reason=f"Invalid Playwright config: {e}",
+            )
 
     if cfg.connect_cdp.endpoint:
         if not _has_valid_remote_endpoint(

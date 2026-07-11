@@ -1,0 +1,1 @@
+"""Takumi provider adapter."""

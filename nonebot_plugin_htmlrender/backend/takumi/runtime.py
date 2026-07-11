@@ -31,6 +31,8 @@ from .validation import (
 if TYPE_CHECKING:
     from takumi_py import FontResourceInput
 
+    from nonebot_plugin_htmlrender.resources.observation import CacheObserver
+
     from .config import GenericFontFamily, TakumiConfig, TakumiFontConfig
     from .types import NativeCompiledHtml, NativeRenderer, TakumiImageResource
 
@@ -234,6 +236,7 @@ class TakumiRuntimeState:
     limiter: anyio.CapacityLimiter
     config: TakumiConfig
     registered_font_families: tuple[str, ...] = ()
+    cache_observer: CacheObserver | None = None
     _compiled: SyncWeightedSingleflightLRU[tuple[object, ...], object] = field(
         init=False,
         repr=False,
@@ -267,10 +270,15 @@ class TakumiRuntimeState:
     )
 
     def __post_init__(self) -> None:
+        observer = (
+            self.cache_observer
+            if self.cache_observer is not None
+            else TelemetryCacheObserver()
+        )
         self._compiled = SyncWeightedSingleflightLRU(
             max_entries=self.config.compiled_cache_max_entries,
             max_weight=self.config.compiled_cache_max_bytes,
-            observer=TelemetryCacheObserver(),
+            observer=observer,
             cache_name="takumi_compiled",
         )
         self._drained.set()
@@ -757,7 +765,11 @@ def render_defaults(
     return options
 
 
-async def create_runtime_state(config: TakumiConfig) -> TakumiRuntimeState:
+async def create_runtime_state(
+    config: TakumiConfig,
+    *,
+    cache_observer: CacheObserver | None = None,
+) -> TakumiRuntimeState:
     """Create one renderer and register revalidated font bytes exactly once."""
 
     limiter = anyio.CapacityLimiter(config.max_concurrency)
@@ -820,6 +832,7 @@ async def create_runtime_state(config: TakumiConfig) -> TakumiRuntimeState:
         limiter=limiter,
         config=config.model_copy(deep=True),
         registered_font_families=registered_families,
+        cache_observer=cache_observer,
     )
     state._font_registrations.update(registrations)
     return state

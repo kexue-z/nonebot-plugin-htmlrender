@@ -1,4 +1,4 @@
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 from typing import Any, cast
 
@@ -239,6 +239,23 @@ class PlaywrightPluginConfig(BaseModel):
     render_playwright: PlaywrightConfig = Field(default_factory=PlaywrightConfig)
 
 
+PlaywrightConfigProvider = Callable[[], PlaywrightConfig]
+
+_config_provider: PlaywrightConfigProvider | None = None
+
+
+def register_playwright_config_provider(
+    provider: PlaywrightConfigProvider | None,
+) -> PlaywrightConfigProvider | None:
+    """Install the composed settings provider; returns the previous one."""
+    global _config_provider  # noqa: PLW0603
+    previous = _config_provider
+    _config_provider = provider
+    return previous
+
+
 def get_playwright_config() -> PlaywrightConfig:
     """获取当前 Playwright 配置。"""
+    if _config_provider is not None:
+        return _config_provider()
     return get_plugin_config(PlaywrightPluginConfig).render_playwright
