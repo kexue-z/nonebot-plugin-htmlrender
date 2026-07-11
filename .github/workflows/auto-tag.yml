@@ -1,89 +1,180 @@
-name: Auto Tag on Release Merge
+name: Auto Tag on Version Change
 
 on:
-  pull_request:
-    types: [closed]
+  push:
     branches: [master]
+    paths:
+      - pyproject.toml
+
+permissions: {}
 
 concurrency:
-  group: auto-tag-master
-  cancel-in-progress: false
+  group: auto-tag-${{ github.sha }}
+  cancel-in-progress: true
 
 jobs:
   tag-and-dispatch:
-    name: Tag merged version & dispatch publish
-    # Skip fork PRs: GITHUB_TOKEN from forks is read-only and cannot push tags
-    # or dispatch workflows. Version-bump PRs must originate from same-repo branches.
-    if: >-
-      github.event.pull_request.merged == true &&
-      github.event.pull_request.head.repo.full_name == github.repository
+    name: Tag version change & dispatch publish
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
-      contents: write
-      actions: write
+      actions: write # Dispatch publish.yml after the tag reaches the remote.
+      contents: write # Create the tag at the verified master commit.
     steps:
-      - name: Checkout master
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Checkout the pushed commit
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: master
+          ref: ${{ github.sha }}
           fetch-depth: 0
           fetch-tags: true
           persist-credentials: false
 
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
-          enable-cache: true
+          python-version: "3.12"
+          version: "0.11.28"
+          enable-cache: false
 
-      - name: Read version from pyproject
+      - name: Verify source and detect a version change
         id: version
         shell: bash
-        run: |
-          VERSION=$(uv version --short)
-          TAG="v${VERSION}"
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved: ${VERSION} -> tag ${TAG}"
-
-      - name: Check if tag already exists
-        id: check
-        shell: bash
         env:
-          TAG: ${{ steps.version.outputs.tag }}
+          BEFORE_SHA: ${{ github.event.before }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
-          if git rev-parse -q --verify "refs/tags/${TAG}" >/dev/null; then
-            echo "exists=true" >> "${GITHUB_OUTPUT}"
-            echo "Tag ${TAG} already exists; skipping."
-          else
-            echo "exists=false" >> "${GITHUB_OUTPUT}"
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/heads/master:refs/remotes/origin/master"
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "${HEAD_SHA}" != "${SOURCE_SHA}" ]]; then
+            echo "::error::Checked out ${HEAD_SHA}, expected pushed commit ${SOURCE_SHA}."
+            exit 1
+          fi
+          if ! git merge-base --is-ancestor "${SOURCE_SHA}" origin/master; then
+            echo "::error::Pushed commit ${SOURCE_SHA} is not on master."
+            exit 1
+          fi
+          if ! git cat-file -e "${BEFORE_SHA}:pyproject.toml"; then
+            echo "::error::Cannot read pyproject.toml from pre-push commit ${BEFORE_SHA}."
+            exit 1
           fi
 
-      - name: Create and push tag
-        if: steps.check.outputs.exists == 'false'
+          PREVIOUS_VERSION=$(git show "${BEFORE_SHA}:pyproject.toml" | python3 -c \
+            'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')
+          VERSION=$(uv version --short)
+          if [[ "${VERSION}" == "${PREVIOUS_VERSION}" ]]; then
+            echo "changed=false" >> "${GITHUB_OUTPUT}"
+            echo "Project version remains ${VERSION}; no release tag is needed."
+            exit 0
+          fi
+
+          uvx --from packaging==26.2 python - "${PREVIOUS_VERSION}" "${VERSION}" <<'PY'
+          import sys
+
+          from packaging.version import InvalidVersion, Version
+
+          previous_raw, current_raw = sys.argv[1:]
+          try:
+              previous = Version(previous_raw)
+              current = Version(current_raw)
+          except InvalidVersion as error:
+              raise SystemExit(f"::error::Invalid PEP 440 project version: {error}") from error
+
+          if str(previous) != previous_raw or str(current) != current_raw:
+              raise SystemExit(
+                  "::error::Project versions must use canonical PEP 440 spelling: "
+                  f"{previous_raw!r} -> {previous}, {current_raw!r} -> {current}.",
+              )
+          if current.local is not None:
+              raise SystemExit("::error::PyPI releases cannot use a local version segment.")
+          if current <= previous:
+              raise SystemExit(
+                  f"::error::Automatic releases must increase the version: {previous} -> {current}.",
+              )
+          PY
+
+          TAG="v${VERSION}"
+          if [[ "${TAG}" != v* ]] || \
+            ! git check-ref-format "refs/tags/${TAG}"; then
+            echo "::error::Invalid release tag derived from project version: ${TAG}"
+            exit 1
+          fi
+          uv lock --check
+          echo "changed=true" >> "${GITHUB_OUTPUT}"
+          echo "previous_version=${PREVIOUS_VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Detected version change ${PREVIOUS_VERSION} -> ${VERSION}."
+
+      - name: Build and validate release candidates before tagging
+        if: steps.version.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          uv build --clear --no-sources --wheel --sdist
+          WHEEL_COUNT=$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)
+          SDIST_COUNT=$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)
+          if [[ "${WHEEL_COUNT}" -ne 1 || "${SDIST_COUNT}" -ne 1 ]]; then
+            echo "::error::Expected one wheel and one sdist, found ${WHEEL_COUNT} wheel(s) and ${SDIST_COUNT} sdist(s)."
+            exit 1
+          fi
+          uvx --from twine==6.2.0 twine check dist/*
+          sha256sum dist/*
+
+      - name: Decide whether to create or reuse the tag
+        if: steps.version.outputs.changed == 'true'
+        id: tag
         shell: bash
         env:
+          SOURCE_SHA: ${{ github.sha }}
           TAG: ${{ steps.version.outputs.tag }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          PR_TITLE: ${{ github.event.pull_request.title }}
-          MERGE_SHA: ${{ github.event.pull_request.merge_commit_sha }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin \
+            "refs/tags/${TAG}" >/dev/null 2>&1; then
+            git fetch --force --no-tags origin \
+              "refs/tags/${TAG}:refs/tags/${TAG}"
+            TAG_SHA=$(git rev-list -n 1 "refs/tags/${TAG}")
+            if [[ "${TAG_SHA}" != "${SOURCE_SHA}" ]]; then
+              echo "::error::Tag ${TAG} already points to ${TAG_SHA}, not ${SOURCE_SHA}."
+              exit 1
+            fi
+            echo "create=false" >> "${GITHUB_OUTPUT}"
+            echo "Tag ${TAG} already points to ${SOURCE_SHA}; reusing it."
+          else
+            echo "create=true" >> "${GITHUB_OUTPUT}"
+          fi
+
+      - name: Create and push the tag
+        if: steps.version.outputs.changed == 'true' && steps.tag.outputs.create == 'true'
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SOURCE_SHA: ${{ github.sha }}
+          TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-          git tag -a "${TAG}" -m "Release ${TAG} (#${PR_NUMBER}: ${PR_TITLE})" -m "Merge commit: ${MERGE_SHA}"
-          git push origin "${TAG}"
-          echo "Pushed tag: ${TAG}"
+          git tag -a "${TAG}" "${SOURCE_SHA}" \
+            -m "Release ${TAG}" \
+            -m "Source commit: ${SOURCE_SHA}"
+          git remote set-url origin \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "refs/tags/${TAG}"
+          echo "Pushed ${TAG} at ${SOURCE_SHA}."
 
-      - name: Dispatch publish workflow
-        if: steps.check.outputs.exists == 'false'
+      - name: Dispatch the publish workflow from the tag
+        if: steps.version.outputs.changed == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
+          set -euo pipefail
           gh workflow run publish.yml \
-            --ref master \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${TAG}" \
             -f release_tag="${TAG}"
-          echo "Dispatched publish.yml with release_tag=${TAG}"
+          echo "Dispatched publish.yml from ${TAG}."

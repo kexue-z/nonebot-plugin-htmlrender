@@ -3,76 +3,103 @@ name: Publish (TestPyPI)
 on:
   workflow_dispatch:
 
+permissions: {}
+
 concurrency:
   group: testpypi-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
-  testpypi-publish:
-    name: Upload preview to TestPyPI
+  build:
+    name: Build preview distributions
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    environment: testpypi
+    timeout-minutes: 20
     permissions:
       contents: read
-      id-token: write
+    outputs:
+      dev_version: ${{ steps.version.outputs.dev_version }}
     env:
       BUILD_LOG: publish-test-build.log
     steps:
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Checkout selected source
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
+          version: "0.11.28"
           enable-cache: false
 
-      - name: Show Runner Context
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          uv --version
-
-      - name: Compute dev version
+      - name: Compute a unique development version
         id: version
         shell: bash
         run: |
+          set -euo pipefail
           BASE_VERSION=$(uv version --short)
           TIMESTAMP=$(date -u +%Y%m%d%H%M%S)
-          DEV_VERSION="${BASE_VERSION}.dev${TIMESTAMP}"
-          uv version "${DEV_VERSION}"
+          DEV_VERSION="${BASE_VERSION}.dev${TIMESTAMP}${GITHUB_RUN_NUMBER}${GITHUB_RUN_ATTEMPT}"
+          uv version --no-sync "${DEV_VERSION}"
+          uv lock --check
           echo "dev_version=${DEV_VERSION}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved dev version: ${DEV_VERSION}"
+          echo "Resolved TestPyPI version ${DEV_VERSION}."
 
-      - name: Build Package
+      - name: Build wheel and source distribution
+        shell: bash
         run: |
           set -o pipefail
-          uv build 2>&1 | tee "${BUILD_LOG}"
+          uv build --no-sources --wheel --sdist 2>&1 | tee "${BUILD_LOG}"
 
-      - name: Show built distributions
+      - name: Validate distributions
+        shell: bash
         run: |
-          ls -la dist
-          sha256sum dist/* || true
+          set -euo pipefail
+          WHEEL_COUNT=$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)
+          SDIST_COUNT=$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)
+          if [[ "${WHEEL_COUNT}" -ne 1 || "${SDIST_COUNT}" -ne 1 ]]; then
+            echo "::error::Expected one wheel and one sdist, found ${WHEEL_COUNT} wheel(s) and ${SDIST_COUNT} sdist(s)."
+            exit 1
+          fi
+          uvx --from twine==6.2.0 twine check dist/*
+          sha256sum dist/*
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Upload preview distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: artifact-testpypi
-          path: dist/
+          name: testpypi-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
           if-no-files-found: error
           retention-days: 14
 
-      - name: Upload build logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: publish-test-build-logs
+          name: publish-test-build-log
           path: ${{ env.BUILD_LOG }}
           if-no-files-found: warn
           retention-days: 14
 
+  publish-testpypi:
+    name: Upload preview to TestPyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: testpypi
+    permissions:
+      id-token: write # Exchange OIDC for a short-lived TestPyPI credential.
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: testpypi-distributions
+          path: dist/
+
       - name: Publish to TestPyPI
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
         with:
           repository-url: https://test.pypi.org/legacy/
+          skip-existing: true
