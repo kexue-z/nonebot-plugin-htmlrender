@@ -1,8 +1,9 @@
 from nonebot_plugin_htmlrender.backend.playwright.models import (
     JpegScreenshotOptions,
     PngScreenshotOptions,
+    create_jpeg_config,
+    create_png_config,
 )
-from nonebot_plugin_htmlrender.render import create_jpeg_config, create_png_config
 from nonebot_plugin_htmlrender.utils import signal as html_signal
 from nonebot_plugin_htmlrender.utils import telemetry as html_telemetry
 from nonebot_plugin_htmlrender.utils.signal import (

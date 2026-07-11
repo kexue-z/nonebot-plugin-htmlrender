@@ -85,11 +85,11 @@ def ensure_filehost_plugin_loaded(*, reason: str, strict: bool = False) -> bool:
 
     try:
         require("nonebot_plugin_filehost")
-        from nonebot_plugin_htmlrender._bootstrap import (  # noqa: PLC0415
-            _patch_filehost_request_headers_validator,
+        from nonebot_plugin_htmlrender.bootstrap.plugin import (  # noqa: PLC0415
+            patch_filehost_request_headers_validator,
         )
 
-        _patch_filehost_request_headers_validator()
+        patch_filehost_request_headers_validator()
     except Exception as e:
         _FILEHOST_PREWARM_STATE["last_error"] = str(e)
         if strict:

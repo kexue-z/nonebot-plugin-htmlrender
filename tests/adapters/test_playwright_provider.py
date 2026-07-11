@@ -151,9 +151,8 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
         captured.update(kwargs)
         return b"img"
 
-    mocker.patch.object(
-        provider_module,
-        "render_prepared_html",
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.render_prepared_html",
         fake_render_prepared_html,
     )
 

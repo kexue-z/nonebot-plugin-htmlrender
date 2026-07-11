@@ -57,29 +57,21 @@ def _configure_playwright_test_env() -> None:
 
 
 def _build_test_init_kwargs() -> dict[str, Any]:
-    common: dict[str, Any] = {
+    provider_config: dict[str, Any] = {
+        "engine": "chromium",
+        "skip_browser_install": True,
+    }
+    if not _is_ci_test_profile():
+        provider_config["storage_path"] = str(_TEST_PLAYWRIGHT_BROWSERS_PATH)
+
+    return {
         "superusers": {"10001"},
         "command_start": {""},
         "log_level": "DEBUG",
-        "render_backend": "playwright",
-        "render_startup_mode": "off",
-    }
-
-    if _is_ci_test_profile():
-        return {
-            **common,
-            "render_playwright": {
-                "engine": "chromium",
-                "skip_browser_install": True,
-            },
-        }
-
-    return {
-        **common,
-        "render_storage_path": str(_TEST_PLAYWRIGHT_BROWSERS_PATH),
-        "render_playwright": {
-            "engine": "chromium",
-            "skip_browser_install": True,
+        "render": {
+            "provider": "playwright",
+            "startup": "off",
+            "provider_config": provider_config,
         },
     }
 

@@ -2,7 +2,8 @@
 
 Everything browser-specific that no longer travels through the neutral
 render commands lives here: raw page contexts (navigation, user agent,
-headers, browser/page options) and selector capture.
+headers, browser/page options) and selector capture. Browser modules are
+imported lazily to keep the plugin import path light.
 """
 
 from __future__ import annotations
@@ -10,10 +11,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, final
 
-from nonebot_plugin_htmlrender.backend.playwright._page import open_page_context
-from nonebot_plugin_htmlrender.backend.playwright.operations import (
-    capture_html_element,
-)
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityKey
 
 if TYPE_CHECKING:
@@ -42,6 +39,10 @@ class PlaywrightCapabilities:
         **kwargs: Unpack[PageContextKwargs],
     ) -> AsyncIterator[Page]:
         """Open a caller-controlled page bound to the leased browser."""
+        from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+            open_page_context,
+        )
+
         session = await self._lifecycle.lease()
         async with open_page_context(session=session, **kwargs) as page:
             yield page
@@ -53,6 +54,10 @@ class PlaywrightCapabilities:
         **kwargs: Unpack[CaptureElementKwargs],
     ) -> bytes:
         """Navigate to ``url`` and capture ``element`` as image bytes."""
+        from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+            capture_html_element,
+        )
+
         session = await self._lifecycle.lease()
         return await capture_html_element(url, element, session=session, **kwargs)
 

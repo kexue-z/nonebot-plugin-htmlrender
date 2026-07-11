@@ -108,61 +108,71 @@ async def _main() -> None:
     nonebot.init(
         driver="~none",
         log_level="INFO",
-        render_backend="playwright",
-        render_startup_mode="off",
-        render_playwright=_playwright_config(),
+        render={
+            "provider": "playwright",
+            "startup": "off",
+            "provider_config": _playwright_config(),
+        },
     )
     nonebot.require("nonebot_plugin_htmlrender")
 
     from nonebot_plugin_htmlrender import (  # noqa: PLC0415
+        ResourcePolicy,
+        get_default_application,
         render_html,
         render_markdown,
         render_template,
         render_text,
-        shutdown_render,
-        startup_render,
     )
 
     _ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
-    await startup_render()
+    application = get_default_application()
+    await application.startup()
     try:
-        html_bytes = await render_html(
+        html_artifact = await render_html(
             "<html><body><h1>remote smoke</h1></body></html>",
-            device_scale_factor=1,
+            device_pixel_ratio=1.0,
         )
+        html_bytes = bytes(html_artifact)
         _assert_png(html_bytes, label="plain HTML")
 
         with TemporaryDirectory(prefix="htmlrender-memory-smoke-") as temporary:
             markdown_path, stylesheet_path = _prepare_local_fixtures(Path(temporary))
 
-            text_bytes = await render_text(
-                "remote font and background smoke",
-                css_path=str(stylesheet_path),
-                width=1200,
-                device_scale_factor=1,
+            text_bytes = bytes(
+                await render_text(
+                    "remote font and background smoke",
+                    css_path=str(stylesheet_path),
+                    width=1200,
+                    device_pixel_ratio=1.0,
+                )
             )
             _assert_png(text_bytes, label="text CSS assets")
             (_ARTIFACT_DIR / "remote_memory_text.png").write_bytes(text_bytes)
 
-            markdown_bytes = await render_markdown(
-                md_path=str(markdown_path),
-                width=1200,
-                device_scale_factor=1,
+            markdown_bytes = bytes(
+                await render_markdown(
+                    markdown_path=str(markdown_path),
+                    width=1200,
+                    device_pixel_ratio=1.0,
+                )
             )
             _assert_png(markdown_bytes, label="Markdown relative image")
             (_ARTIFACT_DIR / "remote_memory_markdown.png").write_bytes(markdown_bytes)
 
-            template_bytes = await render_template(
-                temporary,
-                template_name="remote_filehost.html.jinja2",
-                templates={
-                    "title": "remote template resource smoke",
-                    "avatar": "relative.png",
-                },
-                pages={"viewport": {"width": 1200, "height": 600}},
-                wait=100,
-                device_scale_factor=1,
-                resource_strict=True,
+            template_bytes = bytes(
+                await render_template(
+                    temporary,
+                    "remote_filehost.html.jinja2",
+                    {
+                        "title": "remote template resource smoke",
+                        "avatar": "relative.png",
+                    },
+                    width=1200,
+                    height=600,
+                    device_pixel_ratio=1.0,
+                    resource_policy=ResourcePolicy.STRICT,
+                )
             )
         (_ARTIFACT_DIR / "remote_memory_template.png").write_bytes(template_bytes)
 
@@ -181,7 +191,7 @@ async def _main() -> None:
             f"template_diff={diff_score:.2f}"
         )
     finally:
-        await shutdown_render()
+        await application.aclose()
 
 
 if __name__ == "__main__":

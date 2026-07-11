@@ -2,7 +2,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from importlib import import_module
 
-from nonebot_plugin_htmlrender.config import plugin_config
 from nonebot_plugin_htmlrender.consts import RenderBackend
 
 from .base import Backend
@@ -183,44 +182,3 @@ def unavailable_backends() -> tuple[RenderBackend, ...]:
 def is_backend_available(backend: RenderBackend) -> bool:
     """检查指定后端是否可用。"""
     return get_backend_status(backend).available
-
-
-def build_backend(
-    backend: RenderBackend | None = None,
-) -> Backend:
-    """构建并返回指定的渲染后端实例。
-
-    Args:
-        backend: 渲染后端标识，为 None 时使用配置中的默认后端。
-
-    Returns:
-        构建完成的后端实例。
-
-    Raises:
-        RuntimeError: 后端未配置、未注册或不可用时。
-    """
-    selected_backend = backend or plugin_config.render_backend
-    if selected_backend is None:
-        raise RuntimeError(
-            "render_backend is not configured. Set `render_backend` to a backend name."
-        )
-
-    ensure_backend_loaded(selected_backend)
-    status = get_backend_status(selected_backend)
-    if not status.registered:
-        available = ", ".join(item.value for item in registered_backends()) or "none"
-        raise RuntimeError(
-            f"Backend `{selected_backend}` is not registered. "
-            f"Registered backends: {available}."
-        )
-
-    if not status.available:
-        available = ", ".join(item.value for item in available_backends()) or "none"
-        raise RuntimeError(
-            f"Backend `{selected_backend}` is currently unavailable. "
-            f"{status.reason or 'No availability reason was provided.'} "
-            f"Available backends: {available}."
-        )
-
-    registered = _backend_registry[selected_backend]
-    return registered.builder()

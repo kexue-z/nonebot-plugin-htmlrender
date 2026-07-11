@@ -46,10 +46,14 @@ _config_provider: ResourceConfigProvider | None = None
 _DEFAULT_CONFIG = ResourceConfig()
 
 
-def register_resource_config_provider(provider: ResourceConfigProvider) -> None:
-    """注册资源配置提供器。"""
+def register_resource_config_provider(
+    provider: ResourceConfigProvider | None,
+) -> ResourceConfigProvider | None:
+    """注册资源配置提供器；返回先前的提供器。"""
     global _config_provider  # noqa: PLW0603
+    previous = _config_provider
     _config_provider = provider
+    return previous
 
 
 def get_resource_config() -> ResourceConfig:

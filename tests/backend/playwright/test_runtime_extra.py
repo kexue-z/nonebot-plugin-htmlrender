@@ -11,10 +11,22 @@ if TYPE_CHECKING:
 
 def test_runtime_storage_and_legacy_path_helpers(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+        PlaywrightConfig,
+        register_playwright_config_provider,
+    )
 
-    mocker.patch.object(runtime.plugin_config, "render_storage_path", "~/pw-cache")
-    storage = runtime.get_playwright_storage_path()
-    assert isinstance(storage, Path)
+    configured = PlaywrightConfig.model_validate({"storage_path": "~/pw-cache"})
+    previous = register_playwright_config_provider(lambda: configured)
+    try:
+        storage = runtime.get_playwright_storage_path()
+        assert isinstance(storage, Path)
+        assert storage == Path("~/pw-cache").expanduser()
+    finally:
+        register_playwright_config_provider(previous)
+
+    default_storage = runtime.get_playwright_storage_path()
+    assert isinstance(default_storage, Path)
 
     mocker.patch(
         "nonebot_plugin_htmlrender.backend.playwright.runtime.platform.system",

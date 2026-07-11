@@ -93,7 +93,9 @@ def test_register_and_query_backend_status(isolated_backend_registry: None) -> N
     assert factory.is_backend_registered(RenderBackend.PLAYWRIGHT) is True
     assert factory.registered_backends() == (RenderBackend.PLAYWRIGHT,)
     assert factory.get_backend_status(RenderBackend.PLAYWRIGHT).available is True
-    assert factory.build_backend(RenderBackend.PLAYWRIGHT) is backend_object
+    assert factory._backend_registry[RenderBackend.PLAYWRIGHT].builder() is (
+        backend_object
+    )
 
 
 def test_register_backend_conflict_and_force_override(
@@ -117,7 +119,7 @@ def test_register_backend_conflict_and_force_override(
         lambda: _DummyBackend(RenderBackend.PLAYWRIGHT, marker="second"),
         force=True,
     )
-    built = factory.build_backend(RenderBackend.PLAYWRIGHT)
+    built = factory._backend_registry[RenderBackend.PLAYWRIGHT].builder()
     assert isinstance(built, _DummyBackend)
     assert built.marker == "second"
 
@@ -174,88 +176,6 @@ def test_available_and_unavailable_backends(isolated_backend_registry: None) -> 
     assert factory.available_backends() == (RenderBackend.PLAYWRIGHT,)
     assert RenderBackend.SKIA in factory.unavailable_backends()
     assert factory.is_backend_available(RenderBackend.SKIA) is False
-
-
-def test_build_backend_uses_config_and_validates_status(
-    isolated_backend_registry: None,
-    mocker: MockerFixture,
-) -> None:
-    del isolated_backend_registry
-
-    mocker.patch.dict(factory._backend_loaders, {}, clear=True)
-    mocker.patch.object(factory.plugin_config, "render_backend", None)
-    with pytest.raises(RuntimeError, match="render_backend is not configured"):
-        factory.build_backend()
-
-    mocker.patch.object(
-        factory.plugin_config, "render_backend", RenderBackend.PLAYWRIGHT
-    )
-    with pytest.raises(RuntimeError, match="is not registered"):
-        factory.build_backend()
-
-    factory.register_backend(
-        RenderBackend.PLAYWRIGHT,
-        lambda: _DummyBackend(RenderBackend.PLAYWRIGHT, marker="pw"),
-        availability_checker=lambda: BackendAvailability(
-            available=False, reason="not ready"
-        ),
-    )
-    with pytest.raises(RuntimeError, match="currently unavailable"):
-        factory.build_backend()
-
-    factory.register_backend(
-        RenderBackend.PLAYWRIGHT,
-        lambda: _DummyBackend(RenderBackend.PLAYWRIGHT, marker="pw-ok"),
-        availability_checker=lambda: BackendAvailability(available=True),
-        force=True,
-    )
-    built = factory.build_backend()
-    assert isinstance(built, _DummyBackend)
-    assert built.marker == "pw-ok"
-
-
-def test_build_backend_does_not_load_backend_when_config_is_missing(
-    isolated_backend_registry: None,
-    mocker: MockerFixture,
-) -> None:
-    del isolated_backend_registry
-
-    import_module = mocker.patch.object(factory, "import_module")
-    mocker.patch.object(factory.plugin_config, "render_backend", None)
-
-    with pytest.raises(RuntimeError, match="render_backend is not configured"):
-        factory.build_backend()
-
-    import_module.assert_not_called()
-
-
-def test_build_backend_loads_selected_backend(
-    isolated_backend_registry: None,
-    mocker: MockerFixture,
-) -> None:
-    del isolated_backend_registry
-
-    def _register_backend() -> None:
-        factory.register_backend(
-            RenderBackend.PLAYWRIGHT,
-            lambda: _DummyBackend(RenderBackend.PLAYWRIGHT, marker="loaded"),
-        )
-
-    fake_module = SimpleNamespace(register_fake_backend=_register_backend)
-    mocker.patch.dict(
-        factory._backend_loaders,
-        {RenderBackend.PLAYWRIGHT: ("fake_backend", "register_fake_backend")},
-        clear=True,
-    )
-    import_module = mocker.patch.object(
-        factory, "import_module", return_value=fake_module
-    )
-
-    built = factory.build_backend(RenderBackend.PLAYWRIGHT)
-
-    import_module.assert_called_once_with("fake_backend")
-    assert isinstance(built, _DummyBackend)
-    assert built.marker == "loaded"
 
 
 def test_get_backend_status_loads_known_backend(

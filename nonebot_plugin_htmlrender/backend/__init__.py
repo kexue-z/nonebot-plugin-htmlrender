@@ -1,3 +1,10 @@
+"""Legacy backend contracts, kept import-light until the physical migration.
+
+Only the engine-neutral protocol types are re-exported here; the registry in
+``.factory`` must be imported explicitly so that backend submodule imports
+never load NoneBot configuration as a side effect.
+"""
+
 from .base import (
     Backend,
     BackendCapability,
@@ -14,26 +21,11 @@ from .base import (
     SupportsTemplateRenderBackend,
     SupportsTextRenderBackend,
 )
-from .factory import (
-    BackendAvailability,
-    BackendStatus,
-    available_backends,
-    backend_statuses,
-    build_backend,
-    get_backend_status,
-    is_backend_available,
-    is_backend_registered,
-    register_backend,
-    registered_backends,
-    unavailable_backends,
-)
 
 __all__ = [
     "Backend",
-    "BackendAvailability",
     "BackendCapability",
     "BackendExtension",
-    "BackendStatus",
     "RenderRuntime",
     "RenderSession",
     "SupportsBackendExtensions",
@@ -45,13 +37,4 @@ __all__ = [
     "SupportsTemplateHtmlRenderBackend",
     "SupportsTemplateRenderBackend",
     "SupportsTextRenderBackend",
-    "available_backends",
-    "backend_statuses",
-    "build_backend",
-    "get_backend_status",
-    "is_backend_available",
-    "is_backend_registered",
-    "register_backend",
-    "registered_backends",
-    "unavailable_backends",
 ]

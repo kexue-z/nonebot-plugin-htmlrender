@@ -1,34 +1,22 @@
-"""Playwright engine provider: settings, availability, and composition."""
+"""Playwright engine provider: settings, availability, and composition.
+
+Browser modules are imported lazily so that loading the plugin with
+``startup: off`` never pulls the Playwright package until the first render.
+"""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
+from dataclasses import replace
 from typing import TYPE_CHECKING, final
-
-from playwright.async_api import Error as PlaywrightError
 
 from nonebot_plugin_htmlrender.adapters._lease import (
     LeasedBackendLifecycle,
     LeasedPreparedHtmlExecutor,
 )
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-    PlaywrightCapabilities,
-)
-from nonebot_plugin_htmlrender.backend.playwright._page import open_page_context
 from nonebot_plugin_htmlrender.backend.playwright.config import (
     PlaywrightConfig,
     register_playwright_config_provider,
-)
-from nonebot_plugin_htmlrender.backend.playwright.models import (
-    ContentConfig,
-    PageConfig,
-    RenderConfig,
-    ViewportConfig,
-    _build_screenshot_config,
-)
-from nonebot_plugin_htmlrender.backend.playwright.operations import (
-    render_prepared_html,
 )
 from nonebot_plugin_htmlrender.consts import (
     LocalLocalResourcePolicy,
@@ -62,6 +50,7 @@ if TYPE_CHECKING:
         PreparedHtml,
         RasterOptions,
     )
+    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
 
 _OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "playwright"}
 
@@ -80,8 +69,6 @@ def _translate(
         raise ResourceResolutionError(str(error)) from error
     except ResourceResolveError as error:
         raise ResourceResolutionError(str(error)) from error
-    except PlaywrightError as error:
-        raise runtime_error(f"Playwright {operation} failed: {error}") from error
     except Exception as error:
         raise runtime_error(f"Playwright {operation} failed: {error}") from error
 
@@ -101,6 +88,17 @@ async def _rasterize(
     options: RasterOptions,
     resource_policy: ResourcePolicy | None,
 ) -> bytes:
+    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+        ContentConfig,
+        PageConfig,
+        RenderConfig,
+        ViewportConfig,
+        _build_screenshot_config,
+    )
+    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+        render_prepared_html,
+    )
+
     viewport_height = options.height if options.height is not None else 10
     render = RenderConfig(
         page=PageConfig(
@@ -129,6 +127,10 @@ async def _rasterize(
 
 
 async def _probe(session: RenderSession) -> None:
+    from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+        open_page_context,
+    )
+
     async with open_page_context(session=session):
         return
 
@@ -174,6 +176,30 @@ class PlaywrightProvider:
             )
         return ()
 
+    def resource_configuration(
+        self,
+        settings: object,
+        base: ResourceConfig,
+    ) -> ResourceConfig:
+        config = self._narrow(settings)
+        return replace(
+            base,
+            is_remote_mode=bool(
+                config.connect_ws.endpoint or config.connect_cdp.endpoint
+            ),
+            resource_resolve_mode=config.resource_resolve_mode,
+            remote_local_resource_policy=config.remote_local_resource_policy,
+            local_local_resource_policy=config.local_local_resource_policy,
+            filehost_cache_ttl_seconds=config.filehost_cache_ttl_seconds,
+            filehost_prewarm_enabled=config.filehost_prewarm_enabled,
+            filehost_prewarm_max_files=config.filehost_prewarm_max_files,
+            filehost_prewarm_paths=tuple(config.filehost_prewarm_paths),
+            filehost_prewarm_extensions=tuple(config.filehost_prewarm_extensions),
+            filehost_request_header_name=config.filehost_request_header_name,
+            filehost_request_header_value=config.filehost_request_header_value,
+            filehost_request_header_salt=config.filehost_request_header_salt,
+        )
+
     def compose(
         self,
         settings: object,
@@ -185,6 +211,10 @@ class PlaywrightProvider:
         # migration absorbs them into this adapter.
         register_playwright_config_provider(lambda: config)
 
+        from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (  # noqa: PLC0415
+            PLAYWRIGHT_CAPABILITIES,
+            PlaywrightCapabilities,
+        )
         from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
             PlaywrightBackend,
         )

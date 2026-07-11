@@ -59,6 +59,7 @@ class PlaywrightConfig(BaseModel):
     skip_browser_install: bool = Field(default=False)
     cleanup_legacy_cache: bool = Field(default=False)
     close_on_exit: bool = Field(default=True)
+    storage_path: Path | None = Field(default=None)
     resource_resolve_mode: ResourceResolveMode = Field(default=ResourceResolveMode.AUTO)
     remote_local_resource_policy: RemoteLocalResourcePolicy = Field(
         default=RemoteLocalResourcePolicy.MEMORY
@@ -66,8 +67,6 @@ class PlaywrightConfig(BaseModel):
     local_local_resource_policy: LocalLocalResourcePolicy = Field(
         default=LocalLocalResourcePolicy.FILE
     )
-    filehost_allow_any_path: bool = Field(default=False)
-    filehost_allowed_paths: list[Path] = Field(default_factory=list)
     filehost_prewarm_paths: list[Path] = Field(default_factory=list)
     filehost_prewarm_enabled: bool = Field(default=True)
     filehost_prewarm_max_files: int = Field(default=256, ge=0)
@@ -111,16 +110,6 @@ class PlaywrightConfig(BaseModel):
         if not s or s == ".":
             return None
         return Path(s)
-
-    @field_validator("filehost_allowed_paths", mode="before")
-    @classmethod
-    def _normalize_filehost_allowed_paths(cls, v: object) -> object:
-        """规范化 filehost 允许路径列表，将单个路径或 None 转换为列表。"""
-        if v is None:
-            return []
-        if isinstance(v, (str, Path)):
-            return [v]
-        return v
 
     @field_validator("filehost_prewarm_paths", mode="before")
     @classmethod

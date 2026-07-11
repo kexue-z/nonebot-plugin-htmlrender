@@ -161,11 +161,9 @@ def test_playwright_config_normalizes_filehost_header_fields() -> None:
 
     cfg2 = PlaywrightConfig.model_validate(
         {
-            "filehost_allowed_paths": "assets",
             "filehost_prewarm_paths": "assets2",
         }
     )
-    assert len(cfg2.filehost_allowed_paths) == 1
     assert len(cfg2.filehost_prewarm_paths) == 1
 
 

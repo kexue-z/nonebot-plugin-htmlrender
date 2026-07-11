@@ -54,6 +54,7 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.providers.sdk import PluginRequirement
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
+    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
 
 _OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "takumi"}
@@ -198,6 +199,14 @@ class TakumiProvider:
     ) -> tuple[PluginRequirement, ...]:
         self._narrow(settings)
         return ()
+
+    def resource_configuration(
+        self,
+        settings: object,
+        base: ResourceConfig,
+    ) -> ResourceConfig:
+        self._narrow(settings)
+        return base
 
     def compose(
         self,

@@ -18,7 +18,7 @@ def _run_python(script: str) -> subprocess.CompletedProcess[str]:
     )
 
 
-def test_default_plugin_import_does_not_load_playwright_or_filehost() -> None:
+def test_default_plugin_import_does_not_load_engines_or_filehost() -> None:
     result = _run_python(
         """
         import importlib.abc
@@ -26,7 +26,7 @@ def test_default_plugin_import_does_not_load_playwright_or_filehost() -> None:
 
         import nonebot
 
-        nonebot.init(log_level="ERROR", render_backend=None, render_startup_mode="off")
+        nonebot.init(log_level="ERROR", render={"provider": None})
 
         class _BlockFastAPI(importlib.abc.MetaPathFinder):
             def find_spec(self, fullname, path=None, target=None):
@@ -39,6 +39,7 @@ def test_default_plugin_import_does_not_load_playwright_or_filehost() -> None:
         nonebot.require("nonebot_plugin_htmlrender")
 
         unexpected = {
+            "playwright.async_api",
             "nonebot_plugin_htmlrender.backend.playwright.render",
             "nonebot_plugin_htmlrender.resources.filehost",
             "nonebot_plugin_htmlrender.resources.filehost.guard",
@@ -51,7 +52,7 @@ def test_default_plugin_import_does_not_load_playwright_or_filehost() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_playwright_import_without_filehost_policy_does_not_load_filehost() -> None:
+def test_playwright_provider_off_startup_stays_lazy() -> None:
     result = _run_python(
         """
         import importlib.abc
@@ -61,12 +62,14 @@ def test_playwright_import_without_filehost_policy_does_not_load_filehost() -> N
 
         nonebot.init(
             log_level="ERROR",
-            render_backend="playwright",
-            render_startup_mode="off",
-            render_playwright={
-                "resource_resolve_mode": "auto",
-                "remote_local_resource_policy": "passthrough",
-                "local_local_resource_policy": "file",
+            render={
+                "provider": "playwright",
+                "startup": "off",
+                "provider_config": {
+                    "resource_resolve_mode": "auto",
+                    "remote_local_resource_policy": "passthrough",
+                    "local_local_resource_policy": "file",
+                },
             },
         )
 
@@ -81,6 +84,7 @@ def test_playwright_import_without_filehost_policy_does_not_load_filehost() -> N
         nonebot.require("nonebot_plugin_htmlrender")
 
         unexpected = {
+            "playwright.async_api",
             "nonebot_plugin_filehost",
             "nonebot_plugin_htmlrender.backend.playwright.render",
             "nonebot_plugin_htmlrender.resources.filehost",
@@ -94,7 +98,7 @@ def test_playwright_import_without_filehost_policy_does_not_load_filehost() -> N
     assert result.returncode == 0, result.stderr
 
 
-def test_playwright_import_with_filehost_policy_loads_filehost_before_startup() -> None:
+def test_filehost_policy_loads_filehost_before_startup() -> None:
     result = _run_python(
         """
         import sys
@@ -104,12 +108,14 @@ def test_playwright_import_with_filehost_policy_loads_filehost_before_startup() 
         nonebot.init(
             driver="~fastapi",
             log_level="ERROR",
-            render_backend="playwright",
-            render_startup_mode="off",
-            render_playwright={
-                "resource_resolve_mode": "auto",
-                "remote_local_resource_policy": "filehost",
-                "local_local_resource_policy": "file",
+            render={
+                "provider": "playwright",
+                "startup": "off",
+                "provider_config": {
+                    "resource_resolve_mode": "auto",
+                    "remote_local_resource_policy": "filehost",
+                    "local_local_resource_policy": "file",
+                },
             },
         )
         nonebot.require("nonebot_plugin_htmlrender")
@@ -120,9 +126,12 @@ def test_playwright_import_with_filehost_policy_loads_filehost_before_startup() 
             "nonebot_plugin_htmlrender.resources.filehost.guard",
         } - set(sys.modules)
         if missing:
-            raise SystemExit(f"expected filehost modules were not loaded: {sorted(missing)}")
+            raise SystemExit(
+                f"expected filehost modules were not loaded: {sorted(missing)}"
+            )
 
         unexpected = {
+            "playwright.async_api",
             "nonebot_plugin_htmlrender.backend.playwright.render",
         } & set(sys.modules)
         if unexpected:
@@ -133,28 +142,21 @@ def test_playwright_import_with_filehost_policy_loads_filehost_before_startup() 
     assert result.returncode == 0, result.stderr
 
 
-def test_compat_import_paths_do_not_load_playwright() -> None:
+def test_legacy_configuration_keys_fail_plugin_load() -> None:
     result = _run_python(
         """
-        import sys
-
         import nonebot
 
-        nonebot.init(log_level="ERROR", render_backend=None, render_startup_mode="off")
-        nonebot.require("nonebot_plugin_htmlrender")
-
-        import nonebot_plugin_htmlrender._compat
-        import nonebot_plugin_htmlrender.browser
-        import nonebot_plugin_htmlrender.data_source
-
-        unexpected = {
-            "nonebot_plugin_htmlrender.backend.playwright.operations",
-            "nonebot_plugin_htmlrender.backend.playwright.render",
-            "nonebot_plugin_htmlrender.backend.playwright.runtime",
-            "playwright.async_api",
-        } & set(sys.modules)
-        if unexpected:
-            raise SystemExit(f"unexpected lazy modules loaded: {sorted(unexpected)}")
+        nonebot.init(
+            log_level="ERROR",
+            render_backend="playwright",
+            render={"provider": None},
+        )
+        try:
+            nonebot.require("nonebot_plugin_htmlrender")
+        except RuntimeError:
+            raise SystemExit(0)
+        raise SystemExit("plugin load must fail on legacy render_backend key")
         """
     )
 
@@ -168,7 +170,7 @@ def test_backend_packages_do_not_use_module_getattr_facades() -> None:
 
         import nonebot
 
-        nonebot.init(log_level="ERROR", render_backend=None, render_startup_mode="off")
+        nonebot.init(log_level="ERROR", render={"provider": None})
         nonebot.require("nonebot_plugin_htmlrender")
 
         import nonebot_plugin_htmlrender.backend as backend
@@ -199,7 +201,7 @@ def test_playwright_package_submodule_import_does_not_load_backend_render() -> N
 
         import nonebot
 
-        nonebot.init(log_level="ERROR", render_backend=None, render_startup_mode="off")
+        nonebot.init(log_level="ERROR", render={"provider": None})
         nonebot.require("nonebot_plugin_htmlrender")
 
         from nonebot_plugin_htmlrender.backend.playwright import runtime

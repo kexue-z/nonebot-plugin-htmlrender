@@ -1682,19 +1682,6 @@ def test_operations_redact_url_masks_credentials_and_query() -> None:
 
 
 @pytest.mark.anyio
-async def test_compat_template_to_pic_rejects_resource_resolution_options() -> None:
-    from nonebot_plugin_htmlrender._compat import template_to_pic  # noqa: PLC0415
-
-    with pytest.raises(TypeError, match="resolve_resources"):
-        await template_to_pic(
-            str(Path.cwd()),
-            "card.html",
-            {},
-            resolve_resources=True,  # type: ignore[call-arg]  # ty: ignore[unknown-argument]
-        )
-
-
-@pytest.mark.anyio
 async def test_capture_html_element_uses_direct_operation_api(
     mocker: MockerFixture,
 ) -> None:
@@ -1978,51 +1965,3 @@ async def test_render_html_string_request_and_event_callbacks(
     )
     handlers["response"](response)
     assert warning.call_count >= 2
-
-
-@pytest.mark.anyio
-async def test_operation_compat_wrappers_delegate(
-    mocker: MockerFixture,
-) -> None:
-    """Deprecated wrappers in data_source delegate to operations."""
-    from nonebot_plugin_htmlrender.backend.playwright import (  # noqa: PLC0415
-        data_source as pw_data_source,
-    )
-
-    mocker.patch.object(
-        pw_data_source._operations,
-        "render_text",
-        new=mocker.AsyncMock(return_value=b"a"),
-    )
-    mocker.patch.object(
-        pw_data_source._operations,
-        "render_markdown",
-        new=mocker.AsyncMock(return_value=b"b"),
-    )
-    mocker.patch.object(
-        pw_data_source._operations,
-        "render_template_html",
-        new=mocker.AsyncMock(return_value="c"),
-    )
-    mocker.patch.object(
-        pw_data_source._operations,
-        "render_html",
-        new=mocker.AsyncMock(return_value=b"d"),
-    )
-    mocker.patch.object(
-        pw_data_source._operations,
-        "render_template",
-        new=mocker.AsyncMock(return_value=b"e"),
-    )
-    mocker.patch.object(
-        pw_data_source._operations,
-        "capture_html_element",
-        new=mocker.AsyncMock(return_value=b"f"),
-    )
-
-    assert await pw_data_source.text_to_pic("x") == b"a"
-    assert await pw_data_source.md_to_pic("x") == b"b"
-    assert await pw_data_source.template_to_html("t", "n") == "c"
-    assert await pw_data_source.html_to_pic("<p/>") == b"d"
-    assert await pw_data_source.template_to_pic("t", "n", {}) == b"e"
-    assert await pw_data_source.capture_element("u", "#e") == b"f"

@@ -4,7 +4,7 @@ from importlib.metadata import PackageNotFoundError, version
 from importlib.util import find_spec
 from typing import TYPE_CHECKING, Any, TypeVar, cast
 
-from nonebot_plugin_htmlrender.backend import (
+from nonebot_plugin_htmlrender.backend.base import (
     BackendCapability,
     BackendExtension,
     RenderRuntime,

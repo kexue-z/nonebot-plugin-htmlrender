@@ -10,9 +10,9 @@ import sys
 from typing import TypedDict, cast
 
 from nonebot.log import logger
+import nonebot_plugin_localstore as store
 import playwright
 
-from nonebot_plugin_htmlrender.config import plugin_config, plugin_data_dir
 from nonebot_plugin_htmlrender.consts import BrowserEngine
 
 from .config import get_playwright_config
@@ -47,7 +47,10 @@ _MAX_RUNTIME_STATE_ENTRIES = 20
 
 def get_playwright_storage_path() -> Path:
     """获取 Playwright 浏览器存储路径。"""
-    return Path(plugin_config.render_storage_path).expanduser()
+    configured = get_playwright_config().storage_path
+    if configured is not None:
+        return Path(configured).expanduser()
+    return Path(store.get_plugin_data_dir()).expanduser()
 
 
 def get_legacy_playwright_cache_path() -> Path | None:
@@ -150,7 +153,8 @@ def _playwright_package_version() -> str:
 
 def _runtime_state_path() -> Path:
     """获取运行时状态 JSON 文件路径。"""
-    return Path(plugin_data_dir).expanduser() / _PLAYWRIGHT_RUNTIME_STATE_FILE
+    data_dir = Path(store.get_plugin_data_dir()).expanduser()
+    return data_dir / _PLAYWRIGHT_RUNTIME_STATE_FILE
 
 
 def _iter_browser_cache_paths() -> list[Path]:
@@ -377,10 +381,8 @@ def has_installed_browser(engine: BrowserEngine) -> bool:
 def prepare_playwright_env_vars() -> None:
     """设置 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
     cfg = get_playwright_config()
-    if plugin_config.render_storage_path and not cfg.executable_path:
-        storage_path = os.path.abspath(
-            os.path.expanduser(str(plugin_config.render_storage_path))
-        )
+    if not cfg.executable_path:
+        storage_path = os.path.abspath(str(get_playwright_storage_path()))
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = storage_path
         logger.debug(f'Setting PLAYWRIGHT_BROWSERS_PATH="{storage_path}"')
 
@@ -388,11 +390,7 @@ def prepare_playwright_env_vars() -> None:
 def clear_playwright_env_vars() -> None:
     """清除 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
     cfg = get_playwright_config()
-    if (
-        plugin_config.render_storage_path
-        and not cfg.executable_path
-        and "PLAYWRIGHT_BROWSERS_PATH" in os.environ
-    ):
+    if not cfg.executable_path and "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
         playwright_path = os.environ.pop("PLAYWRIGHT_BROWSERS_PATH")
         logger.debug(f'PLAYWRIGHT_BROWSERS_PATH="{playwright_path}" removed')
 
@@ -418,13 +416,13 @@ def reconcile_legacy_playwright_cache(*, cleanup: bool) -> None:
             "Since v0.7.0, nonebot-plugin-htmlrender has moved the Playwright "
             "cache path. Executable files are now stored and managed by the "
             "`nonebot-plugin-localstore` plugin under "
-            f"{plugin_config.render_storage_path}. "
-            "You can change this path via the config option "
-            "`render_storage_path`. "
+            f"{normalized_storage_path}. "
+            "You can change this path via the provider option "
+            "`render.provider_config.storage_path`. "
             "Legacy cache remains at "
             f"{normalized_cache_path}. "
-            "Set `render_playwright.cleanup_legacy_cache=true` to remove it "
-            "automatically during startup."
+            "Set `render.provider_config.cleanup_legacy_cache=true` to remove "
+            "it automatically during startup."
         )
         if not cleanup:
             return

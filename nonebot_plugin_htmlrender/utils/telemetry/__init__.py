@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager, contextmanager
+from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 import sys
 from time import perf_counter
-from typing import TYPE_CHECKING, AsyncIterator, Mapping
+from typing import TYPE_CHECKING, AsyncIterator, Iterator, Mapping
 
 from nonebot.log import logger
 
@@ -166,31 +166,15 @@ def record_cache_metrics(
     _record_metrics_safely("Prometheus", record_prometheus_cache_metrics, *args)
 
 
-@asynccontextmanager
-async def track_render(
+@contextmanager
+def _operation_context(
     op: str,
     *,
     backend: RenderBackend | str | None = None,
     name: str | None = None,
     attrs: Mapping[str, str] | None = None,
-) -> AsyncIterator[None]:
-    """渲染操作遥测追踪的异步上下文管理器。
-
-    在渲染操作前后自动创建追踪 span、记录持续时间和状态，
-    并向 Sentry 和 Prometheus 报告指标。若 Sentry 不可用则降级为控制台日志。
-
-    Args:
-        op: 操作名称（如 "screenshot"、"html_to_pic"）。
-        backend: 渲染后端标识。
-        name: span 的显示名称，默认使用 op。
-        attrs: 附加到 span 的自定义属性。
-
-    Yields:
-        无返回值，仅提供上下文作用域。
-
-    Raises:
-        Exception: 渲染操作中的异常会被重新抛出，同时标记 span 状态为 error。
-    """
+) -> Iterator[None]:
+    """Span creation, timing, and metric fan-out shared by every entry point."""
     backend_name = normalize_backend(backend)
     all_attrs = {"render.backend": backend_name}
     try:
@@ -270,4 +254,51 @@ async def track_render(
             status,
             duration,
             trace_id,
+        )
+
+
+@asynccontextmanager
+async def track_render(
+    op: str,
+    *,
+    backend: RenderBackend | str | None = None,
+    name: str | None = None,
+    attrs: Mapping[str, str] | None = None,
+) -> AsyncIterator[None]:
+    """渲染操作遥测追踪的异步上下文管理器。
+
+    在渲染操作前后自动创建追踪 span、记录持续时间和状态，
+    并向 Sentry 和 Prometheus 报告指标。若 Sentry 不可用则降级为控制台日志。
+
+    Args:
+        op: 操作名称（如 "screenshot"、"html_to_pic"）。
+        backend: 渲染后端标识。
+        name: span 的显示名称，默认使用 op。
+        attrs: 附加到 span 的自定义属性。
+
+    Yields:
+        无返回值，仅提供上下文作用域。
+
+    Raises:
+        Exception: 渲染操作中的异常会被重新抛出，同时标记 span 状态为 error。
+    """
+    with _operation_context(op, backend=backend, name=name, attrs=attrs):
+        yield
+
+
+class TelemetryOperationObserver:
+    """Operation observer adapter over the shared span/metric pipeline."""
+
+    def observe(
+        self,
+        operation: str,
+        attributes: Mapping[str, str],
+    ) -> AbstractContextManager[None]:
+        extra = dict(attributes)
+        backend = extra.pop("render.backend", None)
+        return _operation_context(
+            operation,
+            backend=backend,
+            name=operation,
+            attrs=extra,
         )

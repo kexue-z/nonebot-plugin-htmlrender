@@ -46,10 +46,6 @@ from playwright.async_api import (
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from nonebot_plugin_htmlrender.consts import BrowserEngine, RenderBackend
-from nonebot_plugin_htmlrender.resources.config import (
-    ResourceConfig,
-    register_resource_config_provider,
-)
 from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
 
 from ..base import BackendCapability, RenderRuntime, RenderSession
@@ -797,30 +793,6 @@ def is_playwright_backend_available(
             "`skip_browser_install=true`."
         ),
     )
-
-
-def _build_resource_config() -> ResourceConfig:
-    """从 Playwright 配置构建资源解析配置。"""
-    cfg = get_playwright_config()
-    return ResourceConfig(
-        is_remote_mode=bool(cfg.connect_ws.endpoint or cfg.connect_cdp.endpoint),
-        resource_resolve_mode=cfg.resource_resolve_mode,
-        remote_local_resource_policy=cfg.remote_local_resource_policy,
-        local_local_resource_policy=cfg.local_local_resource_policy,
-        filehost_allow_any_path=cfg.filehost_allow_any_path,
-        filehost_allowed_paths=tuple(cfg.filehost_allowed_paths),
-        filehost_cache_ttl_seconds=cfg.filehost_cache_ttl_seconds,
-        filehost_prewarm_enabled=cfg.filehost_prewarm_enabled,
-        filehost_prewarm_max_files=cfg.filehost_prewarm_max_files,
-        filehost_prewarm_paths=tuple(cfg.filehost_prewarm_paths),
-        filehost_prewarm_extensions=tuple(cfg.filehost_prewarm_extensions),
-        filehost_request_header_name=cfg.filehost_request_header_name,
-        filehost_request_header_value=cfg.filehost_request_header_value,
-        filehost_request_header_salt=cfg.filehost_request_header_salt,
-    )
-
-
-register_resource_config_provider(_build_resource_config)
 
 
 def register_playwright_backend() -> None:

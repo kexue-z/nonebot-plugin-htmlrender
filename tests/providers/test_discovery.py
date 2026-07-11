@@ -26,6 +26,8 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
+    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
+
 
 class FakeProvider:
     def __init__(self, provider_id: EngineId) -> None:
@@ -44,6 +46,14 @@ class FakeProvider:
     ) -> tuple[PluginRequirement, ...]:
         del settings
         return ()
+
+    def resource_configuration(
+        self,
+        settings: object,
+        base: ResourceConfig,
+    ) -> ResourceConfig:
+        del settings
+        return base
 
     def compose(
         self,

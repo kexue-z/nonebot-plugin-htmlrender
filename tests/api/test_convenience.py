@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nonebot_plugin_htmlrender import api
-from nonebot_plugin_htmlrender.api._default import set_default_application
+from nonebot_plugin_htmlrender.api._default import (
+    set_default_application,
+    set_default_application_factory,
+)
 from nonebot_plugin_htmlrender.application import build_application
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
@@ -73,14 +76,16 @@ def default_executor() -> Iterator[_FakeExecutor]:
 
 
 def test_default_accessors_require_initialization() -> None:
-    previous = set_default_application(None)
+    previous_application = set_default_application(None)
+    previous_factory = set_default_application_factory(None)
     try:
         with pytest.raises(ProviderNotConfigured, match="not initialized"):
             api.get_default_application()
         with pytest.raises(ProviderNotConfigured, match="not initialized"):
             api.get_default_renderer()
     finally:
-        set_default_application(previous)
+        set_default_application(previous_application)
+        set_default_application_factory(previous_factory)
 
 
 async def test_render_html_returns_typed_artifact(

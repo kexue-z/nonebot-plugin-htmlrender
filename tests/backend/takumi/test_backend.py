@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from nonebot_plugin_htmlrender.backend import BackendCapability, BackendExtension
+from nonebot_plugin_htmlrender.backend.base import BackendCapability, BackendExtension
 from nonebot_plugin_htmlrender.backend.takumi import (
     TAKUMI_EXTENSION,
     TakumiConfig,

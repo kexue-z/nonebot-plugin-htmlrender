@@ -23,6 +23,7 @@ if TYPE_CHECKING:
         OperationObserver,
         PreparedHtmlExecutor,
     )
+    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
 
 EngineId: TypeAlias = str
@@ -90,6 +91,12 @@ class EngineProvider(Protocol):
         self,
         settings: object,
     ) -> tuple[PluginRequirement, ...]: ...
+
+    def resource_configuration(
+        self,
+        settings: object,
+        base: ResourceConfig,
+    ) -> ResourceConfig: ...
 
     def compose(
         self,
