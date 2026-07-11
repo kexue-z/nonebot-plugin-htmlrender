@@ -14,6 +14,7 @@ from nonebot_plugin_htmlrender.resources import (
     read_resource_text,
 )
 from nonebot_plugin_htmlrender.resources.templating import (
+    ExtensionSpec,
     FilterCallable,
     render_template_html,
 )
@@ -24,7 +25,7 @@ from .models import PreparedStylesheet
 from .template_assets import stage_template_variables
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from .models import PreparedHtml
 
@@ -162,6 +163,7 @@ async def prepare_template(
     variables: Mapping[str, Any],
     *,
     filters: Mapping[str, FilterCallable] | None = None,
+    extensions: Sequence[ExtensionSpec] = (),
 ) -> PreparedHtml:
     staged_variables, assets = await stage_template_variables(
         variables,
@@ -172,6 +174,7 @@ async def prepare_template(
         template_name,
         staged_variables,
         filters=filters,
+        extensions=extensions,
     )
     return prepare_html(
         html,
