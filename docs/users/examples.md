@@ -24,10 +24,10 @@ tags:
 
 ### 命令
 
-| 命令 | 说明 |
-|---|---|
-| `/screenshot [url]` | 对指定 URL 进行全页截图，默认截取 GitHub 首页 |
-| `/capture <selector>` | 截取 GitHub 首页中指定 CSS 选择器的元素 |
+| 命令                  | 说明                                          |
+| --------------------- | --------------------------------------------- |
+| `/screenshot [url]`   | 对指定 URL 进行全页截图，默认截取 GitHub 首页 |
+| `/capture <selector>` | 截取 GitHub 首页中指定 CSS 选择器的元素       |
 
 ### 核心代码
 
@@ -72,10 +72,10 @@ img = await capture_html_element(
 
 ### 命令
 
-| 命令 | 说明 |
-|---|---|
-| `/profile [username]` | 渲染用户资料卡片 |
-| `/textimg <content>` | 将纯文本渲染为图片 |
+| 命令                  | 说明               |
+| --------------------- | ------------------ |
+| `/profile [username]` | 渲染用户资料卡片   |
+| `/textimg <content>`  | 将纯文本渲染为图片 |
 
 ### 项目结构
 
@@ -108,10 +108,7 @@ img = await render_template(
             {"label": "Messages", "value": "3.2k"},
         ],
     },
-    pages={
-        "viewport": {"width": 440, "height": 300},
-        "base_url": TEMPLATE_DIR.as_uri(),
-    },
+    pages={"viewport": {"width": 440, "height": 300}},
 )
 
 # 纯文本渲染
@@ -119,7 +116,8 @@ img = await render_text("Hello World", width=600)
 ```
 
 !!! tip "关于 `base_url`"
-    设置 `base_url` 为模板目录的 `file://` URI，模板中的相对路径引用（如 CSS、图片）才能正确加载。
+
+    filesystem 模板自动以模板目录解析 CSS、图片等相对资源，不需要页面参数。`pages["base_url"]` 是 v0.7.1 导航字段的弃用别名；新代码只在确实需要先打开网页时使用 `document_url`。自定义 prepared 文档的资源基址由 `PreparedHtml.base_url` 表达。
 
 ### 使用的 API
 
@@ -144,11 +142,11 @@ img = await render_text("Hello World", width=600)
 
 ### 命令
 
-| 命令 | 说明 |
-|---|---|
-| `/render_status` | 查看渲染后端连接状态 |
-| `/rshot [url]` | 通过远程浏览器截图，默认截取 GitHub 首页 |
-| `/rmd <markdown>` | 通过远程浏览器将 Markdown 渲染为图片 |
+| 命令              | 说明                                     |
+| ----------------- | ---------------------------------------- |
+| `/render_status`  | 查看渲染后端连接状态                     |
+| `/rshot [url]`    | 通过远程浏览器截图，默认截取 GitHub 首页 |
+| `/rmd <markdown>` | 通过远程浏览器将 Markdown 渲染为图片     |
 
 ### 快速启动
 
@@ -180,6 +178,7 @@ nb run                      # 启动 Bot
     ```
 
 !!! warning "二选一"
+
     CDP 和 WebSocket 端点不能同时设置，否则启动时会抛出错误。
 
 ### 使用的 API
@@ -207,15 +206,15 @@ nb run                      # 启动 Bot
     nb plugin install nonebot-plugin-alconna
     ```
 
-2. 将示例中的 `plugins/<name>` 目录复制到你的项目插件目录
+1. 将示例中的 `plugins/<name>` 目录复制到你的项目插件目录
 
-3. 在 `.env` 中添加：
+1. 在 `.env` 中添加：
 
     ```dotenv
     RENDER_BACKEND=playwright
     ```
 
-4. 启动 Bot：
+1. 启动 Bot：
 
     ```bash
     nb run

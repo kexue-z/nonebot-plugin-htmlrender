@@ -20,6 +20,7 @@ tags:
 如果你还没看协议本身，先读 [自定义 Backend 指南](custom-backends.md)。
 
 !!! warning "当前状态"
+
     当前仓库正式支持 `playwright` 与 `takumi`。`skia`、`pillow`、`htmlkit` 等枚举值代表公开扩展点，不代表已经存在可用实现。
 
 ## 先下结论
@@ -27,11 +28,11 @@ tags:
 把目标 backend 接进当前仓库，至少要完成四件事：
 
 1. 给 `RenderBackend` 增加明确枚举值
-2. 提供一个可注册的 backend 实现，并声明真实 capability
-3. 让工厂层能构建它，并能给出可诊断的 availability 信息
-4. 审查插件入口、资源预热、兼容层与测试分层里是否仍有 `playwright` 特判
+1. 提供一个可注册的 backend 实现，并声明真实 capability
+1. 让工厂层能构建它，并能给出可诊断的 availability 信息
+1. 审查插件入口、资源预热、兼容层与测试分层里是否仍有 `playwright` 特判
 
-只有前两步完成，代码才“能编起来”。  
+只有前两步完成，代码才“能编起来”。\
 四步都完成，才算真正可维护。
 
 ```mermaid
@@ -83,16 +84,16 @@ flowchart LR
 
 不要为了让上层 API “看起来都能用”而虚报能力。`Render` 会按 capability 暴露入口，声明错了，错误就会延后到运行期。
 
-| 判断问题 | 更可能的路线 |
-| --- | --- |
-| 是否需要 CSS layout、字体回退、DOM 查询和元素截图 | HTML engine backend |
-| 是否只需要把结构化数据画成图片 | Raster backend |
+| 判断问题                                             | 更可能的路线               |
+| ---------------------------------------------------- | -------------------------- |
+| 是否需要 CSS layout、字体回退、DOM 查询和元素截图    | HTML engine backend        |
+| 是否只需要把结构化数据画成图片                       | Raster backend             |
 | 是否需要复用 template / filehost / resource resolver | 通常是 HTML engine backend |
-| 是否可以不创建页面上下文 | 通常是 Raster backend |
+| 是否可以不创建页面上下文                             | 通常是 Raster backend      |
 
 ## 推荐目录骨架
 
-当前 Playwright 实现放在 `nonebot_plugin_htmlrender/backend/playwright/`。  
+当前 Playwright 实现放在 `nonebot_plugin_htmlrender/backend/playwright/`。\
 目标 backend 不要求复制同样的文件数，但建议保留相同的职责切分：
 
 ```text
@@ -112,12 +113,13 @@ nonebot_plugin_htmlrender/backend/<backend_name>/
 - availability checker
 - `register_backend(...)`
 
-当渲染动作已经开始积累复杂度，再把操作拆到 `operations.py`。  
+当渲染动作已经开始积累复杂度，再把操作拆到 `operations.py`。\
 不要在第一步就为“将来可能有很多文件”做目录体操。
 
 ## 最小落地步骤
 
 !!! abstract "交付检查清单"
+
     - [ ] `RenderBackend` 已有稳定枚举值
     - [ ] backend 模块会被导入并完成注册
     - [ ] availability checker 不产生重型副作用
@@ -219,6 +221,7 @@ register_backend(
 - `capabilities` 只填已经落地的能力
 
 ??? note "为什么 runtime 和 session 要拆开"
+
     `RenderRuntime` 表达 backend 级资源，例如驱动进程、全局连接或共享上下文。`RenderSession` 表达可复用的渲染会话，例如浏览器实例、渲染 worker 或图形上下文。拆开之后，`Render` 层才能在 session 失效时重建会话，同时保留仍然可用的 runtime。
 
 ### 3. 按 capability 实现细粒度操作
@@ -234,13 +237,13 @@ register_backend(
 
 那么它应分别满足对应的 operation Protocol，而不是实现一个包含所有动作的“大 HTML backend”接口：
 
-| 用户 API | backend Protocol |
-| --- | --- |
-| `render_html` | `SupportsHtmlRenderBackend` |
-| `rasterize_html` | `SupportsHtmlRasterizer` |
-| `render_text` | `SupportsTextRenderBackend` |
-| `render_markdown` | `SupportsMarkdownRenderBackend` |
-| `render_template` | `SupportsTemplateRenderBackend` |
+| 用户 API               | backend Protocol                    |
+| ---------------------- | ----------------------------------- |
+| `render_html`          | `SupportsHtmlRenderBackend`         |
+| `rasterize_html`       | `SupportsHtmlRasterizer`            |
+| `render_text`          | `SupportsTextRenderBackend`         |
+| `render_markdown`      | `SupportsMarkdownRenderBackend`     |
+| `render_template`      | `SupportsTemplateRenderBackend`     |
 | `render_template_html` | `SupportsTemplateHtmlRenderBackend` |
 | `capture_html_element` | `SupportsHtmlElementCaptureBackend` |
 
@@ -253,7 +256,7 @@ register_backend(
 
 如果这些语义并不成立，就不要勉强套 `HTML_RENDER` 路线。
 
-声明 `HTML_RASTERIZE` 时还必须完整消费 `PreparedHtml` 中的 `markup/html`、`stylesheets` 与 `assets`，或对无法支持的字段明确报错；不能静默丢弃 prepared content。
+声明 `HTML_RASTERIZE` 时还必须完整消费 `PreparedHtml.html`、结构化 `PreparedStylesheet` 与 `PreparedAsset`，或对无法支持的字段明确报错；不能静默丢弃 prepared content。`base_url` 是资源解析基址，不是导航指令；后端不得恢复已撤回的 `markup` 重复表示。
 
 ### 4. 提供 availability checker
 
@@ -272,15 +275,16 @@ register_backend(
 - 引擎只支持 Linux，但当前平台是 macOS
 - 必填配置项为空
 
-不要把 availability checker 写成“尝试真正启动一次浏览器/进程”。  
+不要把 availability checker 写成“尝试真正启动一次浏览器/进程”。\
 那会把轻量状态查询变成有副作用的 warmup。
 
 !!! tip "availability 的边界"
+
     availability checker 适合回答“当前环境是否具备启动条件”。真正启动、连接和探测应交给 `startup_steps()`、`create_runtime()` 或 `probe_render()`。
 
 ### 5. 接入导入路径
 
-仅仅写完 `register_backend(...)` 还不够。  
+仅仅写完 `register_backend(...)` 还不够。\
 你必须确保对应模块会被导入，否则注册逻辑不会执行。
 
 当前工厂通过 `_backend_loaders` 延迟导入正式 backend，backend 模块自身的注册函数仍需保持幂等。接入 backend 时至少要检查：
@@ -293,16 +297,16 @@ register_backend(
 
 ## 当前仓库里的非对称接缝
 
-这里是接入 backend 时最容易踩的坑。  
+这里是接入 backend 时最容易踩的坑。\
 协议层已经抽象了，但插件层还没有完全去掉 `playwright` 假设。
 
-| 位置 | 当前假设 | 目标 backend 需要判断 |
-| --- | --- | --- |
-| `__init__.py` | 启动时只为 `playwright` 预热 filehost | 目标 backend 是否也需要 startup bootstrap |
-| `_bootstrap.py` | 仅在 `playwright` 显式选择 filehost 策略时做导入期 filehost bootstrap | 目标 backend 是否需要额外 bootstrap |
-| `preparation/` 与共用 cache | 生成 `PreparedHtml`、缓存模板/文件 | executor 是否完整消费 prepared content |
-| `resources/` | Playwright filehost 与通用资源工具并存 | 目标 backend 需要 filehost 还是内存资源 |
-| `_compat.py` / `browser.py` | 历史接口偏向 Playwright 语义 | 旧接口是否应支持目标 backend |
+| 位置                        | 当前假设                                                              | 目标 backend 需要判断                     |
+| --------------------------- | --------------------------------------------------------------------- | ----------------------------------------- |
+| `__init__.py`               | 只在 Playwright 显式 filehost 模式预热兼容适配器                      | 目标 backend 是否需要 startup bootstrap   |
+| `_bootstrap.py`             | 仅在 `playwright` 显式选择 filehost 策略时做导入期 filehost bootstrap | 目标 backend 是否需要额外 bootstrap       |
+| `preparation/` 与共用 cache | 生成 `PreparedHtml`、缓存模板/文件                                    | executor 是否完整消费 prepared content    |
+| `resources/`                | package/filesystem source、byte cache 与 filehost 兼容适配器并存      | 目标 backend 如何消费共用 `PreparedAsset` |
+| `_compat.py` / `browser.py` | 历史接口偏向 Playwright 语义                                          | 旧接口是否应支持目标 backend              |
 
 ### 插件启动阶段的 `playwright` 特判
 
@@ -331,11 +335,11 @@ register_backend(
 - `nonebot_plugin_htmlrender/resources/`
 - `nonebot_plugin_htmlrender/backend/playwright/operations.py`
 
-文本、Markdown 与 Jinja 模板先经过共用 preparation；filehost 则是 Playwright 远程资源传输策略。目标 backend 需要分别判断：
+文本、Markdown 与 Jinja 模板先经过共用 preparation；Playwright 默认用 render-scoped 内存 route 消费资产，filehost 只是显式兼容策略。目标 backend 需要分别判断：
 
 - 是否复用 `PreparedHtml`、文件 cache 与 Jinja environment cache
-- 是否仍然使用 filehost 作为远程本地资源桥接
-- 是否以内存 bytes、data URL 或自有 transport 消费 `PreparedAsset`
+- 是否直接以内存 bytes 消费 `PreparedAsset`，或需要自身有生命周期边界的 transport
+- 对 `PreparedStylesheet.media` 等无法表达的条件语义如何明确拒绝
 
 不要把资源解析硬塞进 backend 基类。它目前仍然是具体实现选择。
 
@@ -346,7 +350,7 @@ register_backend(
 - `nonebot_plugin_htmlrender/_compat.py`
 - `nonebot_plugin_htmlrender/browser.py`
 
-旧接口和历史路径目前主要复用 Playwright 语义。  
+旧接口和历史路径目前主要复用 Playwright 语义。\
 如果目标 backend 只是主路径实验，不需要动兼容层；但如果你打算让旧接口也可切到目标 backend，就要明确回答：
 
 - 旧 API 的行为语义是否还能成立
@@ -377,7 +381,7 @@ register_backend(
 
 ## 测试建议
 
-接入 backend 时，至少补工厂层、生命周期、能力映射三类测试。  
+接入 backend 时，至少补工厂层、生命周期、能力映射三类测试。\
 如果 backend 还支持 HTML family，再补渲染行为测试，验证 HTML / Markdown / template / element capture 的真实语义，而不是只测“返回了 bytes”。
 
 测试组织建议延续现有分层：
@@ -387,25 +391,25 @@ register_backend(
 
 不要把所有测试都塞进 `tests/render/`，否则很快又会回到“公共层知道太多具体实现细节”的旧问题。
 
-| 测试层 | 主要问题 | 建议位置 |
-| --- | --- | --- |
-| 工厂层 | 是否注册、是否可用、错误是否可诊断 | `tests/backend/...` |
+| 测试层   | 主要问题                                 | 建议位置                           |
+| -------- | ---------------------------------------- | ---------------------------------- |
+| 工厂层   | 是否注册、是否可用、错误是否可诊断       | `tests/backend/...`                |
 | 生命周期 | runtime/session 是否正确创建、复用、关闭 | `tests/backend/<backend_name>/...` |
-| 能力映射 | capability 是否映射到正确公共 API | `tests/render/...` |
-| 渲染行为 | 输出语义是否符合 backend 承诺 | `tests/backend/<backend_name>/...` |
+| 能力映射 | capability 是否映射到正确公共 API        | `tests/render/...`                 |
+| 渲染行为 | 输出语义是否符合 backend 承诺            | `tests/backend/<backend_name>/...` |
 
 ## 推荐实施顺序
 
 如果你准备真的接入一个 backend，推荐按这个顺序推进：
 
 1. 加 `RenderBackend` 枚举值
-2. 实现最小 backend 类与 availability checker
-3. 打通注册与导入链路
-4. 先补工厂层与生命周期测试
-5. 再决定是否实现 HTML family 或 raster-only 路线
-6. 最后处理 bootstrap、资源解析、兼容层这类外围接缝
+1. 实现最小 backend 类与 availability checker
+1. 打通注册与导入链路
+1. 先补工厂层与生命周期测试
+1. 再决定是否实现 HTML family 或 raster-only 路线
+1. 最后处理 bootstrap、资源解析、兼容层这类外围接缝
 
-这个顺序的意义是先把“后端存在且可诊断”建立起来，再处理周边系统。  
+这个顺序的意义是先把“后端存在且可诊断”建立起来，再处理周边系统。\
 不要反过来先碰兼容层和文档入口，那样会在主实现尚未稳定时引入更多临时分支。
 
 ## 何时不该接入 backend

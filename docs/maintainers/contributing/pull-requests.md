@@ -90,7 +90,7 @@ Ruleset 应绑定不会随矩阵扩展而改名的汇总 job：`CI` 的 `Require
 
 1. 删除远程功能分支；fork 贡献者同时清理自己的分支。
 2. 确认 `master` 上的 CI 没有出现仅在合并后暴露的失败。
-3. 如果 `project.version` 确实变化，继续观察 `Auto Tag on Version Change` 与[发布流程](../quality/release-process.md)；仅修改依赖或其他 `pyproject.toml` 配置的普通 PR 会因 push 前后版本相同而跳过发布。
+3. 如果 `project.version` 确实变化，继续观察同一 source SHA 的 CI/Coverage/Docs/Prek 汇合门禁、`Auto Tag on Version Change` 与[发布流程](../quality/release-process.md)；仅修改依赖或其他 `pyproject.toml` 配置的普通 PR 会因第一父提交与当前版本相同而跳过发布。
 4. 如果发现回归，优先发起新的修复或 revert PR；不要移动已发布 tag，也不要直接重写 `master` 历史。
 
 ## Ruleset 建议基线 { #ruleset-baseline }

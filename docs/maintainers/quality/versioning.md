@@ -39,7 +39,7 @@ preview 通过 `DOCS_SITE_URL`、`DOCS_SCOPE` 和 `DOCS_VERSION_PROVIDER=preview
 
 Docs、PyPI 和 GitHub Release 是独立 workflow：
 
-- 版本 PR 同时修改文档相关路径时，合并后 Docs 可以与 `Auto Tag on Version Change` / `Publish` 并行；
+- 版本 PR 会因 `pyproject.toml` 变化触发 Docs；同一 SHA 的 Docs 成功是 `Auto Tag on Version Change` 创建 tag 前的门禁，`Publish` 在 tag 后独立运行；
 - 单纯创建或重跑 tag 不会代替 Docs 的路径触发；
 - Docs 失败不应重发 PyPI 或移动 tag；单独重新运行 Docs 即可；
 - 软件发布失败也不应回滚一个已经正确部署的文档版本，恢复失败的发布 job 即可。

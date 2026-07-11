@@ -1,6 +1,6 @@
 ---
-title: 远程渲染与 Filehost
-description: 远程连接模式、资源可达性与 filehost 的完整说明
+title: 远程 Playwright 与资源桥
+description: 远程连接、内存资产桥与 filehost 兼容模式
 icon: lucide/cloud-cog
 status: new
 tags:
@@ -8,32 +8,32 @@ tags:
   - Remote
 ---
 
-# 远程渲染与 Filehost
+# 远程 Playwright 与资源桥
 
-远程模式下，模板 HTML 仍在本地进程生成，但页面请求发生在远端浏览器所在的网络环境。  
-这意味着“本地能读到的路径”与“远端浏览器能访问到的资源”是两回事。
+远程模式下，HTML 在 Bot 进程中生成，Chromium 却运行在另一个进程、容器甚至主机。v0.7.2 不再假设远端浏览器可以读取 Bot 的 filesystem：页面文档通过 `page.set_content()` 注入，本地图片、字体与 CSS 等资源默认通过 render-scoped 内存资产桥传输。
 
 最重要的结论：
 
-- 远程模式下不要默认假设 `file://` 资源可用
-- 模板里只要引用本地图片、CSS、字体或相对路径资源，就应评估资源解析与 filehost
+- `md_to_pic`、`render_markdown`、`render_text` 与内置模板不会再导航到包内 `file://` URL；
+- 远程有效默认值是 `resource_resolve_mode=auto` 与 `remote_local_resource_policy=memory`；
+- filehost 降为显式兼容模式，不再是远程部署的默认前提；
+- `PreparedHtml.base_url` 只解析相对资源，只有显式 `PageConfig.document_url` 才触发 `page.goto()`。
 
-## 三种部署形态怎么选
+## 三种部署形态
 
-| 形态 | 浏览器位置 | 适用场景 | 本地资源处理 |
-| --- | --- | --- | --- |
-| 本地 Playwright | 与业务进程同机 | 单机部署、调试、简单接入 | 可直接走 `file://` |
-| 远程 Playwright（WS） | Playwright Server | 需要完整 Playwright 能力、多 Bot 共用浏览器 | 本地资源通常需解析 |
-| 远程浏览器（CDP）+ filehost | 远端 Chromium | 已有 CDP 基础设施、容器化部署 | 本地资源通常需解析 |
-
-## 两种远程形式
+| 形态                  | 浏览器位置        | 默认本地资源处理 | 适用场景                                |
+| --------------------- | ----------------- | ---------------- | --------------------------------------- |
+| 本地 Playwright       | 与业务进程同机    | 本地文件策略     | 单机部署、调试                          |
+| 远程 Playwright（WS） | Playwright Server | 内存资产桥       | 完整 Playwright 协议、多 Bot 共用浏览器 |
+| 远程浏览器（CDP）     | Chromium          | 内存资产桥       | 已有 CDP 基础设施、容器化部署           |
 
 ### 远程 Playwright（WS）
 
 === "Dotenv"
 
     ```dotenv
-    RENDER_PLAYWRIGHT={"connect_ws":{"endpoint":"ws://127.0.0.1:3000/"}}
+    RENDER_BACKEND=playwright
+    RENDER_PLAYWRIGHT={"connect_ws":{"endpoint":"ws://playwright:53333/playwright"}}
     ```
 
 === "nonebot.init"
@@ -42,9 +42,10 @@ tags:
     import nonebot
 
     nonebot.init(
+        render_backend="playwright",
         render_playwright={
-            "connect_ws": {"endpoint": "ws://127.0.0.1:3000/"},
-        }
+            "connect_ws": {"endpoint": "ws://playwright:53333/playwright"},
+        },
     )
     ```
 
@@ -53,7 +54,8 @@ tags:
 === "Dotenv"
 
     ```dotenv
-    RENDER_PLAYWRIGHT={"connect_cdp":{"endpoint":"http://127.0.0.1:9222/"}}
+    RENDER_BACKEND=playwright
+    RENDER_PLAYWRIGHT={"connect_cdp":{"endpoint":"http://chromium:9222/"}}
     ```
 
 === "nonebot.init"
@@ -62,111 +64,113 @@ tags:
     import nonebot
 
     nonebot.init(
+        render_backend="playwright",
         render_playwright={
-            "connect_cdp": {"endpoint": "http://127.0.0.1:9222/"},
-        }
+            "connect_cdp": {"endpoint": "http://chromium:9222/"},
+        },
     )
     ```
 
-## 差异与选型
+通过 `startup_render(endpoint=...)` 动态建立的远程 session 与静态 `connect_ws` / `connect_cdp` 配置采用同一资源策略。判定依据是实际 session 的 `PlaywrightMode`，不是仅检查插件启动时的静态配置。
 
-| 维度 | 远程 Playwright（WS） | 远程浏览器（CDP） |
-| --- | --- | --- |
-| 连接方式 | `browser_type.connect()` | `browser_type.connect_over_cdp()` |
-| 目标端 | Playwright Server | Chromium DevTools Endpoint |
-| 引擎限制 | 跟随 Playwright 服务端能力 | 仅 Chromium 系 |
-| 推荐场景 | 统一 Playwright 协议与能力 | 已有 CDP 基础设施/运维体系 |
+## 内存资产桥如何工作
 
-## 为什么远程模式下 `file://` 经常失效
+```mermaid
+flowchart LR
+    A["Bot filesystem"] -->|"read bytes"| B["PreparedAsset"]
+    B -->|"SHA-256 dedup"| C["BrowserLoadPlan"]
+    C -->|"page.route + fulfill"| D["remote Chromium"]
+    C -->|"page.set_content"| D
+```
 
-- 模板 HTML 是在本地渲染的
-- 浏览器请求是在远端发出的
-- 本地机器上的绝对路径，对远端机器通常不存在
+准备阶段保留原始浏览器文档，并将实际引用的本地文件读成 `PreparedAsset`。Playwright 为每份内容生成 `https://htmlrender.invalid/.htmlrender/assets/<digest>` 合成地址，通过 `page.route()` 直接 `fulfill` bytes、媒体类型和 CORS 响应头。资产只存活到本次页面关闭：
 
-因此远程模式下更稳的做法是：
+- 不写入 localstore、临时文件或共享卷；
+- 相同内容按 SHA-256 去重；
+- Chromium 不需要访问 Bot 容器的路径；
+- Takumi 消费同一份 `PreparedAsset.data`，不需要第二套传输协议。
 
-- 页面 `base_url` 优先用 `about:blank` 或可访问的 HTTP(S) URL
-- 本地静态资源通过资源解析转换为远端可访问 URL
+合成域名不会发起真实网络请求；路由只在当前 Page 生命周期内注册。
 
-## 资源解析推荐配置
+## 资源策略
 
-无论 WS 还是 CDP，只要远端无法访问本地路径，都建议开启：
+### 全局解析模式
 
-=== "Dotenv"
+| 配置                           | 含义                                     |
+| ------------------------------ | ---------------------------------------- |
+| `resource_resolve_mode=off`    | 默认不主动解析资源；显式调用参数仍可开启 |
+| `resource_resolve_mode=auto`   | 按实际 session 的本地/远程策略解析       |
+| `resource_resolve_mode=strict` | 同 `auto`，但无法解析的资源直接报错      |
 
-    ```dotenv
-    RENDER_PLAYWRIGHT={"resource_resolve_mode":"auto","remote_local_resource_policy":"filehost"}
-    ```
+### 远程本地资源策略
 
-=== "nonebot.init"
+| `remote_local_resource_policy` | 行为                                                |
+| ------------------------------ | --------------------------------------------------- |
+| `memory`                       | 读为 `PreparedAsset` 并通过页面路由传输；远程默认值 |
+| `passthrough`                  | 原值透传；仅适用于已明确配置相同路径共享卷的部署    |
+| `filehost`                     | 转换为 filehost URL；显式兼容模式                   |
+| `error`                        | 发现本地引用立即失败，用于强制禁止本地资源          |
 
-    ```python
-    import nonebot
+`AUTO + MEMORY` 是远程有效默认组合。通常只需配置连接端点，不需要再提供 HTTP `base_url` 或安装 filehost extra。
 
-    nonebot.init(
-        render_playwright={
-            "resource_resolve_mode": "auto",
-            "remote_local_resource_policy": "filehost",
-        }
-    )
-    ```
+### 本地模式策略
 
-## 资源解析行为矩阵
+本地 Playwright 仍按 `local_local_resource_policy` 使用 `file`、`filehost` 或 `passthrough`；v0.7.2 的 `memory` 默认变更只针对远程 session。
 
-### 全局开关
+## `base_url` 与 `document_url`
 
-| 配置 | 含义 |
-| --- | --- |
-| `resource_resolve_mode=off` | 默认不解析资源 |
-| `resource_resolve_mode=auto` | 按本地/远程策略自动解析 |
-| `resource_resolve_mode=strict` | 行为同 auto，但失败默认按严格模式处理 |
+这些字段从 v0.7.2 起具有不同且不可混用的职责：
 
-### 远程模式下本地资源策略
+| 字段                      | 职责                                               | 是否触发导航           |
+| ------------------------- | -------------------------------------------------- | ---------------------- |
+| `PreparedHtml.base_url`   | 解析 HTML、CSS 中的相对资源                        | 否                     |
+| `PageConfig.document_url` | 在注入 HTML 前打开一个真实浏览器可访问页面         | 是，调用 `page.goto()` |
+| `PageConfig.base_url`     | v0.7.1 导航字段的弃用兼容别名，不再表示资源解析基址 | 同 `document_url`      |
 
-| `remote_local_resource_policy` | 行为 |
-| --- | --- |
-| `passthrough` | 原值透传，远端是否能访问由部署环境自行决定 |
-| `filehost` | 本地资源转 filehost URL，推荐远程主路径 |
-| `error` | 发现本地资源直接报错 |
+无显式 `document_url` 时，页面停留在 `about:blank`，随后调用 `page.set_content(html)`。这正是 text、Markdown 与普通模板的默认路径。
 
-### 本地模式下本地资源策略
+旧代码若在 `PageConfig.base_url` 中表达导航目标，v0.7.2 会发出弃用警告。迁移时把导航目标改为 `document_url`；资源目录或 HTTP origin 属于 preparation 产生的 `PreparedHtml.base_url`。`PageConfig.base_url` 与 `document_url` 同时传入会报错，避免含糊解释。
 
-| `local_local_resource_policy` | 行为 |
-| --- | --- |
-| `file` | 把本地路径转为 `file://`，本地主路径默认选择 |
-| `filehost` | 本地模式也强制走 filehost |
-| `passthrough` | 原值透传 |
-
-## 调用参数与全局配置的关系
-
-- `resolve_resources=True`：本次调用显式开启资源解析
-- `resolve_resources=False`：本次调用显式关闭资源解析
-- `resolve_resources=None`：跟随全局 `resource_resolve_mode`
-- `resource_resolver="filehost"`：本次调用强制使用 filehost 策略
-- `resource_strict=True`：本次调用解析失败直接抛错
-
-## 推荐调用
+若 `PreparedHtml` 没有显式资源基址而 `document_url` 是 HTTP(S)，浏览器会把该导航 URL 作为相对网络资源的 fallback；它不会写回 `PreparedHtml.base_url`。`file://` 导航则要求远端可见同一路径，并应只与显式 `passthrough` 共享卷策略组合。
 
 ```python
 img = await render_template(
     "templates",
     template_name="card.html",
     templates={"avatar": "assets/avatar.png"},
-    resolve_resources=True,
-    pages={"base_url": "about:blank"},
 )
 ```
 
-这里的 `about:blank` 不是装饰项，而是远程模式下的推荐默认值：  
-它避免了把模板目录硬编码成远端通常不可达的 `file://` base URL。
+上例由 filesystem 模板 source 自动以 `templates/` 作为资源基址，定位 `assets/avatar.png`；远程 Chromium 不会导航到该目录，文件会被准备为内存资产。
 
-## PNA 预检查
+只有确实需要先打开网页时才设置 `document_url`：
 
-- `resource_strict=True`：预检查失败直接报错
-- `resource_strict=False`：记录 warning 并继续
+```python
+pages={"document_url": "https://render-origin.example/card"}
+```
+
+## 无基址的相对资源
+
+内存 Markdown 字符串没有天然文件目录。若其中出现 `./image.png`：
+
+- `resource_strict=True` 会报错，因为无法可靠定位文件；
+- 默认非严格模式会记录 warning 并保留原引用。
+
+从 Markdown 文件读取时，Markdown 文件与自定义 CSS 文件各自保留来源基址。因此正文里的相对图片按 Markdown 目录解析，CSS 中的字体或背景图按 CSS 文件目录解析。
+
+## 何时显式使用 filehost
+
+只有其他进程需要在当前 Page 生命周期之外访问稳定 HTTP URL，或既有部署已经围绕 `/filehost/*` 建立网关策略时，才选择：
+
+```dotenv
+RENDER_PLAYWRIGHT={"resource_resolve_mode":"auto","remote_local_resource_policy":"filehost"}
+```
+
+filehost 的 TTL 是 URL mapping TTL，不代表逐文件物理删除。物理文件由 `nonebot-plugin-filehost` 的进程级临时目录生命周期管理；htmlrender 不读取其私有文件字段，也不承诺渲染结束后立即删除单个文件。完整契约见 [资源准备与传输方案](../maintainers/architecture/filehost-resource-resolution.md)。
 
 ## 相关页面
 
-- 资源安全边界见 [安全须知](security.md)
-- 报错与排障见 [故障排查](troubleshooting.md)
-- filehost 与请求头守卫的实现细节见维护者文档 [Filehost 资源解析方案](../maintainers/architecture/filehost-resource-resolution.md)
+- [Playwright 配置](config/playwright.md)
+- [v0.7.2 迁移说明](migration-v072.md)
+- [安全须知](security.md)
+- [故障排查](troubleshooting.md)

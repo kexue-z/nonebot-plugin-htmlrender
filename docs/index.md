@@ -10,8 +10,8 @@ tags:
 
 # nonebot-plugin-htmlrender 文档
 
-`nonebot-plugin-htmlrender` 是一个面向 NoneBot 生态的库型渲染插件。  
-它基于浏览器语义提供统一渲染能力，把文本、Markdown、HTML 和模板页面渲染为图片，适合消息卡片、海报、榜单、报告图和模板化内容生成等场景。
+`nonebot-plugin-htmlrender` 是一个面向 NoneBot 生态的库型渲染插件。\
+它通过 Playwright 浏览器或 Takumi 原生引擎提供统一渲染能力，把文本、Markdown、HTML 和模板页面渲染为图片，适合消息卡片、海报、榜单、报告图和模板化内容生成等场景。
 
 它的定位不是“开箱即用的业务插件”，而是“渲染能力库”：
 
@@ -19,38 +19,38 @@ tags:
 - 由业务插件或应用代码负责接收事件或命令
 - 由本插件负责生成图片或提供底层页面上下文
 
-如果你只关心怎么接入，请走用户文档。  
+如果你只关心怎么接入，请走用户文档。\
 如果你要继续维护这个仓库、排查底层行为或参与重构，请走开发者文档。
 
 <div class="grid cards" markdown>
 
--   **面向用户**
+- **面向用户**
 
-    ---
+    ______________________________________________________________________
 
     从安装、配置、调用到排障与迁移，覆盖把渲染能力接进业务插件的路径。
 
     [进入用户文档](users/index.md)
 
--   **面向开发者**
+- **面向开发者**
 
-    ---
+    ______________________________________________________________________
 
     面向维护者解释架构边界、backend 扩展、资源解析、测试矩阵与发布流程。
 
     [进入开发者文档](maintainers/index.md)
 
--   **排障与运维**
+- **排障与运维**
 
-    ---
+    ______________________________________________________________________
 
     按启动失败、浏览器不可用、远程资源不可达、安全边界等场景定位问题。
 
     [查看故障排查](users/troubleshooting.md)
 
--   **后端扩展**
+- **后端扩展**
 
-    ---
+    ______________________________________________________________________
 
     理解 `Render` / `Backend` / `Runtime` / `Session` 的职责，并落地新的渲染后端。
 
@@ -63,8 +63,9 @@ tags:
 核心能力：
 
 - 统一渲染 API：`render_text`、`render_markdown`、`render_html`、`render_template`
+- 两套正式后端：Playwright 浏览器执行与 `takumi-py==0.2.0` 原生静态渲染
 - 远程能力支持：远程 Playwright / 远程浏览器两种接入模式
-- 资源解析链路：可选接入 filehost 解决远程浏览器读取本地资源问题
+- 资源解析链路：默认内存资产桥跨容器传输本地资源，filehost 保留为显式兼容模式
 - 观测能力扩展：可选接入 sentry / prometheus 观察渲染链路指标与异常
 - 兼容层过渡：保留旧接口用于迁移，但新项目推荐直接使用新 API
 
@@ -80,24 +81,25 @@ tags:
     推荐顺序：
 
     1. [快速开始](users/quickstart.md)
-    2. [API 与兼容层](users/api.md)
-    3. [配置总览](users/config/index.md)
-    4. [远程 Playwright 与 Filehost](users/remote-playwright.md)
-    5. [故障排查](users/troubleshooting.md)
-    6. [常见问题](users/faq.md)
-    7. [安全须知](users/security.md)
-    8. [旧版本迁移指南](users/migration.md)
+    1. [API 与兼容层](users/api.md)
+    1. [配置总览](users/config/index.md)
+    1. [远程 Playwright 与资源桥](users/remote-playwright.md)
+    1. [故障排查](users/troubleshooting.md)
+    1. [常见问题](users/faq.md)
+    1. [安全须知](users/security.md)
+    1. [v0.7.2 迁移说明](users/migration-v072.md)
+    1. [旧版本迁移指南](users/migration.md)
 
 === "我是维护者"
 
     推荐顺序：
 
     1. [开发者概览](maintainers/index.md)
-    2. [分层架构](maintainers/architecture/architecture.md)
-    3. [渲染后端开发指南](maintainers/architecture/render-backend-development.md)
-    4. [Filehost 资源解析方案](maintainers/architecture/filehost-resource-resolution.md)
-    5. [工程协作与规范](maintainers/contributing/engineering-guide.md)
-    6. [测试矩阵](maintainers/quality/testing-matrix.md)
+    1. [分层架构](maintainers/architecture/architecture.md)
+    1. [渲染后端开发指南](maintainers/architecture/render-backend-development.md)
+    1. [资源准备与传输方案](maintainers/architecture/filehost-resource-resolution.md)
+    1. [工程协作与规范](maintainers/contributing/engineering-guide.md)
+    1. [测试矩阵](maintainers/quality/testing-matrix.md)
 
 ## 用户文档
 
@@ -107,13 +109,15 @@ tags:
 - [配置总览](users/config/index.md)
 - [基础配置与加载](users/config/core.md)
 - [Playwright 配置](users/config/playwright.md)
+- [Takumi 配置与能力](users/config/takumi.md)
 - [依赖扩展与观测](users/config/integrations.md)
 - [示例项目](users/examples.md)
 - [最佳实践](users/best-practices.md)
-- [远程 Playwright 与 Filehost](users/remote-playwright.md)
+- [远程 Playwright 与资源桥](users/remote-playwright.md)
 - [故障排查](users/troubleshooting.md)
 - [常见问题](users/faq.md)
 - [安全须知](users/security.md)
+- [v0.7.2 迁移说明](users/migration-v072.md)
 - [旧版本迁移指南](users/migration.md)
 
 ## 开发者文档
@@ -122,7 +126,7 @@ tags:
 - [分层架构](maintainers/architecture/architecture.md)
 - [自定义 Backend 指南](maintainers/architecture/custom-backends.md)
 - [渲染后端开发指南](maintainers/architecture/render-backend-development.md)
-- [Filehost 资源解析方案](maintainers/architecture/filehost-resource-resolution.md)
+- [资源准备与传输方案](maintainers/architecture/filehost-resource-resolution.md)
 - [工程协作与规范](maintainers/contributing/engineering-guide.md)
 - [贡献指南](maintainers/contributing/contributing.md)
 - [提交消息指南](maintainers/contributing/commit-message.md)

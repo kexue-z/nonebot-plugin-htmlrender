@@ -20,14 +20,14 @@ tags:
 
 ### 远程渲染和本地渲染怎么选？
 
-| 场景 | 建议 |
-| --- | --- |
-| 单机部署、并发不高、对启动时间敏感 | 本地 |
-| 多 Bot 实例共用浏览器、容器化部署、希望与业务进程解耦 | 远程 |
-| 已有 Chromium/CDP 基础设施 | 远程（CDP） |
-| 想要完整 Playwright 能力栈（多引擎、跟随版本） | 远程（WS） |
+| 场景                                                  | 建议        |
+| ----------------------------------------------------- | ----------- |
+| 单机部署、并发不高、对启动时间敏感                    | 本地        |
+| 多 Bot 实例共用浏览器、容器化部署、希望与业务进程解耦 | 远程        |
+| 已有 Chromium/CDP 基础设施                            | 远程（CDP） |
+| 想要完整 Playwright 能力栈（多引擎、跟随版本）        | 远程（WS）  |
 
-远程模式的代价是必须额外解决"远端读不到本地资源"的问题，参考 [远程 Playwright 与 Filehost](remote-playwright.md)。
+v0.7.2 默认用 render-scoped 内存资产桥解决“远端读不到本地资源”，不要求共享 filesystem 或 filehost。参考 [远程 Playwright 与资源桥](remote-playwright.md)。
 
 ### 一定要装系统级 Chromium 吗？
 
@@ -116,10 +116,10 @@ dict 中的 `Path` / 路径字符串在启用资源解析时会被自动转换�
 
 按链路自上而下排查：
 
-1. **模板层**：是否引用外链 CDN/字体？尽量把资源放到本地或 filehost；
-2. **截图层**：调高 `screenshot_timeout`，但同时检查页面是否真的 onload；
-3. **会话层**：远程模式下网络 RTT 大；高频调用考虑本地，或在远端边缘部署；
-4. **后端层**：`close_on_exit=false` 让浏览器进程长驻，避免每次 session 关闭都重启。
+1. **模板层**：是否引用外链 CDN/字体？尽量本地化并交给内存资产桥；
+1. **截图层**：调高 `screenshot_timeout`，但同时检查页面是否真的 onload；
+1. **会话层**：远程模式下网络 RTT 大；高频调用考虑本地，或在远端边缘部署；
+1. **后端层**：`close_on_exit=false` 让浏览器进程长驻，避免每次 session 关闭都重启。
 
 ### 多次调用看上去"卡住"
 
@@ -135,13 +135,15 @@ dict 中的 `Path` / 路径字符串在启用资源解析时会被自动转换�
 
 ### filehost 必须开吗？
 
-只在远程模式下需要。本地模式直接读 `file://` 即可。
-远程时如果模板里只有外链资源（HTTP CDN），也可以不开 filehost，让远端浏览器自己拉。
-本地资源（图片、字体、相对路径 CSS）才需要 filehost 把它们临时托管。
+不需要。远程 Playwright 默认把本地图片、字体和 CSS 读成 `PreparedAsset`，通过当前 Page 的内存 route 传给 Chromium；普通跨容器部署无需安装 `[filehost]`。
+
+只有既有部署要求 HTTP URL，或其他进程需要在 Page 生命周期之外访问资源时，才显式选择 `remote_local_resource_policy=filehost`。共享卷部署则显式选择 `passthrough`。
 
 ### 远程渲染会泄露我的本地文件吗？
 
-**默认不会**。filehost 默认只暴露调用方明确给定的资源（受 `filehost_allowed_paths` 与 `template_base` 双重约束），且 `/filehost/*` 端点带请求头守卫。
+**默认不会通过 HTTP 暴露**。内存资产 route 只绑定当前 Page，并仍受资源允许根约束。
+
+显式 filehost 模式只暴露调用方明确给定的资源（受 `filehost_allowed_paths` 与 `template_base` 双重约束），且 `/filehost/*` 端点带请求头守卫。
 但如果你显式打开 `filehost_allow_any_path=true`，就等于绕过路径白名单，需要自己评估风险。
 完整说明参考 [安全须知](security.md)。
 
@@ -150,7 +152,7 @@ dict 中的 `Path` / 路径字符串在启用资源解析时会被自动转换�
 可以。WS / CDP 都支持多客户端连接。
 注意：
 
-- 不同 Bot 实例使用各自的 filehost token（默认基于设备派生）。如果要在多机间共享 filehost 入口，应显式配置 `filehost_request_header_value` 让多端 token 一致；
+- 内存资产桥无需跨 Bot 共享 token；显式共用 filehost 入口时，各 Bot 应配置相同的 `filehost_request_header_value`；
 - 远端浏览器的并发能力受服务端配置约束，超出后请求会排队。
 
 ### CI/CD 里如何加速？

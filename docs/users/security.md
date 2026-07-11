@@ -16,19 +16,20 @@ tags:
 
 ## 威胁模型概览
 
-| 入口 | 威胁 | 默认行为 | 责任方 |
-| --- | --- | --- | --- |
-| `render_html(...)` | 攻击者构造 HTML/JS 在浏览器进程执行 | 直接装载到 Page | 调用方 |
-| `render_template(..., templates=...)` | 模板变量未转义被插入 HTML | Jinja2 `select_autoescape()` 仅对 `.html/.xml` 自动转义 | 调用方 |
-| `capture_html_element(url, ...)` | 任意 URL 被远端浏览器请求 | 直接 `goto(url)` | 调用方 |
-| filehost `/filehost/*` | 浏览器/外部请求读取本地文件 | 路径白名单 + 请求头守卫 | 配置方 |
-| 远端 WS / CDP 连接 | 攻击者连接到运行中的浏览器服务 | 端点本身不带认证 | 部署方 |
+| 入口                                  | 威胁                                | 默认行为                                                | 责任方 |
+| ------------------------------------- | ----------------------------------- | ------------------------------------------------------- | ------ |
+| `render_html(...)`                    | 攻击者构造 HTML/JS 在浏览器进程执行 | Playwright 执行 JS；Takumi 明确拒绝                     | 调用方 |
+| `render_template(..., templates=...)` | 模板变量未转义被插入 HTML           | Jinja2 `select_autoescape()` 仅对 `.html/.xml` 自动转义 | 调用方 |
+| `capture_html_element(url, ...)`      | 任意 URL 被远端浏览器请求           | 直接 `goto(url)`                                        | 调用方 |
+| 内存资产桥                            | 本地文件被读入当前渲染 Page         | 路径边界 + render-scoped route                          | 配置方 |
+| filehost `/filehost/*`                | 浏览器/外部请求读取本地文件         | 路径白名单 + 请求头守卫                                 | 配置方 |
+| 远端 WS / CDP 连接                    | 攻击者连接到运行中的浏览器服务      | 端点本身不带认证                                        | 部署方 |
 
 简言之：**插件不会替你过滤业务输入**。需要按下文列出的位置加固。
 
 ## 渲染任意 HTML / Markdown
 
-`render_html` 直接把字符串装载到 Playwright Page。Page 默认开启 JS 执行、网络访问。
+Playwright 后端会把 `render_html` 的字符串装载到 Page，默认开启 JS 执行与网络访问。Takumi 不执行 JS 或网络请求，但这不能替代业务输入验证：同一调用切回 Playwright 后威胁面会恢复，静态资源解析本身也可能读取本地文件。
 如果调用方把用户输入直接拼进 HTML：
 
 - 用户输入里的 `<script>` 会真实执行；
@@ -39,6 +40,7 @@ tags:
 
 - 业务输入直接走 `render_markdown`（CommonMark 解析过滤大部分原始 HTML）或 `render_template` 配合 Jinja2 变量；
 - 不要拼字符串。`render_template` 默认 `select_autoescape()` 对 `.html/.xml` 后缀模板启用 HTML 转义，模板变量中的 `<` / `>` / `&` 会被转义；
+- 内置 text 模板只把 preparation 产生的可信 CSS 通过 `css|safe` 注入；文本变量仍由 autoescape 处理。不要把 `safe` 扩散到普通模板变量；
 - 自定义模板后缀（如 `.j2`）时显式开 `autoescape=True`，否则等于零防护；
 - 需要原始 HTML 的字段，明确定义白名单标签集合后再交给模板，不要走 `|safe`。
 
@@ -67,17 +69,28 @@ env = jinja2.Environment(
 - 通过 `proxy_server` / `proxy_bypass` 把浏览器流量收敛到出口代理，配合代理层做出站策略。
 - 远端浏览器（CDP）必须屏蔽访问元数据/本地 loopback。常见做法：容器内用 `--no-sandbox` 但配合 namespace + 网络策略。
 
+## 内存资产桥
+
+远程 Playwright 默认不把本地路径变成公开 HTTP endpoint，而是先读取允许范围内的文件，再通过当前 Page 的合成路由返回 `PreparedAsset.data`。合成 URL 使用 `htmlrender.invalid`，不会触发 DNS 或外部网络访问。
+
+- 资产仅存于 Bot 进程内存和 Playwright 协议传输中，不写 localstore 或共享目录；
+- Page 关闭后 route 与资产一起释放；
+- 内容按 SHA-256 去重，但 telemetry 不记录 digest、路径、URL 或内容；
+- filesystem 路径仍需满足模板基址或显式允许根目录，不能借内存桥任意读取主机文件。
+
+这降低了长期 URL 暴露面，但不会过滤 HTML 自身的外链、脚本或 SSRF。调用方仍需限制不可信资源引用。
+
 ## Filehost 暴露面
 
-filehost 把本地路径以 HTTP 形式暴露给"运行中的浏览器"。
+filehost 是显式兼容模式，会把本地内容以 HTTP URL 暴露给运行中的浏览器或其他网络方。
 误配置可能等价于把整个文件系统对外公开。
 
 ### 默认护栏
 
 1. **路径白名单**：未传 `template_base` 且 `filehost_allowed_paths` 为空时，任何本地路径都会被拒绝（`Refused to expose local path via filehost without an allowed root.`）。
-2. **目录隔离**：路径必须落在 `template_base` 或 `filehost_allowed_paths` 任一根目录下。否则报 `Local path ... is outside allowed filehost roots`。
-3. **请求头守卫**：插件向 NoneBot 的 FastAPI 应用注入 `/filehost/*` 中间件，要求请求带 `X-HTMLRender-Filehost-Request: <token>`。token 默认基于设备指纹派生（`py-machineid` 或 MAC 地址）。
-4. **请求侧自动附带 token**：插件渲染请求时通过 Playwright `extra_http_headers` 自动带上 token，配合中间件形成闭环。
+1. **目录隔离**：路径必须落在 `template_base` 或 `filehost_allowed_paths` 任一根目录下。否则报 `Local path ... is outside allowed filehost roots`。
+1. **请求头守卫**：插件向 NoneBot 的 FastAPI 应用注入 `/filehost/*` 中间件，要求请求带 `X-HTMLRender-Filehost-Request: <token>`。token 默认基于设备指纹派生（`py-machineid` 或 MAC 地址）。
+1. **请求侧自动附带 token**：插件渲染请求时通过 Playwright `extra_http_headers` 自动带上 token，配合中间件形成闭环。
 
 ### 风险开关
 
@@ -111,13 +124,14 @@ token 应当：
 意味着 `/filehost/*` 端点裸露，没有 token 校验。**不要在生产忽略这条 warning**。
 要么换支持的 driver，要么在网络入口（反向代理/网关）补一层鉴权。
 
-### TTL 与瞬时性
+### TTL、mapping 与物理文件
 
-- 文件类资源缓存 key 为 `path + mtime + size`，文件被覆盖会立刻失效；
-- 默认 `filehost_cache_ttl_seconds=300`；过期后下次访问需重新上传；
-- bytes/`BytesIO` 不缓存，每次都重新调用 `FileHost(...).to_url()`。
+- `Path`、`bytes`、`bytearray` 与 `BytesIO` 按内容 SHA-256 去重；文件 revision 改变时重新读取一致快照；
+- 默认 `filehost_cache_ttl_seconds=300`，其语义是 **URL mapping TTL**；
+- lease 在一次渲染期间绑定具体 blob revision，避免映射被并发清理；
+- mapping 过期不会承诺立即删除 filehost 的物理文件。
 
-filehost 暴露的是**临时 URL**，但只要进程存活、TTL 未过、token 未变，URL 仍然有效。不要把它当成"截图后即失效"的一次性资源。
+htmlrender 不访问 `nonebot-plugin-filehost` 的私有文件字段，也不提供逐文件删除 API。物理文件由 filehost 的进程级临时目录生命周期管理。不要把 mapping TTL 理解为安全删除期限，也不要把 filehost URL 当成“截图后即失效”的一次性凭据。
 
 ## 远端 WS / CDP 连接
 
@@ -174,6 +188,7 @@ await render_template_html(template=user_supplied_template_string)
 - [ ] 渲染入口已与不可信用户输入解耦（用模板变量而非字符串拼接）；
 - [ ] 自定义模板后缀时显式开 `autoescape=True`；
 - [ ] 不要使用 `filehost_allow_any_path=true`，除非环境严格隔离；
+- [ ] 远程默认使用 `memory`；只有明确需要稳定 HTTP URL 时才启用 filehost；
 - [ ] `filehost_allowed_paths` 显式列出可暴露目录，且不包含 `~`、`/etc`、`/var`、`/srv` 整目录；
 - [ ] 多机部署时配置了共享 `filehost_request_header_value`；
 - [ ] 启动日志没有 `Filehost request guard unavailable` 或类似 warning；

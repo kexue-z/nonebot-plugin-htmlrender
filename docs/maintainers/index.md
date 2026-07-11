@@ -19,7 +19,7 @@ tags:
 
 - **架构与 backend**
 
-    ---
+    ______________________________________________________________________
 
     理解渲染主链路、Backend Protocol、资源解析和后端开发的落地步骤。
 
@@ -27,7 +27,7 @@ tags:
 
 - **协作流程**
 
-    ---
+    ______________________________________________________________________
 
     对齐贡献入口、工程规范、编码风格和提交消息格式。
 
@@ -35,7 +35,7 @@ tags:
 
 - **质量与发布**
 
-    ---
+    ______________________________________________________________________
 
     查看测试分层、CI 工作流、软件发布和文档版本规则。
 
@@ -48,24 +48,24 @@ tags:
 === "维护代码"
 
     1. [分层架构](architecture/architecture.md)
-    2. [Filehost 资源解析方案](architecture/filehost-resource-resolution.md)
-    3. [工程协作与规范](contributing/engineering-guide.md)
-    4. [测试矩阵](quality/testing-matrix.md)
+    1. [资源准备与传输方案](architecture/filehost-resource-resolution.md)
+    1. [工程协作与规范](contributing/engineering-guide.md)
+    1. [测试矩阵](quality/testing-matrix.md)
 
 === "开发 backend"
 
     1. [分层架构](architecture/architecture.md)
-    2. [自定义 Backend 指南](architecture/custom-backends.md)
-    3. [渲染后端开发指南](architecture/render-backend-development.md)
-    4. [测试矩阵](quality/testing-matrix.md)
+    1. [自定义 Backend 指南](architecture/custom-backends.md)
+    1. [渲染后端开发指南](architecture/render-backend-development.md)
+    1. [测试矩阵](quality/testing-matrix.md)
 
 === "发布文档"
 
     1. [贡献指南](contributing/contributing.md)
-    2. [Pull Request 生命周期](contributing/pull-requests.md)
-    3. [发布流程](quality/release-process.md)
-    4. [CI Actions](quality/ci-actions.md)
-    5. [文档版本管理](quality/versioning.md)
+    1. [Pull Request 生命周期](contributing/pull-requests.md)
+    1. [发布流程](quality/release-process.md)
+    1. [CI Actions](quality/ci-actions.md)
+    1. [文档版本管理](quality/versioning.md)
 
 ## 推荐同步阅读的用户文档
 
@@ -74,6 +74,7 @@ tags:
 - [故障排查](../users/troubleshooting.md)
 - [常见问题](../users/faq.md)
 - [安全须知](../users/security.md)
+- [v0.7.2 迁移说明](../users/migration-v072.md)
 - [旧版本迁移指南](../users/migration.md)
 
 ## 架构与设计
@@ -81,7 +82,7 @@ tags:
 - [分层架构](architecture/architecture.md)
 - [自定义 Backend 指南](architecture/custom-backends.md)
 - [渲染后端开发指南](architecture/render-backend-development.md)
-- [Filehost 资源解析方案](architecture/filehost-resource-resolution.md)
+- [资源准备与传输方案](architecture/filehost-resource-resolution.md)
 
 ## 协作流程
 

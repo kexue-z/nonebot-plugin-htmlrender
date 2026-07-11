@@ -12,9 +12,10 @@ tags:
 
 ## 依赖方向
 
-`__init__/render` -> `backend` -> `backend.playwright.*` -> `resources`
+`__init__/render` -> `preparation` -> `backend` -> `resources`
 
 !!! info "约束"
+
     目录拆分只是开始，关键是依赖方向不能反转。
 
 ## 五层语义
@@ -22,37 +23,42 @@ tags:
 由上至下：
 
 1. **Render（渲染层）**：面向用户的最高层接口，例如 `render_html`、`render_template`。对 `Backend` 做抽象封装，负责会话复用与默认实例管理。
-2. **Backend（后端层）**：具体驱动实现（当前为 Playwright）。负责 `Runtime` 与 `Session` 的创建、销毁、健康检查。
-3. **Runtime（运行时）**：一次驱动实例化的产物，对应一个 Playwright 进程或一条远端连接。
-4. **Session（会话）**：建立在 `Runtime` 之上的渲染环境。Playwright 后端中通常对应一个 `Browser` 实例。
-5. **Context（上下文）**：单次渲染容器。Playwright 后端中对应 `BrowserContext` + `Page`，由 `operations` 模块在每次渲染时按需创建并退出释放。
+1. **Preparation（准备层）**：把文本、Markdown、Jinja 模板与原始 HTML 转成 `PreparedHtml`、`PreparedStylesheet` 与 `PreparedAsset`，不选择执行后端。
+1. **Backend（后端层）**：Playwright 或 Takumi executor，负责消费 prepared model 并管理 `Runtime` / `Session`。
+1. **Runtime（运行时）**：一次驱动实例化的产物，对应 Playwright 进程/远端连接，或进程内 Takumi renderer 与 worker。
+1. **Session / Context（会话与上下文）**：Playwright 对应 `Browser`、`BrowserContext` 与 `Page`；Takumi session 是 runtime-local native 执行入口，不伪造 Page 语义。
 
 层次约束：
 
 - 上层只能透过下层暴露的接口操作下层资源，不直接持有更下层对象。
 - `Render` 不感知 Playwright 细节；`Backend` 不感知 NoneBot 生命周期。
-- 资源解析（`resources/`）作为旁路被 `operations` 调用，不参与渲染主链路的依赖反转。
+- 资源 source、byte cache、templating 与 asset index 位于 `resources/`，被 preparation 与 executor 共同复用；后端专属传输适配器不能反向污染 prepared model。
 
 ## 架构图
 
 ```mermaid
 flowchart TD
     A["nonebot_plugin_htmlrender/__init__.py<br/>插件入口/导出 API"] --> B["render.py<br/>默认实例/生命周期"]
+    B --> P["preparation/<br/>PreparedHtml · stylesheet · asset"]
     B --> C["backend/base.py + backend/factory.py<br/>后端抽象与注册"]
-    C --> D["backend/playwright/render.py<br/>runtime/config/install"]
-    D --> E["backend/playwright/operations.py<br/>渲染动作"]
-    E --> F["resources/"]
+    P --> C
+    C --> D["backend/playwright/<br/>BrowserLoadPlan · page route"]
+    C --> T["backend/takumi/<br/>native runtime · compiled cache"]
+    P --> F
+    D --> F
+    T --> F
 
-    subgraph F["resources/ 资源解析层"]
-        F1["resolve.py<br/>资源解析引擎（policy/路径/URL）"]
-        F2["template.py<br/>模板变量与 HTML/CSS 替换"]
-        F3["filehost/<br/>cache · guard · warmup"]
-        F2 --> F1
+    subgraph F["resources/ 共用资源层"]
+        F1["source.py<br/>package / filesystem identity"]
+        F2["cache.py<br/>generation-safe byte cache"]
+        F3["templating.py<br/>PackageLoader / FileSystemLoader"]
+        F4["filehost/<br/>explicit compatibility adapter"]
+        F1 --> F2
         F1 --> F3
     end
 
     G["tests/render/test_render_api.py"] --> B
-    H["tests/backend/playwright/test_*.py"] --> D
+    H["tests/backend/*/test_*.py"] --> C
     I["tests/resources/test_resources*.py"] --> F
 ```
 
@@ -84,8 +90,12 @@ sequenceDiagram
     Backend->>Ops: operations.render_html(...)
     Ops->>Browser: new_page(...) (通过 open_page_context)
     Browser-->>Ops: page
-    Ops->>Page: goto(base_url)
-    Ops->>Page: set_content(html)
+    Ops->>Ops: build BrowserLoadPlan
+    Ops->>Page: install PreparedAsset routes
+    opt 显式 document_url
+        Ops->>Page: goto(document_url)
+    end
+    Ops->>Page: set_content(original html)
     Ops->>Page: screenshot(...)
     Page-->>Ops: bytes
     Ops->>Page: 退出上下文，关闭 page
@@ -144,5 +154,5 @@ sequenceDiagram
 ## 当前实现状态
 
 - backend 抽象层已经落地，扩展面在 `backend/base.py` 与 `backend/factory.py`。
-- 当前仓库的正式 backend 实现只有 Playwright。
+- 当前仓库的正式 backend 实现包括 Playwright 与可选 `takumi-py==0.2.0` 后端。
 - `RenderBackend.SKIA`、`PILLOW`、`HTMLKIT` 目前只保留公开枚举与扩展接口，不代表仓库内已经提供对应实现。

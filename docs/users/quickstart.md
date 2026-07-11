@@ -110,7 +110,7 @@ async def handle_profile() -> None:
 
 ## 模板目录的最小可运行例子
 
-如果你要接 `render_template`，至少要有一份模板目录和一个可解析的 `base_url`：
+如果你要接 `render_template`，至少要有一份模板目录。模板目录本身就是默认资源基址：
 
 ```python
 from pathlib import Path
@@ -123,15 +123,11 @@ image = await render_template(
     str(TEMPLATE_DIR),
     template_name="card.html",
     templates={"title": "Hello", "value": "World"},
-    pages={
-        "viewport": {"width": 480, "height": 240},
-        "base_url": TEMPLATE_DIR.resolve().as_uri(),
-    },
+    pages={"viewport": {"width": 480, "height": 240}},
 )
 ```
 
-这条路径更适合本地模式。  
-如果你接的是远程浏览器，请继续看 [远程 Playwright 与 Filehost](remote-playwright.md) 中关于 `about:blank`、资源解析和 filehost 的说明。
+本地与远程模式都能使用这条路径；模板目录会自动成为资源基址，远程资源默认经内存资产桥传输。只有自定义 `PreparedHtml` 才需要设置其 `base_url`；真实页面导航使用 `PageConfig.document_url`。
 
 ## 下一步该看什么
 
@@ -140,7 +136,8 @@ image = await render_template(
 - 想看公共接口：去 [API 与兼容层](api.md)
 - 想整理配置：去 [配置总览](config/index.md)
 - 想用无浏览器的原生渲染：去 [Takumi 配置与能力](config/takumi.md)
-- 想接远程浏览器或 filehost：去 [远程 Playwright 与 Filehost](remote-playwright.md)
-- 想从旧项目迁移：去 [旧版本迁移指南](migration.md)
+- 想接远程浏览器或 filehost：去 [远程 Playwright 与资源桥](remote-playwright.md)
+- 想从 v0.7.1 升级：去 [v0.7.2 迁移说明](migration-v072.md)
+- 想迁移更早的旧项目：去 [旧版本迁移指南](migration.md)
 
 如果启动阶段直接失败，先看 [故障排查](troubleshooting.md) 里的 `Render runtime startup failed.` 与 Playwright 安装相关条目。

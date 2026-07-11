@@ -126,7 +126,7 @@ img = await render_template(
 更常见的根因是页面里有外链资源加载不下来阻塞渲染。优先排查：
 
 - 模板里是否有外部 CDN/字体被墙。
-- 远端浏览器是否能解析模板里的本地路径（参考下文 filehost）。
+- 本地路径是否能按 `base_url` 物化为 `PreparedAsset`（参考 [远程 Playwright 与资源桥](remote-playwright.md)）。
 
 ### `HTML content cannot be empty` / `template_path cannot be empty` / `template_name cannot be empty`
 
@@ -139,7 +139,20 @@ img = await render_template(
 
 ### `base_url must start with 'file://', 'http://', 'https://', or 'about:'`
 
-`PageConfig.base_url` 只接受这四类 URL scheme。模板需要相对路径解析时传 `file:///abs/path/` 或 `about:blank`。
+`PageConfig.base_url` 是 v0.7.1 导航字段的弃用兼容别名，只接受这四类 URL scheme。新代码将导航目标放入 `PageConfig.document_url`；filesystem 模板、Markdown 与 CSS 的资源基址由 preparation source 自动保留。
+
+不要再用 Page 配置表达 prepared resource base。原始 HTML 的显式资源基址应通过 `prepare_html(..., base_url=...)` 写入 `PreparedHtml.base_url`。
+
+### 远程 `Page.goto: net::ERR_FILE_NOT_FOUND`
+
+若日志中的 URL 指向 Bot 容器内的 `site-packages/.../templates/*.html`，说明仍在运行 v0.7.1 或更早的 `file://` 文档导航路径。v0.7.2 的 text、Markdown 和普通模板会在 `about:blank` 上 `page.set_content()`，本地资源默认经内存资产桥传输。
+
+确认：
+
+1. 实际安装版本为 v0.7.2，且容器没有挂载旧 wheel；
+1. 没有显式设置 `document_url=file:///...`；
+1. 共享卷部署才选择 `passthrough`，普通跨容器部署保持 `auto + memory`；
+1. 不需要为 `md_to_pic` 手工提供 HTTP `base_url`。
 
 ## 资源解析与 Filehost
 
@@ -149,19 +162,20 @@ filehost 拒绝暴露任意本地路径。在严格模式下抛错；非严格�
 解决：
 
 - 渲染时传 `template_base=Path("templates_dir")`，显式划定可暴露根。
+
 - 全局配置白名单：
 
-  ```dotenv
-  RENDER_PLAYWRIGHT={"filehost_allowed_paths":["/srv/bot/assets"]}
-  ```
+    ```dotenv
+    RENDER_PLAYWRIGHT={"filehost_allowed_paths":["/srv/bot/assets"]}
+    ```
 
 - 信任部署环境时显式开放（**不推荐**）：
 
-  ```dotenv
-  RENDER_PLAYWRIGHT={"filehost_allow_any_path":true}
-  ```
+    ```dotenv
+    RENDER_PLAYWRIGHT={"filehost_allow_any_path":true}
+    ```
 
-  详见 [安全须知](security.md)。
+    详见 [安全须知](security.md)。
 
 ### `Local path ... is outside allowed filehost roots: ...`
 
@@ -190,9 +204,10 @@ filehost 的 `/filehost/*` 请求头守卫安装失败，浏览器请求会被�
 
 ### `Local resources are not allowed under current resource policy.`
 
-`remote_local_resource_policy` 设为 `error`。如果意图是禁止本地资源进入远端浏览器但又传了本地路径，二选一：
+`remote_local_resource_policy` 设为 `error`。如果实际需要使用本地资源：
 
-- 把策略改成 `filehost`，让本地资源经 filehost 暴露。
+- 保持默认 `memory`，让资源通过当前 Page 的内存 route 传输。
+- 既有系统必须提供 HTTP URL 时改成 `filehost`。
 - 调用方提前把本地资源转 URL，避免命中本地资源识别。
 
 ### `Resolved resource is not URL text: got bytes.`
@@ -219,7 +234,7 @@ apk add font-noto-cjk
 页面 onload 完成但脚本/图片仍在加载就被截图。建议：
 
 - 给 `render_html` / `render_template` 传 `wait`（毫秒）显式延迟。
-- 如果模板里依赖外链 CDN，优先把资源本地化（filehost 自动暴露）。
+- 如果模板里依赖外链 CDN，优先把资源本地化并交给内存资产桥。
 - 非必要不要在模板里使用 SPA/客户端渲染框架。
 
 ### `RENDER_STARTUP_MODE=probe` 启动慢
@@ -245,7 +260,13 @@ RENDER_PLAYWRIGHT={"cleanup_legacy_cache":true}
 
 如不希望清理但又想消除告警，把旧目录手动删掉即可。
 
-### Filehost 上传次数过多 / `bytes/BytesIO` 没缓存
+### Filehost 上传次数过多
 
-filehost 缓存以"绝对路径 + mtime/size"为 key，bytes 类资源没有稳定 key 不走缓存。
-每次都重新上传。改成把 bytes 落盘后传 `Path`，或调高 `filehost_cache_ttl_seconds` 不会解决这一项。
+v0.7.2 对 `Path`、`bytes`、`bytearray` 与 `BytesIO` 都按内容 SHA-256 去重，并对相同 digest 使用 singleflight。若上传仍持续增长：
+
+- 检查输入内容是否每次都实际变化；
+- 检查 `filehost_cache_ttl_seconds` 是否过短——它只控制 URL mapping TTL；
+- 优先确认是否真的需要 filehost，普通远程渲染应使用默认内存资产桥；
+- 通过低基数的 upload bytes、dedup hits、active mappings/leases 指标判断是内容变化还是 mapping 过期。
+
+mapping 清理不会逐文件删除 filehost 物理文件；物理目录由 filehost 进程生命周期管理。

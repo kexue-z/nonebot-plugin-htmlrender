@@ -10,6 +10,7 @@ tags:
 # 面向用户
 
 !!! info "库型插件说明"
+
     本插件以 **library** 形态提供能力，不内置任何可直接触发的 `message matcher`。
     你需要在自己的插件或应用里调用 API 来完成渲染流程。
 
@@ -19,27 +20,27 @@ tags:
 
 - **1. 接入**
 
-    ---
+    ______________________________________________________________________
 
     [快速开始](quickstart.md) -> [配置总览](config/index.md)
 
 - **2. 调用**
 
-    ---
+    ______________________________________________________________________
 
     [API 与兼容层](api.md) -> [示例项目](examples.md) -> [最佳实践](best-practices.md)
 
 - **3. 部署**
 
-    ---
+    ______________________________________________________________________
 
-    [远程 Playwright 与 Filehost](remote-playwright.md) -> [安全须知](security.md)
+    [远程 Playwright 与资源桥](remote-playwright.md) -> [安全须知](security.md)
 
 - **4. 收口**
 
-    ---
+    ______________________________________________________________________
 
-    [故障排查](troubleshooting.md) -> [常见问题](faq.md) -> [旧版本迁移指南](migration.md)
+    [故障排查](troubleshooting.md) -> [常见问题](faq.md) -> [v0.7.2 迁移说明](migration-v072.md)
 
 </div>
 
@@ -50,6 +51,7 @@ tags:
     - [快速开始](quickstart.md)：最短接入路径
     - [配置总览](config/index.md)：配置面全览
     - [Playwright 配置](config/playwright.md)：浏览器、连接、安装与启动策略
+    - [Takumi 配置与能力](config/takumi.md)：原生静态渲染、资源与能力边界
     - [依赖扩展与观测](config/integrations.md)：filehost、sentry、prometheus
 
 === "编写业务代码"
@@ -60,13 +62,14 @@ tags:
 
 === "排障或部署"
 
-    - [远程 Playwright 与 Filehost](remote-playwright.md)：远程浏览器、资源可达性与 filehost
+    - [远程 Playwright 与资源桥](remote-playwright.md)：内存资产、共享卷与 filehost 兼容模式
     - [故障排查](troubleshooting.md)：按报错现象定位问题
     - [常见问题](faq.md)：部署与接入高频问题
     - [安全须知](security.md)：远端连接、任意 HTML、filehost 暴露面的加固建议
 
 === "迁移旧项目"
 
+    - [v0.7.2 迁移说明](migration-v072.md)：远程资源、页面导航与 package resources
     - [旧版本迁移指南](migration.md)：从旧 API、旧配置和历史行为迁移到新路径
 
 ## 新项目建议
