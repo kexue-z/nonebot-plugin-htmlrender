@@ -43,6 +43,12 @@ class Config(BaseModel):
     render_cache_path: Path = Field(default=plugin_cache_dir)
     render_config_path: Path = Field(default=plugin_config_dir)
     render_startup_mode: RenderStartupMode = Field(default=RenderStartupMode.OFF)
+    render_resource_cache_max_entries: int = Field(default=256, ge=0)
+    render_resource_cache_max_bytes: int = Field(
+        default=64 * 1024 * 1024,
+        ge=0,
+    )
+    render_resource_cache_revalidate_seconds: float = Field(default=1.0, ge=0.0)
 
     @model_validator(mode="before")
     @classmethod
