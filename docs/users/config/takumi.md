@@ -74,9 +74,7 @@ RENDER_TAKUMI={"load_default_fonts":false,"fonts":[{"path":"/app/fonts/NotoSansS
 ```python
 from nonebot_plugin_htmlrender import RasterOptions, prepare_html, rasterize_html
 
-prepared = prepare_html(
-    "<style>.card { color: #663399 }</style><div class='card'>Hello</div>"
-)
+prepared = prepare_html("<style>.card { color: #663399 }</style><div class='card'>Hello</div>")
 image = await rasterize_html(
     prepared,
     RasterOptions(width=480, device_pixel_ratio=2, format="png"),
