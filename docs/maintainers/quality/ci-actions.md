@@ -1,6 +1,6 @@
 ---
 title: CI Actions
-description: GitHub Actions 工作流职责、触发条件与排障入口
+description: GitHub Actions 工作流职责、触发条件、安全边界与排障入口
 icon: lucide/badge-check
 status: new
 tags:
@@ -10,80 +10,106 @@ tags:
 
 # CI Actions
 
-本页只描述 GitHub Actions 的职责、触发条件和排障入口。测试 profile、Python 版本矩阵和架构矩阵见 [测试矩阵](testing-matrix.md)。
+本页描述 GitHub Actions 的职责和信任边界。测试 profile、Python/架构矩阵与条件 smoke 见 [测试矩阵](testing-matrix.md)，合并规则见 [Pull Request 生命周期](../contributing/pull-requests.md)。
 
 ## 工作流总览
 
-| Workflow           | 文件                                    | 主要职责                                                                 | 触发条件                                 |
-| ------------------ | --------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------- |
-| CI                 | `.github/workflows/ci.yml`              | lint、类型检查、打包校验、远程浏览器 smoke                               | push master、pull request、手动触发      |
-| Coverage           | `.github/workflows/coverage.yml`        | Python 版本 + CPU 架构覆盖率矩阵                                         | push master、pull request、手动触发      |
-| Docs               | `.github/workflows/docs.yml`            | master 推送时构建文档并执行版本化部署                                    | push master（文档路径）、手动触发        |
-| Docs PR Preview    | `.github/workflows/docs-pr-preview.yml` | PR 文档预览部署与关闭清理                                                | pull request open/sync/close（文档路径） |
-| Publish (TestPyPI) | `.github/workflows/publish-test.yml`    | PR 注入 dev 版本号发到 TestPyPI 并在 PR 评论安装命令                     | pull request、手动触发                   |
-| Auto Tag           | `.github/workflows/auto-tag.yml`        | PR 合并到 master 后读取 `pyproject.toml` 版本号自动打 tag 并触发 Publish | pull request closed on master            |
-| Publish            | `.github/workflows/publish.yml`         | 构建分发包、PyPI trusted publishing、GitHub Release                      | tag push、手动触发                       |
+| Workflow | 文件 | 主要职责 | 触发条件 |
+| --- | --- | --- | --- |
+| CI | `.github/workflows/ci.yml` | Ruff format/check、类型检查、包校验、远程浏览器 smoke、`noneload` | push `master`、PR、手动 |
+| Coverage | `.github/workflows/coverage.yml` | Python 3.10–3.14 × x64/arm64 pytest/coverage | push `master`、PR、手动 |
+| Prek | `.github/workflows/prek.yml` | 仓库级 pre-commit hooks | push `master`、PR、手动 |
+| Docs PR Preview Build | `.github/workflows/docs-pr-preview.yml` | 检测文档相关变更，以只读权限严格构建静态站 | PR open/sync/reopen |
+| Docs PR Preview Deploy | `.github/workflows/docs-pr-preview-deploy.yml` | 校验并发布 build artifact，更新 PR 预览评论 | preview build 完成 |
+| Docs PR Preview Cleanup | `.github/workflows/docs-pr-preview-cleanup.yml` | 删除已关闭 PR 的 Pages 预览 | PR closed |
+| Docs | `.github/workflows/docs.yml` | 严格构建并通过 `mike` 部署版本化文档 | push `master` 的文档相关路径、手动 |
+| Publish (TestPyPI) | `.github/workflows/publish-test.yml` | 构建唯一 dev version 并 trusted publish 到 TestPyPI | **仅手动** |
+| Auto Tag on Version Change | `.github/workflows/auto-tag.yml` | 比较 `master` push 前后的项目版本，只在版本变化时 tag 当前 trusted SHA 并 dispatch `Publish` | push `master`（`pyproject.toml`） |
+| Publish | `.github/workflows/publish.yml` | 校验 tag/source/version，构建，发布 PyPI，回读 hash 后创建 GitHub Release | `v*` tag、受约束的手动恢复 |
 
-## CI
+## PR 必需质量层
 
-`CI` workflow 是 PR 的主要合并门禁。
+### CI
 
-```mermaid
-flowchart TD
-    A["Ruff"] --> B["Ty"]
-    A --> C["Basedpyright"]
-    D["Package Build<br/>uv build + twine check"]
-    E["Remote Browser Render Smoke<br/>Docker Compose"]
-```
+`CI` 是静态质量、分发包和跨容器行为的主入口：
 
-- `Ruff` 使用 `uv run ruff check .`，覆盖仓库内所有未排除文件；
-- `Ty` 与 `Basedpyright` 在 Ruff 通过后运行；
-- `Package` 通过 `uv build` 构建 wheel 与 sdist，再用 `twine check dist/*` 校验包元数据；该 job 在 fork PR 上也会运行（不需要 secrets），用于兜底验证打包可行性；
-- `Remote Browser Render Smoke` 使用 `tests/infra/docker-compose.remote-test.yaml`，验证远程浏览器渲染路径。
+- `Ruff`：依次运行 `ruff format --check` 与 `ruff check`，只验证 checkout，不改写文件；
+- `Ty` 与 `Basedpyright`：两套类型检查器分别执行；
+- `Package Build`：`uv build --no-sources` 构建 wheel/sdist，再用 `twine check` 校验 metadata；
+- `Remote Browser Render Smoke (Docker)`：通过 Docker Compose 验证远程 Playwright WebSocket、HTML/Markdown 渲染和跨容器资源路径；
+- `NoneBot Plugin Load`：调用 `BalconyJH/noneload` reusable workflow，在 Python 3.10–3.14 隔离安装并加载插件。
 
-测试用例由 `Coverage` workflow 负责，CI workflow 不再单独跑 pytest。
+pytest 不在 `CI` 中重复执行，由 `Coverage` 统一覆盖。
 
-手动触发可设置 `debug_enabled=true` 输出 `uv pip list` 与 `uv tree`。
+`Required Checks` 是 always-run 汇总 job；上述任一层失败、取消或跳过都会使它失败。Ruleset 绑定这个稳定名称即可覆盖内部 job 和 `noneload` 矩阵，而不必在每次扩展 Python 或后端维度时更新 required check 列表。
 
-## Coverage
+### Coverage
 
-`Coverage` workflow 按 [测试矩阵](testing-matrix.md) 覆盖 Python 版本与 CPU 架构。每个矩阵项会生成独立的 coverage XML 与 pytest log，并上传到 Codecov：
+`Coverage` 对 Python 3.10–3.14 分别在 x64 和 arm64 runner 上执行 CI profile。各矩阵项独立失败，不因一个版本失败而取消其他版本，并产生：
 
 ```text
 coverage-py<python-version>-<arch>.xml
 pytest-py<python-version>-<arch>.log
 ```
 
-## Docs
+XML 上传 Codecov，日志与 XML 同时作为 `coverage-debug-*` artifact 保留。每个矩阵项要求总覆盖率不低于 90%；不应用排除新代码或删除有效测试来规避阈值。
 
-`Docs` workflow 只在 master 分支 push 且涉及以下路径时运行：
+`Coverage Matrix` 汇总完整矩阵，只在所有版本与架构均成功时通过，并为 Ruleset 提供稳定 check 名称。
 
-- `docs/**`
-- `mkdocs.yml`
-- `README.md`
-- `.github/workflows/docs.yml`
+### Prek
 
-它会执行严格文档构建并通过 `mike` 部署到 `gh-pages`：
+`Prek` 复用 `.pre-commit-config.yaml`。本地对应命令：
 
 ```bash
-uv run zensical build --strict
-uv run mike deploy --push --update-aliases <version> latest
-uv run mike set-default --push latest
+prek run --all-files
+prek run --all-files --hook-stage=manual
 ```
 
-版本号从 `pyproject.toml` 的 `project.version` 字段读取。多版本管理细节见 [文档版本管理](versioning.md)。
+第二条包含 `actionlint` 等 manual-stage 检查，修改 workflow 时必须执行。
 
-非 master 分支或 PR 上的文档预览由 `Docs PR Preview` 负责，不再走分支名预览。
+### noneload 的边界
 
-## Docs PR Preview
+`noneload` 验证隔离安装、插件 import/load、NoneBot metadata/config 以及依赖插件加载。它不能替代 pytest、真实浏览器启动或 Docker smoke。
 
-`Docs PR Preview` workflow 在 PR 触发文档相关变更时运行，用 [`rossjrw/pr-preview-action`](https://github.com/rossjrw/pr-preview-action) 部署预览页面。
+本仓库对 reusable workflow 的直接引用固定到 `BalconyJH/noneload` v1.0.1 的完整 commit SHA。该 reusable workflow 内部引用的 actions / `noneload` action 由上游维护，可能仍使用 moving major tag；这是跨仓库 reusable workflow 的**传递性例外**，无法由调用方在本仓库覆盖。升级该 SHA 时必须 review 上游 workflow 及其传递依赖，而不是只看 release tag。
 
-- 触发：`pull_request` 的 `opened` / `synchronize` / `reopened` / `closed`，路径过滤同 `Docs`；
-- 部署位置：`gh-pages` 分支下 `pr-preview/pr-<NUMBER>/`；
-- PR 关闭时自动删除该目录；
-- action 会在 PR 上贴 sticky comment，给出预览 URL；
-- fork PR 跳过：`GITHUB_TOKEN` 在 fork 上拿不到 `contents: write`，无法部署。
+## Fork-safe 文档预览 { #fork-safe-docs-preview }
+
+文档预览被拆成三个 workflow，以同时满足 fork 支持和最小权限：
+
+```mermaid
+flowchart LR
+    A["pull_request<br/>fork code, contents: read"] --> B["strict build"]
+    B --> C["untrusted static artifact"]
+    C --> D["workflow_run<br/>trusted default branch"]
+    D --> E["validate PR + SHA + artifact"]
+    E --> F["deploy pr-preview/pr-N<br/>sticky link comment"]
+    G["pull_request_target: closed<br/>trusted base only"] --> H["remove pr-N preview"]
+```
+
+### 1. Build
+
+`Docs PR Preview Build` 在普通 `pull_request` 上运行，因此 fork PR 只有只读 token。它通过 GitHub API 检查整个 PR 的 changed files；以下路径会触发 strict build：
+
+- `docs/**`、`mkdocs.yml`、`README.md`；
+- `pyproject.toml`、`uv.lock`、`.python-version`、`Makefile`；
+- Docs 与 preview 相关 workflow 文件。
+
+构建使用 PR checkout，但不接触写权限或环境 secrets，完成后只上传短期 `docs-preview-site` artifact。
+
+always-run 的 `Docs Preview` 汇总 job 是该 workflow 的稳定门禁：没有文档输入变化时正常通过，有变化时则要求 strict build 与 artifact 上传成功。
+
+### 2. Deploy
+
+`Docs PR Preview Deploy` 由 `workflow_run` 触发。只读的 `resolve` job 先检查上游 run 是否产生预览 artifact；普通代码 PR 没有 artifact 时会正常结束，不会把“不需要预览”误报为部署失败。需要预览时，后续 `deploy` job 才在受信任上下文取得 Pages 写权限。它不会 checkout PR 分支或执行 artifact 中的程序，而是：
+
+1. 要求上游 build 成功并且恰好产生一个未过期且下载前大小不超过上限的 `docs-preview-site` artifact；
+2. 要求 workflow run 恰好关联一个仍然 open 的 PR；payload 未携带关联时，用 head commit API 做受约束回查；
+3. 核对 workflow run 的 head SHA 仍是该 PR 当前 head，过期 run 正常跳过；
+4. checkout 受信任的默认分支并下载指定 run 的 artifact；
+5. 拒绝 symlink、特殊文件、异常文件数量或异常体积；
+6. 仅把验证后的静态目录部署到 `gh-pages/pr-preview/pr-<NUMBER>/`；
+7. 创建或更新带固定 marker 的 PR 评论，给出预览链接。
 
 预览 URL 形如：
 
@@ -91,83 +117,59 @@ uv run mike set-default --push latest
 https://<owner>.github.io/<repo>/pr-preview/pr-<NUMBER>/
 ```
 
-## Publish (TestPyPI)
+文件约束校验不等于内容净化。部署 workflow 不会把 artifact 当作 shell、workflow script 或模板执行，但 reviewer 打开页面时，其中的 HTML/JavaScript 会由浏览器执行。
 
-`Publish (TestPyPI)` workflow 在 PR 上为同仓库分支构建一份带唯一 dev 后缀的包，发布到 TestPyPI，便于评审者快速安装验证。
+PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是隔离域。公开 fork 可以控制该预览内容，因此必须把它视为不可信站点：不要在该 Pages origin 保存 secret、token 或可信的 `localStorage` 状态，不要让正式页面依赖同源机密，并建议用不带敏感登录状态的浏览器 profile 评审预览。
 
-- 触发：`pull_request` 的 `opened` / `synchronize` / `reopened` 与 `workflow_dispatch`；
-- fork PR 跳过：trusted publishing 需要 `id-token: write`，fork 不可用；
-- 版本注入：以 `pyproject.toml` 中的当前版本为 base，附加 UTC 时间戳后缀，例如 `0.7.0.dev20260509120000`，保证 TestPyPI 单调递增不撞包；
-- 发布完成后用 `marocchino/sticky-pull-request-comment` 在 PR 上贴一条固定评论，给出装包命令。
+### 3. Cleanup
 
-```bash
-pip install -i https://test.pypi.org/simple/ \
-  --extra-index-url https://pypi.org/simple/ \
-  nonebot-plugin-htmlrender==<dev-version>
-```
+`Docs PR Preview Cleanup` 监听 `pull_request_target: closed`，且**不使用 paths filter**，保证任何曾经部署过预览的 PR 都能在关闭后清理。它只 checkout 默认分支，并把事件中的数字 PR number 传给删除 action，绝不 checkout 或执行 fork code。
 
-`environment: testpypi` 与 `https://test.pypi.org/legacy/` 仓库 URL 已在 workflow 中固化。需要在 TestPyPI 与 GitHub 仓库的 `testpypi` environment 上各自完成一次 trusted publisher 配置。
+不要把三段重新合成一个带 `pull_request_target` checkout 的 workflow；那会把仓库写 token 暴露给不受信任的 PR 代码。
 
-## Auto Tag
+## 正式文档部署
 
-`Auto Tag` workflow 在 PR 合并到 master 后自动完成「打 tag → 触发 Publish」，避免维护者手动操作。
+`Docs` 在 `master` 文档相关路径变更时运行。只读 `build` job 先完成 strict build；只有它成功后，具有 `contents: write` 的 `deploy` job 才重新同步锁定的文档环境并调用 `mike`。生产文档和 PR previews 共享 `gh-pages`，deploy 每次从最新远程状态开始，push 冲突时最多重试三次，避免一个预览更新覆盖版本文档。
 
-- 触发：`pull_request` 的 `closed` 且 `merged == true`；
-- 流程：
-    1. 检出 master，`uv version --short` 读取当前版本号；
-    1. 校验 `v<version>` tag 是否已存在，存在则跳过；
-    1. 用 `github-actions[bot]` 身份创建带注解 tag 并推送；
-    1. 通过 `gh workflow run publish.yml -f release_tag=v<version>` 触发 Publish。
-- 直接用 `GITHUB_TOKEN` 推 tag **不会**链式触发其他 workflow，所以必须显式 `gh workflow run` 调起 `publish.yml`，权限需要 `contents: write` + `actions: write`。
+文档版本语义和独立恢复方式见 [文档版本管理](versioning.md) 与 [发布流程](release-process.md)。
 
-如果 PR 没改版本号，则 tag 已存在，整个流程会跳过。
+## TestPyPI 与正式发布
 
-## Publish
+`Publish (TestPyPI)` 仅供维护者手动运行。它不是 PR workflow，不会自动评论安装命令，也不会给 fork 或同仓库 PR 自动发布 dev package。
 
-`Publish` workflow 负责正式发布产物：
+`Auto Tag on Version Change` 与 `Publish` 的版本差异检测、tag/source/version 不变量、trusted publishing 权限拆分及部分失败恢复见 [发布流程](release-process.md)。普通 `pyproject.toml` 配置变更在版本未变化时不会发布。发布 workflow 的写权限按 job 收窄，不允许构建步骤同时持有 PyPI OIDC 和仓库写权限。
 
-1. **校验 commit 在 master 历史上**：`git merge-base --is-ancestor` 校验，挡住误从其他分支推 tag 的发布；
-1. 使用 `uv build` 构建 wheel 与 sdist；
-1. 上传构建产物和构建日志 artifact；
-1. 通过 PyPI trusted publishing 发布；
-1. 根据 tag 或 `release_tag` 输入创建 GitHub Release。
+## Action 供应链
 
-触发方式：
-
-- 由 `Auto Tag` 通过 `workflow_dispatch` 自动调起（推荐路径）；
-- 也可以维护者手动 push 一个 tag 到 master 上的 commit；
-- 也可以手动 `workflow_dispatch` 并提供 `release_tag` 输入。
+- 所有本仓库直接使用的第三方与 GitHub actions 固定到完整 commit SHA，行尾注释记录对应 release 版本；
+- CI 与发布 workflow 固定 `uv==0.11.28`；Docker remote smoke 的 bootstrap 也使用同一版本，升级时应作为工具链变更统一验证；
+- `.github/dependabot.yml` 定期检查 `github-actions` 更新；Dependabot PR 仍需 review release notes、action diff 与权限变化；
+- reusable workflow 的传递依赖例外按上文 `noneload` 规则审计；
+- 不接受只把固定 SHA 改为 `@main`、`@master` 或 moving major tag 的更新。
 
 ## 本地对应命令
 
-| CI 项                  | 本地命令                                  |
-| ---------------------- | ----------------------------------------- |
-| 依赖同步               | `make sync-all`                           |
-| Ruff 格式化            | `make ruff-format`                        |
-| Ruff 检查              | `make ruff-check`                         |
-| Basedpyright           | `make typecheck`                          |
-| Ty                     | `make ty`                                 |
-| Coverage profile tests | `make test-ci`                            |
-| Local browser tests    | `make install-browser && make test-local` |
-| Remote browser smoke   | `make remote-smoke`                       |
-| Docs build             | `make docs-build`                         |
-| Build artifacts        | `make build-artifacts`                    |
-
-`make check` 会运行常用本地门禁；完整目标说明见 [工程协作与规范](../contributing/engineering-guide.md)。
-
-!!! info "远程 smoke 的缓存策略"
-
-    本地默认使用 `make remote-smoke`，复用已有镜像层与容器内依赖环境。
-    只有基础镜像、`pyproject.toml`、`uv.lock` 或 `tests/infra/dockerfile.remote-test` 变更后，才需要执行 `make remote-smoke-build`。
-    CI 中的 `Remote Browser Render Smoke (Docker)` job 会先通过 Docker Buildx 预构建 `render` 镜像，并把 Docker 层缓存写入 GitHub Actions cache；后续频繁触发时可直接复用基础镜像层和 `uv sync` 构建层，避免每次完整重建。
+| CI 层 | 本地命令 |
+| --- | --- |
+| 同步锁定开发环境 | `make sync-all` |
+| Ruff 格式化 | `make ruff-format` |
+| Ruff 格式验证 | `make ruff-format-check` |
+| Ruff lint | `make ruff-check` |
+| Basedpyright | `make typecheck` |
+| Ty | `make ty` |
+| Coverage profile tests | `make test-ci` |
+| Local browser tests | `make install-browser && make test-local` |
+| Remote browser smoke | `make remote-smoke` |
+| Strict docs build | `make docs-build` |
+| Build artifacts + metadata check | `make build-artifacts` |
 
 ## 排障入口
 
-- 首先看失败 job 的最后 200 行日志；
-- 对测试失败，下载 `coverage-debug-*` artifact；
-- 对远程浏览器 smoke，下载 `remote-smoke-compose-logs`；
-- 对文档构建失败，下载 `docs-build-logs`；
-- 对打包失败，下载 `package-dist` 与 `package-build-logs`；
-- 对正式发布失败，下载 `publish-build-logs`；
-- 对 TestPyPI 发布失败，下载 `publish-test-build-logs` 与 `artifact-testpypi`；
-- 对 Auto Tag 失败（tag 推送或 publish dispatch 失败），查看 job 日志中的 `gh` 命令输出。
+- 测试失败：下载对应 `coverage-debug-*` artifact，先看 pytest log 最后 200 行；
+- 远程浏览器失败：下载 `remote-smoke-compose-logs`，区分容器启动、WebSocket 和资源加载错误；
+- 文档预览 build 失败：本地设置同样的 `DOCS_*` preview 环境变量后 strict build；
+- 文档预览 deploy 被拒绝：检查关联 PR 数、PR 当前 head SHA 和 artifact 文件约束；
+- 正式文档失败：构建阶段下载 `docs-build-logs`，部署阶段下载 `docs-deploy-logs`；若是 `gh-pages` push 竞争，重跑 `Docs`；
+- 打包失败：下载 package dist/build logs，并用 `make build-artifacts` 本地重现完整构建与 pinned `twine` 校验；
+- 发布失败：先判断 PyPI 是否已经产生不可逆上传，再核对 PyPI verification 的 filename/hash 结果，并按 [部分失败恢复](release-process.md#partial-failure-recovery)处理；
+- Auto Tag 失败：确认 `github.event.before` 与当前 `project.version`、trusted master SHA 和 tag 指向，禁止直接移动已发布 tag。

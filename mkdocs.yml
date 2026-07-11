@@ -180,10 +180,12 @@ nav:
           - Filehost 资源解析方案: maintainers/architecture/filehost-resource-resolution.md
       - 协作流程:
           - 贡献指南: maintainers/contributing/contributing.md
+          - Pull Request 生命周期: maintainers/contributing/pull-requests.md
           - 工程协作与规范: maintainers/contributing/engineering-guide.md
           - 编码规范: maintainers/contributing/coding-standards.md
           - 提交消息指南: maintainers/contributing/commit-message.md
       - 质量与发布:
           - 测试矩阵: maintainers/quality/testing-matrix.md
           - CI Actions: maintainers/quality/ci-actions.md
+          - 发布流程: maintainers/quality/release-process.md
           - 文档版本管理: maintainers/quality/versioning.md
