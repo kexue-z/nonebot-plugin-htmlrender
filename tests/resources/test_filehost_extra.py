@@ -300,16 +300,35 @@ async def test_filehost_url_from_path_cache_and_inflight_branches(
     )
     upload.assert_not_awaited()
 
-    # inflight done entry
+    # inflight done entry attaches the waiting caller's lease
     done_entry = filehost_runtime._InflightResourceUpload(
         event=anyio.Event(), url="http://done"
     )
     done_entry.event.set()
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
+    filehost_runtime._FILEHOST_RESOURCE_CACHE[key] = {
+        "url": "http://done",
+        "mtime_ns": mtime_ns,
+        "size": size,
+        "hits": 0,
+        "last_access_ns": 0,
+        "lease_ref_count": 0,
+        "expires_at_ns": 2**63,
+    }
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT[key] = done_entry
-    assert await filehost_runtime._filehost_url_from_path(asset) == "http://done"
+    waiter_lease = filehost_runtime.create_filehost_lease()
+    assert (
+        await filehost_runtime._filehost_url_from_path(
+            asset,
+            lease_id=waiter_lease,
+        )
+        == "http://done"
+    )
+    assert key in filehost_runtime._FILEHOST_LEASES[waiter_lease]
+    assert filehost_runtime._FILEHOST_RESOURCE_CACHE[key]["lease_ref_count"] == 1
 
     # owner upload failure path
+    filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
     mocker.patch.object(
         _cache_mod,

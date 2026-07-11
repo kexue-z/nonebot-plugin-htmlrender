@@ -227,6 +227,16 @@ async def _filehost_url_from_path(path: Path, *, lease_id: str | None = None) ->
             raise inflight.error
         if inflight.url is None:
             raise RuntimeError("Filehost inflight upload completed without URL.")
+        waiter_now_ns = time.time_ns()
+        async with _FILEHOST_RESOURCE_LOCK:
+            cached = _FILEHOST_RESOURCE_CACHE.get(key)
+            if cached is not None and str(cached["url"]) == inflight.url:
+                cached["hits"] = int(cached["hits"]) + 1
+                cached["last_access_ns"] = waiter_now_ns
+                if lease_id is not None:
+                    _attach_key_to_lease_locked(lease_id, key)
+                elif int(cached.get("lease_ref_count", 0)) <= 0:
+                    cached["expires_at_ns"] = _compute_expire_at(waiter_now_ns)
         return inflight.url
 
     try:
