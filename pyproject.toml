@@ -24,6 +24,9 @@ dependencies = [
 filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
+takumi = [
+    "takumi-py==0.2.0",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
