@@ -22,6 +22,7 @@ from nonebot_plugin_htmlrender.resources.filehost import warmup as _warmup_mod
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import ClassVar
 
     from pytest_mock import MockerFixture
 
@@ -58,8 +59,11 @@ def _reset_state() -> None:
     filehost_runtime._FILEHOST_GUARD_STATE["token"] = None
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
+    filehost_runtime._FILEHOST_PATH_INDEX.clear()
     filehost_runtime._FILEHOST_LEASES.clear()
     filehost_runtime._FILEHOST_REGISTERED_ROOTS.clear()
+    _cache_mod._FILEHOST_COUNTERS.uploaded_bytes = 0
+    _cache_mod._FILEHOST_COUNTERS.dedup_hits = 0
 
 
 def test_filehost_normalize_and_prewarm_path_rules(tmp_path: Path) -> None:
@@ -83,20 +87,27 @@ def test_attach_key_to_lease_locked_branches() -> None:
     lease = "lease:x"
     key = "cache:key"
     filehost_runtime._FILEHOST_LEASES[lease] = {key}
-    filehost_runtime._FILEHOST_RESOURCE_CACHE[key] = {  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-assignment,missing-typed-dict-key]
+    filehost_runtime._FILEHOST_RESOURCE_CACHE[key] = {
+        "url": "http://render/filehost/x",
+        "digest": "x",
+        "size": 1,
+        "hits": 0,
+        "last_access_ns": 0,
         "lease_ref_count": 0,
-        "expires_at_ns": 1,
+        "mapping_expires_at_ns": 1,
+        "path_aliases": set(),
+        "suffix": ".bin",
     }
 
     # duplicate key should be ignored
     filehost_runtime._attach_key_to_lease_locked(lease, key)
     assert filehost_runtime._FILEHOST_RESOURCE_CACHE[key]["lease_ref_count"] == 0
 
-    # missing cache entry should not crash
+    # A released or unknown lease must not be resurrected by a late upload.
     filehost_runtime._FILEHOST_LEASES[lease] = set()
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._attach_key_to_lease_locked(lease, key)
-    assert key in filehost_runtime._FILEHOST_LEASES[lease]
+    assert key not in filehost_runtime._FILEHOST_LEASES[lease]
 
 
 def test_headers_disabled_and_guard_token_defaults(mocker: MockerFixture) -> None:
@@ -243,8 +254,10 @@ async def test_filehost_upload_success_and_import_failure(
     mocker: MockerFixture,
 ) -> None:
     class _Uploader:
-        def __init__(self, _value: object) -> None:
-            pass
+        suffixes: ClassVar[list[str]] = []
+
+        def __init__(self, _value: object, *, suffix: str = "") -> None:
+            self.suffixes.append(suffix)
 
         async def to_url(self) -> str:
             return "http://render/filehost/u"
@@ -255,6 +268,11 @@ async def test_filehost_upload_success_and_import_failure(
         return_value=SimpleNamespace(FileHost=_Uploader),
     )
     assert await filehost_runtime._filehost_upload(b"x") == "http://render/filehost/u"
+    assert (
+        await filehost_runtime._filehost_upload(b"x", suffix=".css")
+        == "http://render/filehost/u"
+    )
+    assert _Uploader.suffixes == ["", ".css"]
 
     mocker.patch.object(_cache_mod, "import_module", side_effect=RuntimeError("oops"))
     with pytest.raises(RuntimeError, match="nonebot-plugin-filehost is required"):
@@ -268,68 +286,33 @@ async def test_filehost_url_from_path_cache_and_inflight_branches(
 ) -> None:
     asset = tmp_path / "a.css"
     asset.write_text("x", encoding="utf-8")
-    resolved = asset.resolve()
-    key = str(resolved)
-    mtime_ns = resolved.stat().st_mtime_ns
-    size = resolved.stat().st_size
-    mocker.patch.object(
-        _cache_mod,
-        "_normalize_and_snapshot_path",
-        return_value=(resolved, key, mtime_ns, size),
-    )
     upload = mocker.patch.object(
         _cache_mod,
         "_filehost_upload",
         new=mocker.AsyncMock(return_value="http://uploaded"),
     )
 
-    # cached hit + lease attach
-    filehost_runtime._FILEHOST_RESOURCE_CACHE[key] = {
-        "url": "http://cached",
-        "mtime_ns": mtime_ns,
-        "size": size,
-        "hits": 0,
-        "last_access_ns": 0,
-        "lease_ref_count": 0,
-        "expires_at_ns": 2**63,
-    }
     lease = filehost_runtime.create_filehost_lease()
     assert (
         await filehost_runtime._filehost_url_from_path(asset, lease_id=lease)
-        == "http://cached"
+        == "http://uploaded"
     )
-    upload.assert_not_awaited()
-
-    # inflight done entry attaches the waiting caller's lease
-    done_entry = filehost_runtime._InflightResourceUpload(
-        event=anyio.Event(), url="http://done"
-    )
-    done_entry.event.set()
-    filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
-    filehost_runtime._FILEHOST_RESOURCE_CACHE[key] = {
-        "url": "http://done",
-        "mtime_ns": mtime_ns,
-        "size": size,
-        "hits": 0,
-        "last_access_ns": 0,
-        "lease_ref_count": 0,
-        "expires_at_ns": 2**63,
-    }
-    filehost_runtime._FILEHOST_RESOURCE_INFLIGHT[key] = done_entry
-    waiter_lease = filehost_runtime.create_filehost_lease()
     assert (
-        await filehost_runtime._filehost_url_from_path(
-            asset,
-            lease_id=waiter_lease,
-        )
-        == "http://done"
+        await filehost_runtime._filehost_url_from_path(asset, lease_id=lease)
+        == "http://uploaded"
     )
-    assert key in filehost_runtime._FILEHOST_LEASES[waiter_lease]
+    upload.assert_awaited_once_with(b"x", suffix=".css")
+
+    key = next(iter(filehost_runtime._FILEHOST_RESOURCE_CACHE))
+    assert key.startswith("sha256:")
+    assert key in filehost_runtime._FILEHOST_LEASES[lease]
     assert filehost_runtime._FILEHOST_RESOURCE_CACHE[key]["lease_ref_count"] == 1
+    assert filehost_runtime._FILEHOST_PATH_INDEX[asset.resolve()].blob_key == key
 
     # owner upload failure path
     filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
     filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
+    filehost_runtime._FILEHOST_PATH_INDEX.clear()
     mocker.patch.object(
         _cache_mod,
         "_filehost_upload",
@@ -337,6 +320,153 @@ async def test_filehost_url_from_path_cache_and_inflight_branches(
     )
     with pytest.raises(RuntimeError, match="upload fail"):
         await filehost_runtime._filehost_url_from_path(asset)
+
+
+@pytest.mark.anyio
+async def test_filehost_deduplicates_equal_path_and_byte_snapshots(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    first = tmp_path / "first.bin"
+    second = tmp_path / "second.bin"
+    first.write_bytes(b"shared")
+    second.write_bytes(b"shared")
+    upload = mocker.patch.object(
+        _cache_mod,
+        "_filehost_upload",
+        new=mocker.AsyncMock(return_value="http://render/filehost/shared"),
+    )
+    leases = [filehost_runtime.create_filehost_lease() for _ in range(5)]
+
+    urls = [
+        await filehost_runtime.filehost_url(first, lease_id=leases[0]),
+        await filehost_runtime.filehost_url(second, lease_id=leases[1]),
+        await filehost_runtime.filehost_url(b"shared", lease_id=leases[2]),
+        await filehost_runtime.filehost_url(bytearray(b"shared"), lease_id=leases[3]),
+        await filehost_runtime.filehost_url(BytesIO(b"shared"), lease_id=leases[4]),
+    ]
+
+    assert urls == ["http://render/filehost/shared"] * 5
+    upload.assert_awaited_once_with(b"shared", suffix=".bin")
+    assert len(filehost_runtime._FILEHOST_RESOURCE_CACHE) == 1
+    key, entry = next(iter(filehost_runtime._FILEHOST_RESOURCE_CACHE.items()))
+    assert key == f"sha256:{entry['digest']}"
+    assert entry["lease_ref_count"] == len(leases)
+    assert all(filehost_runtime._FILEHOST_LEASES[lease] == {key} for lease in leases)
+
+
+@pytest.mark.anyio
+async def test_filehost_cache_reports_low_cardinality_metrics(
+    mocker: MockerFixture,
+) -> None:
+    export = mocker.patch.object(_cache_mod, "record_filehost_cache_metrics")
+    mocker.patch.object(
+        _cache_mod,
+        "_filehost_upload",
+        new=mocker.AsyncMock(return_value="http://render/filehost/metric"),
+    )
+
+    assert await filehost_runtime.filehost_url(b"metric") == (
+        "http://render/filehost/metric"
+    )
+    assert await filehost_runtime.filehost_url(b"metric") == (
+        "http://render/filehost/metric"
+    )
+    metrics = await filehost_runtime.get_filehost_cache_metrics()
+
+    assert metrics.uploaded_bytes == len(b"metric")
+    assert metrics.dedup_hits == 1
+    assert metrics.active_mappings == 1
+    assert metrics.active_leases == 0
+    assert metrics.physical_cleanup_capable == 0
+    assert [call.args[:2] for call in export.call_args_list] == [
+        ("upload", len(b"metric")),
+        ("dedup", 1),
+    ]
+
+
+@pytest.mark.anyio
+async def test_filehost_path_revisions_keep_distinct_lease_bindings(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    asset = tmp_path / "mutable.bin"
+    asset.write_bytes(b"first")
+    first_lease = filehost_runtime.create_filehost_lease()
+    second_lease = filehost_runtime.create_filehost_lease()
+    upload_count = 0
+
+    async def upload(snapshot: object, *, suffix: str = "") -> str:
+        nonlocal upload_count
+        assert suffix == ".bin"
+        upload_count += 1
+        if upload_count == 1:
+            assert snapshot == b"first"
+            # Mutate the source after the consistent snapshot was taken. The first
+            # URL must still represent the exact bytes supplied to the uploader.
+            asset.write_bytes(b"second-revision")
+            return "http://render/filehost/first"
+        assert snapshot == b"second-revision"
+        return "http://render/filehost/second"
+
+    mocker.patch.object(_cache_mod, "_filehost_upload", side_effect=upload)
+
+    first_url = await filehost_runtime.filehost_url(asset, lease_id=first_lease)
+    second_url = await filehost_runtime.filehost_url(asset, lease_id=second_lease)
+
+    assert first_url == "http://render/filehost/first"
+    assert second_url == "http://render/filehost/second"
+    assert upload_count == 2
+    first_keys = filehost_runtime._FILEHOST_LEASES[first_lease]
+    second_keys = filehost_runtime._FILEHOST_LEASES[second_lease]
+    assert len(first_keys) == len(second_keys) == 1
+    assert first_keys.isdisjoint(second_keys)
+    assert len(filehost_runtime._FILEHOST_RESOURCE_CACHE) == 2
+
+    await filehost_runtime.release_filehost_lease(first_lease)
+    first_entry = filehost_runtime._FILEHOST_RESOURCE_CACHE[next(iter(first_keys))]
+    second_entry = filehost_runtime._FILEHOST_RESOURCE_CACHE[next(iter(second_keys))]
+    assert first_entry["mapping_expires_at_ns"] is not None
+    assert second_entry["mapping_expires_at_ns"] is None
+
+
+@pytest.mark.anyio
+async def test_filehost_concurrent_bytes_singleflight(
+    mocker: MockerFixture,
+) -> None:
+    upload_started = anyio.Event()
+    release_upload = anyio.Event()
+    upload_count = 0
+    results: list[str] = []
+
+    async def upload(value: object) -> str:
+        nonlocal upload_count
+        assert value == b"same"
+        upload_count += 1
+        upload_started.set()
+        await release_upload.wait()
+        return "http://render/filehost/same"
+
+    mocker.patch.object(_cache_mod, "_filehost_upload", side_effect=upload)
+
+    async def resolve(value: bytes | bytearray | BytesIO) -> None:
+        results.append(await filehost_runtime.filehost_url(value))
+
+    async with anyio.create_task_group() as task_group:
+        for index in range(18):
+            value: bytes | bytearray | BytesIO
+            if index % 3 == 0:
+                value = b"same"
+            elif index % 3 == 1:
+                value = bytearray(b"same")
+            else:
+                value = BytesIO(b"same")
+            task_group.start_soon(resolve, value)
+        await upload_started.wait()
+        release_upload.set()
+
+    assert results == ["http://render/filehost/same"] * 18
+    assert upload_count == 1
 
 
 @pytest.mark.anyio
@@ -367,8 +497,9 @@ async def test_filehost_owner_cancellation_releases_waiters(
 
     mocker.patch.object(_cache_mod.anyio, "Event", _InstrumentedEvent)
 
-    async def blocked_upload(value: object) -> str:
+    async def blocked_upload(value: object, *, suffix: str = "") -> str:
         del value
+        assert suffix == ".css"
         started.set()
         await never_finish.wait()
         return "http://unreachable"
@@ -398,6 +529,81 @@ async def test_filehost_owner_cancellation_releases_waiters(
 
     assert isinstance(waiter_error, RuntimeError)
     assert "cancelled" in str(waiter_error)
+    assert not filehost_runtime._FILEHOST_RESOURCE_INFLIGHT
+
+
+@pytest.mark.anyio
+async def test_filehost_rejects_conflicting_suffixes_for_one_digest(
+    mocker: MockerFixture,
+) -> None:
+    upload = mocker.patch.object(
+        _cache_mod,
+        "_filehost_upload",
+        new=mocker.AsyncMock(return_value="http://render/filehost/value.css"),
+    )
+
+    assert await filehost_runtime.filehost_url(b"same", suffix="css") == (
+        "http://render/filehost/value.css"
+    )
+    with pytest.raises(RuntimeError, match="incompatible suffixes"):
+        await filehost_runtime.filehost_url(b"same", suffix=".woff2")
+
+    upload.assert_awaited_once_with(b"same", suffix=".css")
+
+
+@pytest.mark.anyio
+async def test_filehost_cancellation_after_upload_publishes_to_waiters(
+    mocker: MockerFixture,
+) -> None:
+    upload_started = anyio.Event()
+    release_upload = anyio.Event()
+    waiter_waiting = anyio.Event()
+    owner_scope: anyio.CancelScope | None = None
+    waiter_url: str | None = None
+    real_event_factory = anyio.Event
+
+    class _InstrumentedEvent:
+        def __init__(self) -> None:
+            self._event = real_event_factory()
+
+        async def wait(self) -> None:
+            waiter_waiting.set()
+            await self._event.wait()
+
+        def set(self) -> None:
+            self._event.set()
+
+    mocker.patch.object(_cache_mod.anyio, "Event", _InstrumentedEvent)
+
+    async def upload(value: object) -> str:
+        assert value == b"publish"
+        upload_started.set()
+        await release_upload.wait()
+        assert owner_scope is not None
+        owner_scope.cancel()
+        return "http://render/filehost/published"
+
+    mocker.patch.object(_cache_mod, "_filehost_upload", side_effect=upload)
+
+    async def owner() -> None:
+        nonlocal owner_scope
+        with anyio.CancelScope() as scope:
+            owner_scope = scope
+            await filehost_runtime.filehost_url(b"publish")
+
+    async def waiter() -> None:
+        nonlocal waiter_url
+        waiter_url = await filehost_runtime.filehost_url(b"publish")
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(owner)
+        await upload_started.wait()
+        task_group.start_soon(waiter)
+        await waiter_waiting.wait()
+        release_upload.set()
+
+    assert waiter_url == "http://render/filehost/published"
+    assert len(filehost_runtime._FILEHOST_RESOURCE_CACHE) == 1
     assert not filehost_runtime._FILEHOST_RESOURCE_INFLIGHT
 
 

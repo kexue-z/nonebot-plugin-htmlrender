@@ -42,6 +42,9 @@ from .cache import (
     _FILEHOST_LEASES as _FILEHOST_LEASES,
 )
 from .cache import (
+    _FILEHOST_PATH_INDEX as _FILEHOST_PATH_INDEX,
+)
+from .cache import (
     _FILEHOST_RESOURCE_CACHE as _FILEHOST_RESOURCE_CACHE,
 )
 from .cache import (
@@ -49,6 +52,14 @@ from .cache import (
 )
 from .cache import (
     _FILEHOST_RESOURCE_LOCK as _FILEHOST_RESOURCE_LOCK,
+)
+from .cache import (
+    FilehostCacheMetrics,
+    create_filehost_lease,
+    filehost_url,
+    get_filehost_cache_metrics,
+    prune_filehost_cache,
+    release_filehost_lease,
 )
 from .cache import (
     _attach_key_to_lease_locked as _attach_key_to_lease_locked,
@@ -82,12 +93,6 @@ from .cache import (
 )
 from .cache import (
     _ttl_ns as _ttl_ns,
-)
-from .cache import (
-    create_filehost_lease,
-    filehost_url,
-    prune_filehost_cache,
-    release_filehost_lease,
 )
 from .guard import (
     _FILEHOST_FALLBACK_INSTANCE_ID as _FILEHOST_FALLBACK_INSTANCE_ID,
@@ -149,11 +154,13 @@ from .warmup import (
 )
 
 __all__ = [
+    "FilehostCacheMetrics",
     "create_filehost_lease",
     "ensure_filehost_plugin_loaded",
     "ensure_filehost_request_guard_installed",
     "ensure_filehost_runtime_ready",
     "filehost_url",
+    "get_filehost_cache_metrics",
     "get_filehost_prewarm_status",
     "get_filehost_request_headers",
     "prune_filehost_cache",

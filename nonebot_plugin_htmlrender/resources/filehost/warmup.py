@@ -14,6 +14,7 @@ from nonebot.log import logger
 from nonebot_plugin_htmlrender.resources.config import get_resource_config
 
 from .cache import (
+    _FILEHOST_COUNTERS,
     _FILEHOST_LEASES,
     _FILEHOST_RESOURCE_CACHE,
     filehost_url,
@@ -247,10 +248,19 @@ async def ensure_filehost_runtime_ready(*, reason: str) -> bool:
 
 def get_filehost_prewarm_status() -> dict[str, str | None]:
     """获取 filehost 预热状态信息字典。"""
+    mapping_count = str(len(_FILEHOST_RESOURCE_CACHE))
     return {
         "ready": "true" if _FILEHOST_PREWARM_STATE["url"] is not None else "false",
         "url": _FILEHOST_PREWARM_STATE["url"],
         "last_error": _FILEHOST_PREWARM_STATE["last_error"],
-        "cached_resources": str(len(_FILEHOST_RESOURCE_CACHE)),
+        # Keep the old key for callers while making the ownership boundary explicit:
+        # expiry removes only this process's URL mapping. nonebot-plugin-filehost
+        # retains its physical temporary file until process shutdown.
+        "cached_resources": mapping_count,
+        "cached_url_mappings": mapping_count,
+        "ttl_scope": "url_mapping",
+        "physical_cleanup_supported": "false",
         "active_leases": str(len(_FILEHOST_LEASES)),
+        "uploaded_bytes": str(_FILEHOST_COUNTERS.uploaded_bytes),
+        "dedup_hits": str(_FILEHOST_COUNTERS.dedup_hits),
     }
