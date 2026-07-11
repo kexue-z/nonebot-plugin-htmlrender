@@ -5,13 +5,13 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from nonebot_plugin_htmlrender.backend.takumi import (
+from nonebot_plugin_htmlrender.adapters.takumi import (
     TakumiImageResource,
     TakumiInputError,
     TakumiResourceError,
     TakumiUnsupportedError,
 )
-from nonebot_plugin_htmlrender.backend.takumi.source import (
+from nonebot_plugin_htmlrender.adapters.takumi.source import (
     materialize_takumi_document,
     normalize_image_input,
     prepare_takumi_document,

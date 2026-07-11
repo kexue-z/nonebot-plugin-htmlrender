@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, final
 
-from nonebot_plugin_htmlrender.backend.takumi.api import TakumiExtension
-from nonebot_plugin_htmlrender.backend.takumi.runtime import require_runtime_state
+from nonebot_plugin_htmlrender.adapters.takumi.api import TakumiExtension
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import require_runtime_state
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityKey
 
 if TYPE_CHECKING:

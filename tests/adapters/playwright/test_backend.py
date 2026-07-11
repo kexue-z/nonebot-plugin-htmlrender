@@ -7,12 +7,12 @@ from pytest_mock import MockerFixture
 
 
 def test_resolve_mode_variants(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
         RemoteCDPConfig,
         RemoteWSConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -20,13 +20,13 @@ def test_resolve_mode_variants(mocker: MockerFixture) -> None:
     backend = PlaywrightBackend()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(),
     )
     assert backend._resolve_mode() is PlaywrightMode.LOCAL
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(
             connect_ws=RemoteWSConfig(endpoint="ws://example.com/ws"),
         ),
@@ -34,7 +34,7 @@ def test_resolve_mode_variants(mocker: MockerFixture) -> None:
     assert backend._resolve_mode() is PlaywrightMode.REMOTE_WS
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(
             connect_cdp=RemoteCDPConfig(endpoint="http://example.com/json/version"),
         ),
@@ -42,7 +42,7 @@ def test_resolve_mode_variants(mocker: MockerFixture) -> None:
     assert backend._resolve_mode() is PlaywrightMode.REMOTE_CDP
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(),
     )
     assert (
@@ -56,13 +56,13 @@ def test_resolve_mode_variants(mocker: MockerFixture) -> None:
 
 
 def test_resolve_mode_rejects_multiple_remote_endpoints(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
     backend = PlaywrightBackend()
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(
             connect_ws=SimpleNamespace(endpoint="ws://example.com/ws"),
             connect_cdp=SimpleNamespace(endpoint="http://example.com/json/version"),
@@ -73,7 +73,7 @@ def test_resolve_mode_rejects_multiple_remote_endpoints(mocker: MockerFixture) -
         backend._resolve_mode()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(
             connect_ws=SimpleNamespace(endpoint=None),
             connect_cdp=SimpleNamespace(endpoint="http://example.com/json/version"),
@@ -85,7 +85,7 @@ def test_resolve_mode_rejects_multiple_remote_endpoints(mocker: MockerFixture) -
 
 
 def test_build_proxy() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
@@ -102,7 +102,7 @@ def test_build_proxy() -> None:
 
 
 def test_backend_redact_url_masks_credentials_and_query() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
@@ -116,20 +116,20 @@ def test_backend_redact_url_masks_credentials_and_query() -> None:
 async def test_startup_steps_include_filehost_prewarm(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
     backend = PlaywrightBackend()
 
     prepare_env_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.prepare_playwright_env_vars"
+        "nonebot_plugin_htmlrender.adapters.playwright.render.prepare_playwright_env_vars"
     )
     reconcile_cache_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.reconcile_legacy_playwright_cache"
+        "nonebot_plugin_htmlrender.adapters.playwright.render.reconcile_legacy_playwright_cache"
     )
     record_state_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.record_playwright_runtime_state"
+        "nonebot_plugin_htmlrender.adapters.playwright.render.record_playwright_runtime_state"
     )
     prewarm_mock = mocker.patch(
         "nonebot_plugin_htmlrender.resources.filehost.ensure_filehost_runtime_ready",
@@ -140,11 +140,11 @@ async def test_startup_steps_include_filehost_prewarm(
         return func(*args, **kwargs)
 
     run_sync_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.run_sync",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.run_sync",
         new=mocker.AsyncMock(side_effect=run_sync_side_effect),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=type("Cfg", (), {"cleanup_legacy_cache": True})(),
     )
 
@@ -165,11 +165,11 @@ async def test_startup_steps_include_filehost_prewarm(
 async def test_create_browser_remote_cdp_connects_with_clean_kwargs(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
         RemoteCDPConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -179,7 +179,7 @@ async def test_create_browser_remote_cdp_connects_with_clean_kwargs(
     pw = SimpleNamespace(chromium=SimpleNamespace(connect_over_cdp=connect_mock))
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(
             connect_cdp=RemoteCDPConfig(endpoint="http://localhost:9222"),
         ),
@@ -200,7 +200,7 @@ async def test_create_browser_remote_cdp_connects_with_clean_kwargs(
 async def test_create_browser_remote_cdp_requires_chromium(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -208,7 +208,7 @@ async def test_create_browser_remote_cdp_requires_chromium(
 
     backend = PlaywrightBackend()
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(
             engine=BrowserEngine.FIREFOX,
             connect_cdp=SimpleNamespace(endpoint="http://localhost:9222"),
@@ -226,11 +226,11 @@ async def test_create_browser_remote_cdp_requires_chromium(
 async def test_create_browser_remote_ws_connects_after_version_gate(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
         RemoteWSConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -242,7 +242,7 @@ async def test_create_browser_remote_ws_connects_after_version_gate(
 
     check_ws_gate_mock = mocker.patch.object(backend, "_check_ws_version_gate")
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(
             engine=BrowserEngine.FIREFOX,
             connect_ws=RemoteWSConfig(endpoint="ws://localhost:3000/ws"),
@@ -267,10 +267,10 @@ async def test_create_browser_remote_ws_connects_after_version_gate(
 async def test_create_browser_remote_ws_accepts_startup_endpoint(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -282,7 +282,7 @@ async def test_create_browser_remote_ws_accepts_startup_endpoint(
 
     check_ws_gate_mock = mocker.patch.object(backend, "_check_ws_version_gate")
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(engine=BrowserEngine.CHROMIUM),
     )
 
@@ -304,10 +304,10 @@ async def test_create_browser_remote_ws_accepts_startup_endpoint(
 async def test_create_browser_local_launches_with_channel_proxy_args_and_executable(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -318,7 +318,7 @@ async def test_create_browser_local_launches_with_channel_proxy_args_and_executa
     pw = SimpleNamespace(chromium=SimpleNamespace(launch=launch_mock))
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(
             channel=ChromiumChannel.CHROME,
             executable_path=Path("/custom/chrome"),
@@ -348,10 +348,10 @@ async def test_create_browser_local_launches_with_channel_proxy_args_and_executa
 async def test_create_browser_local_uses_env_check_when_no_custom_executable(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -364,7 +364,7 @@ async def test_create_browser_local_uses_env_check_when_no_custom_executable(
     )
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(),
     )
 
@@ -385,10 +385,10 @@ async def test_create_browser_local_uses_env_check_when_no_custom_executable(
 async def test_check_env_with_install_retry_respects_skip_flag(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
@@ -399,11 +399,11 @@ async def test_check_env_with_install_retry_respects_skip_flag(
         new=mocker.AsyncMock(side_effect=RuntimeError("env missing")),
     )
     install_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.install_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.install_browser",
         new=mocker.AsyncMock(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(skip_browser_install=True),
     )
     wrapped = unwrap(PlaywrightBackend._check_env_with_install_retry)
@@ -422,10 +422,10 @@ async def test_check_env_with_install_retry_respects_skip_flag(
 async def test_check_env_with_install_retry_attempts_install_on_failure(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
@@ -436,11 +436,11 @@ async def test_check_env_with_install_retry_attempts_install_on_failure(
         new=mocker.AsyncMock(side_effect=RuntimeError("env missing")),
     )
     install_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.install_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.install_browser",
         new=mocker.AsyncMock(return_value=True),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=PlaywrightConfig(skip_browser_install=False),
     )
     wrapped = unwrap(PlaywrightBackend._check_env_with_install_retry)
@@ -455,7 +455,7 @@ async def test_check_env_with_install_retry_attempts_install_on_failure(
 
 
 def test_semver_helpers_cover_safe_warning_and_block_paths() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         WsVersionRiskLevel,
     )
@@ -485,7 +485,7 @@ def test_semver_helpers_cover_safe_warning_and_block_paths() -> None:
 def test_detect_remote_ws_version_falls_back_to_http_probe(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
@@ -512,19 +512,19 @@ def test_detect_remote_ws_version_falls_back_to_http_probe(
 def test_ws_version_gate_allows_unknown_remote_version(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
     backend = PlaywrightBackend()
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(
             connect_ws=SimpleNamespace(endpoint="ws://host/playwright")
         ),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.pkg_version",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.pkg_version",
         return_value="1.58.0",
     )
     detect_mock = mocker.patch.object(
@@ -533,7 +533,7 @@ def test_ws_version_gate_allows_unknown_remote_version(
         return_value=None,
     )
     warning_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.logger.warning"
+        "nonebot_plugin_htmlrender.adapters.playwright.render.logger.warning"
     )
 
     backend._check_ws_version_gate()
@@ -543,7 +543,7 @@ def test_ws_version_gate_allows_unknown_remote_version(
 
 
 def test_endpoint_and_channel_helpers(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         _channel_command_candidates,
         _has_available_channel_browser,
         _has_valid_remote_endpoint,
@@ -568,26 +568,26 @@ def test_playwright_backend_availability_branches(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.factory import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters._backend import (  # noqa: PLC0415
         BackendAvailability,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
         RemoteCDPConfig,
         RemoteWSConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         is_playwright_backend_available,
     )
     from nonebot_plugin_htmlrender.consts import ChromiumChannel  # noqa: PLC0415
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.find_spec",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.find_spec",
         return_value=object(),
     )
 
     invalid_cfg = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         side_effect=RuntimeError("bad config"),
     )
     availability = is_playwright_backend_available()
@@ -629,7 +629,7 @@ def test_playwright_backend_availability_branches(
 
     invalid_cfg.return_value = PlaywrightConfig(channel=ChromiumChannel.CHROME)
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render._has_available_channel_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render._has_available_channel_browser",
         return_value=False,
     )
     availability = is_playwright_backend_available()
@@ -640,7 +640,7 @@ def test_playwright_backend_availability_branches(
 
     invalid_cfg.return_value = PlaywrightConfig(skip_browser_install=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.has_installed_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.has_installed_browser",
         return_value=False,
     )
     availability = is_playwright_backend_available()
@@ -652,15 +652,15 @@ def test_playwright_backend_availability_branches(
 def test_playwright_backend_unavailable_without_python_package(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.factory import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters._backend import (  # noqa: PLC0415
         BackendAvailability,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         is_playwright_backend_available,
     )
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.find_spec",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.find_spec",
         return_value=None,
     )
 
@@ -676,7 +676,7 @@ async def test_create_runtime_and_session_close_paths(
 ) -> None:
     from playwright.async_api import Browser, Playwright  # noqa: PLC0415
 
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -685,11 +685,11 @@ async def test_create_runtime_and_session_close_paths(
     pw = mocker.MagicMock(spec=Playwright)
     pw.stop = mocker.AsyncMock()
     async_playwright_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.async_playwright"
+        "nonebot_plugin_htmlrender.adapters.playwright.render.async_playwright"
     )
     async_playwright_mock.return_value.start = mocker.AsyncMock(return_value=pw)
     clear_env = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.clear_playwright_env_vars"
+        "nonebot_plugin_htmlrender.adapters.playwright.render.clear_playwright_env_vars"
     )
 
     runtime = await backend.create_runtime()
@@ -705,7 +705,7 @@ async def test_create_runtime_and_session_close_paths(
         backend, "_create_browser", new=mocker.AsyncMock(return_value=browser)
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(close_on_exit=True),
     )
     session = await backend.create_session(runtime)
@@ -715,14 +715,14 @@ async def test_create_runtime_and_session_close_paths(
 
 
 def test_backend_is_alive_and_redact_parse_error(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
     backend = PlaywrightBackend()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.urlsplit",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.urlsplit",
         side_effect=ValueError,
     )
     assert backend._redact_url("invalid url") == "invalid url"
@@ -732,7 +732,7 @@ def test_backend_is_alive_and_redact_parse_error(mocker: MockerFixture) -> None:
 async def test_create_browser_empty_endpoints_and_install_exception(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         PlaywrightMode,
     )
@@ -740,7 +740,7 @@ async def test_create_browser_empty_endpoints_and_install_exception(
 
     backend = PlaywrightBackend()
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(
             engine=BrowserEngine.CHROMIUM,
             connect_cdp=SimpleNamespace(endpoint=""),
@@ -764,11 +764,11 @@ async def test_create_browser_empty_endpoints_and_install_exception(
         new=mocker.AsyncMock(side_effect=RuntimeError("env missing")),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(skip_browser_install=False),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.install_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.install_browser",
         new=mocker.AsyncMock(side_effect=ValueError("install failed")),
     )
     wrapped = unwrap(PlaywrightBackend._check_env_with_install_retry)
@@ -778,7 +778,7 @@ async def test_create_browser_empty_endpoints_and_install_exception(
 
 @pytest.mark.anyio
 async def test_check_playwright_env_wraps_runtime_error(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 
@@ -788,7 +788,7 @@ async def test_check_playwright_env_wraps_runtime_error(mocker: MockerFixture) -
     )
     mocker.patch.object(backend, "_get_browser_type", return_value=browser_type)
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(engine=SimpleNamespace(value="chromium")),
     )
 
@@ -801,7 +801,7 @@ async def test_check_playwright_env_wraps_runtime_error(mocker: MockerFixture) -
 def test_version_gate_probe_and_risk_variants(mocker: MockerFixture) -> None:
     from importlib.metadata import PackageNotFoundError  # noqa: PLC0415
 
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
         WsVersionRiskLevel,
     )
@@ -827,13 +827,13 @@ def test_version_gate_probe_and_risk_variants(mocker: MockerFixture) -> None:
             return b'{"Browser":"Playwright/1.55.2"}'
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.urlopen",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.urlopen",
         return_value=_Resp(),
     )
     assert PlaywrightBackend._probe_ws_http_version("ws://localhost/ws") == (1, 55, 2)
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.urlopen",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.urlopen",
         side_effect=RuntimeError("down"),
     )
     assert PlaywrightBackend._probe_ws_http_version("ws://localhost/ws") is None
@@ -847,20 +847,20 @@ def test_version_gate_probe_and_risk_variants(mocker: MockerFixture) -> None:
 
     backend = PlaywrightBackend()
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(connect_ws=SimpleNamespace(endpoint="")),
     )
     with pytest.raises(RuntimeError, match="WS endpoint is empty"):
         backend._check_ws_version_gate()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=SimpleNamespace(
             connect_ws=SimpleNamespace(endpoint="ws://host/ws")
         ),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.pkg_version",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.pkg_version",
         side_effect=PackageNotFoundError("playwright"),
     )
     with pytest.raises(
@@ -869,14 +869,14 @@ def test_version_gate_probe_and_risk_variants(mocker: MockerFixture) -> None:
         backend._check_ws_version_gate()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.pkg_version",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.pkg_version",
         return_value="unknown",
     )
     with pytest.raises(RuntimeError, match="Invalid local playwright version format"):
         backend._check_ws_version_gate()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.pkg_version",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.pkg_version",
         return_value="1.55.0",
     )
     mocker.patch.object(backend, "_detect_remote_ws_version", return_value=(1, 56, 0))
@@ -889,13 +889,13 @@ def test_version_gate_probe_and_risk_variants(mocker: MockerFixture) -> None:
 
 
 def test_availability_additional_branches(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         is_playwright_backend_available,
     )
     from nonebot_plugin_htmlrender.consts import BrowserEngine  # noqa: PLC0415
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.find_spec",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.find_spec",
         return_value=object(),
     )
     cfg = SimpleNamespace(
@@ -907,7 +907,7 @@ def test_availability_additional_branches(mocker: MockerFixture) -> None:
         engine=BrowserEngine.CHROMIUM,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.get_playwright_config",
         return_value=cfg,
     )
     cfg.connect_cdp.endpoint = "bad-endpoint"
@@ -922,14 +922,14 @@ def test_availability_additional_branches(mocker: MockerFixture) -> None:
     cfg.connect_ws.endpoint = ""
     cfg.channel = SimpleNamespace(value="chrome")
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render._has_available_channel_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render._has_available_channel_browser",
         return_value=True,
     )
     assert is_playwright_backend_available().available is True
 
     cfg.channel = None
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render.has_installed_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.render.has_installed_browser",
         return_value=True,
     )
     assert is_playwright_backend_available().available is True

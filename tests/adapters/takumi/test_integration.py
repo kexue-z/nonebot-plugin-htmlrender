@@ -9,14 +9,14 @@ import pytest
 
 takumi_py = pytest.importorskip("takumi_py")
 
-from nonebot_plugin_htmlrender.backend.takumi import TakumiConfig, TakumiRuntimeError
-from nonebot_plugin_htmlrender.backend.takumi.api import (
+from nonebot_plugin_htmlrender.adapters.takumi import TakumiConfig, TakumiRuntimeError
+from nonebot_plugin_htmlrender.adapters.takumi.api import (
     TakumiExtension,
 )
-from nonebot_plugin_htmlrender.backend.takumi.operations import (
+from nonebot_plugin_htmlrender.adapters.takumi.operations import (
     rasterize_html,
 )
-from nonebot_plugin_htmlrender.backend.takumi.runtime import (
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
     create_runtime_state,
 )
 from nonebot_plugin_htmlrender.preparation import (

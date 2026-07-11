@@ -35,8 +35,12 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fi
 from nonebot_plugin_htmlrender.consts import BrowserEngine, RenderBackend
 from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
 
-from ..base import BackendCapability, RenderRuntime, RenderSession
-from ..factory import BackendAvailability
+from .._backend import (
+    BackendAvailability,
+    BackendCapability,
+    RenderRuntime,
+    RenderSession,
+)
 from .config import PlaywrightConfig, get_playwright_config
 from .install import install_browser
 from .runtime import (

@@ -6,17 +6,20 @@ from playwright.async_api import Error as PlaywrightError
 from pydantic import ValidationError
 import pytest
 
-from nonebot_plugin_htmlrender.adapters.playwright import provider as provider_module
-from nonebot_plugin_htmlrender.adapters.playwright.provider import (
-    PROVIDER,
-    PlaywrightProvider,
+from nonebot_plugin_htmlrender.adapters._backend import (
+    BackendAvailability,
+    RenderRuntime,
+    RenderSession,
 )
-from nonebot_plugin_htmlrender.backend.base import RenderRuntime, RenderSession
-from nonebot_plugin_htmlrender.backend.factory import BackendAvailability
-from nonebot_plugin_htmlrender.backend.playwright.config import (
+from nonebot_plugin_htmlrender.adapters.playwright import provider as provider_module
+from nonebot_plugin_htmlrender.adapters.playwright.config import (
     PlaywrightConfig,
     get_playwright_config,
     register_playwright_config_provider,
+)
+from nonebot_plugin_htmlrender.adapters.playwright.provider import (
+    PROVIDER,
+    PlaywrightProvider,
 )
 from nonebot_plugin_htmlrender.consts import RenderBackend
 from nonebot_plugin_htmlrender.preparation.materialize import (
@@ -73,7 +76,7 @@ def test_availability_uses_parsed_settings(mocker: MockerFixture) -> None:
         return BackendAvailability(available=False, reason="nope")
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.render."
+        "nonebot_plugin_htmlrender.adapters.playwright.render."
         "is_playwright_backend_available",
         fake_available,
     )
@@ -152,7 +155,7 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
         return b"img"
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.render_prepared_html",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.render_prepared_html",
         fake_render_prepared_html,
     )
 

@@ -5,14 +5,14 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from nonebot_plugin_htmlrender.backend.takumi.operations import (
+from nonebot_plugin_htmlrender.adapters.takumi.operations import (
     rasterize_html,
     render_prepared_html,
 )
 from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 
 if TYPE_CHECKING:
-    from nonebot_plugin_htmlrender.backend.takumi.runtime import TakumiRuntimeState
+    from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
 
 
 @dataclass

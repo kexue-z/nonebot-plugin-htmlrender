@@ -15,7 +15,7 @@ from typing import (
     cast,
 )
 
-from nonebot_plugin_htmlrender.backend.base import BackendExtension
+from nonebot_plugin_htmlrender.adapters._backend import BackendExtension
 from nonebot_plugin_htmlrender.consts import RenderBackend
 from nonebot_plugin_htmlrender.preparation import (
     PreparedHtml,

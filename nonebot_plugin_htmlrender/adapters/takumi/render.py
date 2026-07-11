@@ -3,7 +3,7 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from importlib.util import find_spec
 
-from nonebot_plugin_htmlrender.backend.factory import BackendAvailability
+from nonebot_plugin_htmlrender.adapters._backend import BackendAvailability
 
 _SUPPORTED_TAKUMI_VERSION = "0.2.0"
 

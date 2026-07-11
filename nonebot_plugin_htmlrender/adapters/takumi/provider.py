@@ -5,6 +5,7 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, final
 
+from nonebot_plugin_htmlrender.adapters._backend import RenderRuntime, RenderSession
 from nonebot_plugin_htmlrender.adapters._lease import (
     LeasedBackendLifecycle,
     LeasedPreparedHtmlExecutor,
@@ -13,19 +14,18 @@ from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
     TAKUMI_CAPABILITIES,
     TakumiCapabilities,
 )
-from nonebot_plugin_htmlrender.backend.base import RenderRuntime, RenderSession
-from nonebot_plugin_htmlrender.backend.takumi.config import TakumiConfig
-from nonebot_plugin_htmlrender.backend.takumi.errors import (
+from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
+from nonebot_plugin_htmlrender.adapters.takumi.errors import (
     TakumiBackendError,
     TakumiInputError,
     TakumiResourceError,
     TakumiRuntimeError,
     TakumiUnsupportedError,
 )
-from nonebot_plugin_htmlrender.backend.takumi.operations import (
+from nonebot_plugin_htmlrender.adapters.takumi.operations import (
     rasterize_html as takumi_rasterize_html,
 )
-from nonebot_plugin_htmlrender.backend.takumi.runtime import (
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
     create_runtime_state,
     require_runtime_state,
 )
@@ -186,7 +186,7 @@ class TakumiProvider:
 
     def availability(self, settings: object) -> ProviderAvailability:
         self._narrow(settings)
-        from nonebot_plugin_htmlrender.backend.takumi.render import (  # noqa: PLC0415
+        from nonebot_plugin_htmlrender.adapters.takumi.render import (  # noqa: PLC0415
             is_takumi_backend_available,
         )
 

@@ -8,7 +8,7 @@ from urllib.parse import urldefrag, urlsplit
 from anyio import CancelScope
 from nonebot.log import logger
 
-from nonebot_plugin_htmlrender.backend.playwright.config import get_playwright_config
+from nonebot_plugin_htmlrender.adapters.playwright.config import get_playwright_config
 from nonebot_plugin_htmlrender.consts import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,

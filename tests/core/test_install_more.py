@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 async def test_install_check_mirror_connectivity_appends_custom_mirror(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import install  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     mocker.patch.object(
         install,
@@ -39,7 +39,7 @@ async def test_install_check_mirror_connectivity_appends_custom_mirror(
 
 @pytest.mark.anyio
 async def test_download_context_proxy_and_host_restore(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import install  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     mocker.patch.object(
         install,
@@ -69,7 +69,7 @@ async def test_download_context_proxy_and_host_restore(mocker: MockerFixture) ->
 
 @pytest.mark.anyio
 async def test_execute_install_command_uses_direct_stdio(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import install  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     helper = mocker.patch.object(
         install,
@@ -88,7 +88,7 @@ async def test_execute_install_command_uses_direct_stdio(mocker: MockerFixture) 
 
 @pytest.mark.anyio
 async def test_install_browser_retry_paths(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import install  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     @asynccontextmanager
     async def _ctx():

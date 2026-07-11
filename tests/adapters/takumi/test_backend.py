@@ -5,15 +5,15 @@ from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
-from nonebot_plugin_htmlrender.backend.takumi import (
+from nonebot_plugin_htmlrender.adapters.takumi import (
     TAKUMI_EXTENSION,
     TakumiConfig,
     TakumiExtension,
 )
-from nonebot_plugin_htmlrender.backend.takumi.render import (
+from nonebot_plugin_htmlrender.adapters.takumi.render import (
     is_takumi_backend_available,
 )
-from nonebot_plugin_htmlrender.backend.takumi.runtime import TakumiRuntimeState
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
 from nonebot_plugin_htmlrender.consts import RenderBackend
 
 if TYPE_CHECKING:
@@ -21,7 +21,7 @@ if TYPE_CHECKING:
 
     from pytest_mock import MockerFixture
 
-    from nonebot_plugin_htmlrender.backend.takumi.types import NativeRenderer
+    from nonebot_plugin_htmlrender.adapters.takumi.types import NativeRenderer
 
 
 class _Renderer:
@@ -62,11 +62,11 @@ def test_availability_checks_exact_native_version(
     reason: str | None,
 ) -> None:
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.takumi.render.find_spec",
+        "nonebot_plugin_htmlrender.adapters.takumi.render.find_spec",
         return_value=object() if located else None,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.takumi.render.version",
+        "nonebot_plugin_htmlrender.adapters.takumi.render.version",
         return_value=installed_version,
     )
     status = is_takumi_backend_available()
@@ -98,7 +98,7 @@ async def test_extension_telemetry_covers_success_and_error_without_content(
             events.append(("exit", op, backend))
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.takumi.api.track_render",
+        "nonebot_plugin_htmlrender.adapters.takumi.api.track_render",
         side_effect=fake_track,
     )
     extension = TakumiExtension(_state())

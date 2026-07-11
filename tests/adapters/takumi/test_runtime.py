@@ -12,7 +12,7 @@ import anyio
 from anyio.to_thread import run_sync as run_sync_in_worker
 import pytest
 
-from nonebot_plugin_htmlrender.backend.takumi import (
+from nonebot_plugin_htmlrender.adapters.takumi import (
     TakumiBackendError,
     TakumiConfig,
     TakumiFontConfig,
@@ -20,8 +20,8 @@ from nonebot_plugin_htmlrender.backend.takumi import (
     TakumiInputError,
     TakumiRuntimeError,
 )
-from nonebot_plugin_htmlrender.backend.takumi import runtime as takumi_runtime
-from nonebot_plugin_htmlrender.backend.takumi.runtime import TakumiRuntimeState
+from nonebot_plugin_htmlrender.adapters.takumi import runtime as takumi_runtime
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
 from nonebot_plugin_htmlrender.resources import FileCachePolicy
 
 if TYPE_CHECKING:
@@ -30,7 +30,7 @@ if TYPE_CHECKING:
     from pytest import MonkeyPatch
     from pytest_mock import MockerFixture
 
-    from nonebot_plugin_htmlrender.backend.takumi.types import NativeRenderer
+    from nonebot_plugin_htmlrender.adapters.takumi.types import NativeRenderer
 
 
 def _wait_until(condition: Callable[[], bool], *, timeout: float = 2) -> None:

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, cast
 
 import pytest
 
-from nonebot_plugin_htmlrender.backend.playwright.prepared import (
+from nonebot_plugin_htmlrender.adapters.playwright.prepared import (
     build_browser_load_plan,
     install_browser_asset_routes,
     materialize_prepared_html,

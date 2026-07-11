@@ -23,7 +23,7 @@ def _write_font_stylesheet(root: Path) -> Path:
 
 
 def test_page_config_migrates_deprecated_base_url() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         PageConfig,
         RenderConfig,
     )
@@ -59,10 +59,10 @@ def test_page_config_migrates_deprecated_base_url() -> None:
 async def test_remote_http_navigation_is_resource_fallback_for_both_url_fields(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
         operations,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
         RenderConfig,
@@ -113,12 +113,12 @@ async def test_remote_prepared_render_routes_local_assets_without_file_navigatio
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
@@ -134,15 +134,15 @@ async def test_remote_prepared_render_routes_local_assets_without_file_navigatio
     context_manager.__aenter__ = mocker.AsyncMock(return_value=page)
     context_manager.__aexit__ = mocker.AsyncMock(return_value=None)
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.open_page_context",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.open_page_context",
         return_value=context_manager,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=mocker.Mock(remote_local_resource_policy="memory"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.log_page_telemetry",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.log_page_telemetry",
         new=mocker.AsyncMock(),
     )
 
@@ -166,12 +166,12 @@ async def test_remote_prepared_render_routes_local_assets_without_file_navigatio
 async def test_remote_passthrough_preserves_shared_file_navigation(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
@@ -181,11 +181,11 @@ async def test_remote_passthrough_preserves_shared_file_navigation(
         base_url="file:///shared/card/",
     )
     execute = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations._execute_browser_load_plan",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=mocker.Mock(remote_local_resource_policy="passthrough"),
     )
 
@@ -220,12 +220,12 @@ async def test_direct_file_policies_canonicalize_relative_document_base(
     mocker: MockerFixture,
     mode: str,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
@@ -235,11 +235,11 @@ async def test_direct_file_policies_canonicalize_relative_document_base(
         base_url="file:///shared/cards/document.html",
     )
     execute = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations._execute_browser_load_plan",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=SimpleNamespace(
             remote_local_resource_policy="passthrough",
             local_local_resource_policy="file",
@@ -267,11 +267,11 @@ async def test_direct_file_policies_canonicalize_relative_document_base(
 async def test_remote_error_policy_rejects_local_resources_before_page_open(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
@@ -284,11 +284,11 @@ async def test_remote_error_policy_rejects_local_resources_before_page_open(
         base_url="file:///private/card/",
     )
     execute = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations._execute_browser_load_plan",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"unexpected"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=mocker.Mock(remote_local_resource_policy="error"),
     )
 
@@ -308,12 +308,12 @@ async def test_remote_error_policy_rejects_local_resources_before_page_open(
 async def test_remote_error_policy_accepts_http_fallback_with_relative_base(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
@@ -322,11 +322,11 @@ async def test_remote_error_policy_accepts_http_fallback_with_relative_base(
         '<base href="assets/"><img src="avatar.png">',
     )
     execute = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations._execute_browser_load_plan",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=mocker.Mock(remote_local_resource_policy="error"),
     )
 
@@ -351,11 +351,11 @@ async def test_remote_filehost_policy_publishes_materialized_assets(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
@@ -366,23 +366,23 @@ async def test_remote_filehost_policy_publishes_materialized_assets(
         base_url=f"{tmp_path.as_uri().rstrip('/')}/",
     )
     execute = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations._execute_browser_load_plan",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
     publish = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.resolve_filehost_url",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.resolve_filehost_url",
         new=mocker.AsyncMock(return_value="http://filehost/filehost/avatar"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=mocker.Mock(remote_local_resource_policy="filehost"),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.create_filehost_lease",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.create_filehost_lease",
         return_value="lease",
     )
     release = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.release_filehost_lease",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.release_filehost_lease",
         new=mocker.AsyncMock(),
     )
 
@@ -412,10 +412,10 @@ async def test_remote_filehost_policy_publishes_materialized_assets(
 async def test_filehost_render_releases_owned_lease_under_cancellation(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
         operations,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         RenderConfig,
     )
@@ -480,7 +480,7 @@ async def test_filehost_render_releases_owned_lease_under_cancellation(
 async def test_filehost_asset_graph_preserves_css_and_font_suffixes(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         _publish_prepared_assets,
     )
     from nonebot_plugin_htmlrender.preparation import (  # noqa: PLC0415
@@ -514,7 +514,7 @@ async def test_filehost_asset_graph_preserves_css_and_font_suffixes(
         return f"http://filehost/filehost/{len(payload)}{suffix or ''}"
 
     publish_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.resolve_filehost_url",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.resolve_filehost_url",
         new=mocker.AsyncMock(side_effect=publish),
     )
 
@@ -533,11 +533,11 @@ async def test_local_file_policy_keeps_stylesheet_io_in_browser(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         RenderConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
     from nonebot_plugin_htmlrender.preparation import prepare_text  # noqa: PLC0415
@@ -548,15 +548,15 @@ async def test_local_file_policy_keeps_stylesheet_io_in_browser(
         css_path=str(stylesheet),
     )
     execute = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations._execute_browser_load_plan",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
     materialize = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.materialize_local_assets",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.materialize_local_assets",
         new=mocker.AsyncMock(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
         return_value=mocker.Mock(local_local_resource_policy="file"),
     )
 
@@ -577,7 +577,7 @@ async def test_local_file_policy_keeps_stylesheet_io_in_browser(
 
 
 def test_should_attach_filehost_header_only_for_local_filehost_urls() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
         _should_attach_filehost_header,
     )
 
@@ -591,7 +591,7 @@ def test_should_attach_filehost_header_only_for_local_filehost_urls() -> None:
 async def test_install_filehost_request_route_injects_header_selectively(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
         install_filehost_request_route as _install_filehost_request_route,
     )
 
@@ -629,7 +629,7 @@ async def test_install_filehost_request_route_injects_header_selectively(
 
 
 def test_operations_redact_url_masks_credentials_and_query() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
         _redact_url,
     )
 
@@ -641,7 +641,7 @@ def test_operations_redact_url_masks_credentials_and_query() -> None:
 async def test_capture_html_element_uses_direct_operation_api(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         capture_html_element,
     )
 
@@ -656,11 +656,11 @@ async def test_capture_html_element_uses_direct_operation_api(
     context_manager.__aexit__ = mocker.AsyncMock(return_value=None)
 
     open_page_context_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.open_page_context",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.open_page_context",
         return_value=context_manager,
     )
     log_telemetry_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.log_page_telemetry",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.log_page_telemetry",
         new=mocker.AsyncMock(),
     )
 
@@ -687,7 +687,7 @@ async def test_capture_html_element_uses_direct_operation_api(
 
 
 def test_registered_render_context_provider_errors_without_registration() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import _page  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import _page  # noqa: PLC0415
 
     original = _page._render_context_state["provider"]
     _page._render_context_state["provider"] = None
@@ -706,7 +706,7 @@ async def test_open_page_context_provider_and_session_paths(
 ) -> None:
     from contextlib import asynccontextmanager  # noqa: PLC0415
 
-    from nonebot_plugin_htmlrender.backend.playwright import _page  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import _page  # noqa: PLC0415
 
     @asynccontextmanager
     async def _provider(**kwargs: object):  # noqa: ARG001
@@ -723,10 +723,10 @@ async def test_open_page_context_provider_and_session_paths(
     browser = mocker.AsyncMock(spec=Browser)
     browser.new_page.return_value = page
     instrument = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright._page.instrument_page"
+        "nonebot_plugin_htmlrender.adapters.playwright._page.instrument_page"
     )
     detach = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright._page.detach_page"
+        "nonebot_plugin_htmlrender.adapters.playwright._page.detach_page"
     )
     session = SimpleNamespace(handle=browser)
     async with _page.open_page_context(
@@ -744,7 +744,7 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
 ) -> None:
     from playwright.async_api import Browser  # noqa: PLC0415
 
-    from nonebot_plugin_htmlrender.backend.playwright import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
         _page,
         telemetry,
     )
@@ -792,7 +792,7 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
 
 
 def test_operation_helpers_misc_branches(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
         _page,
         operations,
     )
@@ -807,7 +807,7 @@ def test_operation_helpers_misc_branches(mocker: MockerFixture) -> None:
     assert operations._enum_value("y") == "y"
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright._page.urlsplit",
+        "nonebot_plugin_htmlrender.adapters.playwright._page.urlsplit",
         side_effect=RuntimeError,
     )
     assert _page._redact_url("??") == "??"
@@ -817,7 +817,7 @@ def test_operation_helpers_misc_branches(mocker: MockerFixture) -> None:
 async def test_install_filehost_request_route_no_headers_is_noop(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
         install_filehost_request_route,
     )
 

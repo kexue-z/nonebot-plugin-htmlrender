@@ -6,16 +6,16 @@ import anyio
 from pydantic import ValidationError
 import pytest
 
+from nonebot_plugin_htmlrender.adapters._backend import BackendAvailability
 from nonebot_plugin_htmlrender.adapters.takumi import provider as provider_module
+from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
+from nonebot_plugin_htmlrender.adapters.takumi.errors import (
+    TakumiRuntimeError,
+    TakumiUnsupportedError,
+)
 from nonebot_plugin_htmlrender.adapters.takumi.provider import (
     PROVIDER,
     TakumiProvider,
-)
-from nonebot_plugin_htmlrender.backend.factory import BackendAvailability
-from nonebot_plugin_htmlrender.backend.takumi.config import TakumiConfig
-from nonebot_plugin_htmlrender.backend.takumi.errors import (
-    TakumiRuntimeError,
-    TakumiUnsupportedError,
 )
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import ProviderDependencies
@@ -109,7 +109,7 @@ def test_parse_settings_validates_via_pydantic() -> None:
 
 def test_availability_maps_backend_result(mocker: MockerFixture) -> None:
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.takumi.render.is_takumi_backend_available",
+        "nonebot_plugin_htmlrender.adapters.takumi.render.is_takumi_backend_available",
         return_value=BackendAvailability(available=False, reason="missing"),
     )
 

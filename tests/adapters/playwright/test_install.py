@@ -10,24 +10,24 @@ from pytest_mock import MockerFixture
 async def test_backend_download_context_sets_proxy_and_restores_host(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         download_context,
     )
     from nonebot_plugin_htmlrender.consts import MirrorSource  # noqa: PLC0415
 
     os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = "https://old-host"
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.get_playwright_config",
         return_value=PlaywrightConfig(
             install_proxy="http://127.0.0.1:7890",
             install_mirror="https://mirror.example",
         ),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.check_mirror_connectivity",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
         new=mocker.AsyncMock(
             return_value=MirrorSource("Best", "https://mirror.example", 0)
         ),
@@ -48,20 +48,20 @@ async def test_backend_download_context_sets_proxy_and_restores_host(
 async def test_execute_playwright_install_uses_direct_stdio(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         execute_install_command,
     )
     from nonebot_plugin_htmlrender.consts import BrowserEngine  # noqa: PLC0415
 
     execute_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install._execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install._execute_install_command",
         new=mocker.AsyncMock(return_value=(True, "ok")),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.get_playwright_config",
         return_value=PlaywrightConfig(engine=BrowserEngine.FIREFOX),
     )
     result = await execute_install_command(9)
@@ -85,10 +85,10 @@ async def test_execute_playwright_install_uses_direct_stdio(
 async def test_install_browser_retries_without_mirror_host(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         install_browser,
     )
 
@@ -109,15 +109,15 @@ async def test_install_browser_retries_without_mirror_host(
         return next(responses)
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.download_context",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.download_context",
         fake_download_context,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.get_playwright_config",
         return_value=PlaywrightConfig(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
         new=mocker.AsyncMock(side_effect=fake_execute),
     )
 
@@ -131,10 +131,10 @@ async def test_install_browser_retries_without_mirror_host(
 async def test_install_browser_returns_false_after_two_failures(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         install_browser,
     )
 
@@ -143,15 +143,15 @@ async def test_install_browser_returns_false_after_two_failures(
         yield
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.download_context",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.download_context",
         fake_download_context,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.get_playwright_config",
         return_value=PlaywrightConfig(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
         new=mocker.AsyncMock(side_effect=[(False, "first"), (False, "second")]),
     )
 
@@ -162,10 +162,10 @@ async def test_install_browser_returns_false_after_two_failures(
 async def test_install_browser_raises_on_interrupt_without_retry(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         install_browser,
     )
 
@@ -175,15 +175,15 @@ async def test_install_browser_raises_on_interrupt_without_retry(
 
     execute = mocker.AsyncMock(side_effect=[(False, "Interrupted by signal SIGINT")])
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.download_context",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.download_context",
         fake_download_context,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.get_playwright_config",
         return_value=PlaywrightConfig(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
         new=execute,
     )
 

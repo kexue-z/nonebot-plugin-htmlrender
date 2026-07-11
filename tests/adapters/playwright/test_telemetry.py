@@ -8,7 +8,7 @@ from pytest_mock import MockerFixture
 def test_instrument_page_registers_and_detaches_collector(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         detach_page,
         get_page_collector,
         instrument_page,
@@ -36,7 +36,7 @@ def test_instrument_page_registers_and_detaches_collector(
 def test_page_telemetry_collector_tracks_request_response_and_failed(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         PageTelemetryCollector,
     )
 
@@ -51,7 +51,7 @@ def test_page_telemetry_collector_tracks_request_response_and_failed(
 
     timeline = iter([10.0, 10.015, 10.05])
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.perf_counter",
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.perf_counter",
         side_effect=lambda: next(timeline),
     )
 
@@ -71,7 +71,7 @@ def test_page_telemetry_collector_tracks_request_response_and_failed(
 def test_page_telemetry_collector_creates_sample_for_failed_orphan_request(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         PageTelemetryCollector,
     )
 
@@ -85,7 +85,7 @@ def test_page_telemetry_collector_creates_sample_for_failed_orphan_request(
 
     timeline = iter([20.0, 20.03])
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.perf_counter",
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.perf_counter",
         side_effect=lambda: next(timeline),
     )
 
@@ -102,7 +102,7 @@ def test_page_telemetry_collector_creates_sample_for_failed_orphan_request(
 async def test_collect_navigation_timings_rounds_numeric_values(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         collect_navigation_timings,
     )
 
@@ -123,7 +123,7 @@ async def test_collect_navigation_timings_rounds_numeric_values(
 async def test_collect_navigation_timings_returns_empty_for_non_dict(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         collect_navigation_timings,
     )
 
@@ -137,14 +137,14 @@ async def test_collect_navigation_timings_returns_empty_for_non_dict(
 async def test_collect_navigation_timings_handles_errors(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         collect_navigation_timings,
     )
 
     page = mocker.AsyncMock()
     page.evaluate.side_effect = RuntimeError("boom")
     logger_debug = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.logger.debug"
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.logger.debug"
     )
 
     assert await collect_navigation_timings(page) == {}
@@ -155,7 +155,7 @@ async def test_collect_navigation_timings_handles_errors(
 async def test_page_telemetry_collector_snapshot_summarizes_requests(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         PageTelemetryCollector,
         PageTelemetrySnapshot,
         RequestSample,
@@ -163,7 +163,7 @@ async def test_page_telemetry_collector_snapshot_summarizes_requests(
 
     page = mocker.AsyncMock()
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.collect_navigation_timings",
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.collect_navigation_timings",
         new=mocker.AsyncMock(return_value={"load": 3.21}),
     )
 
@@ -210,7 +210,7 @@ async def test_page_telemetry_collector_snapshot_summarizes_requests(
 async def test_log_page_telemetry_logs_snapshot_when_collector_exists(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         PageTelemetrySnapshot,
         log_page_telemetry,
     )
@@ -231,11 +231,11 @@ async def test_log_page_telemetry_logs_snapshot_when_collector_exists(
         )
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.get_page_collector",
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.get_page_collector",
         return_value=collector,
     )
     logger_debug = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.logger.debug"
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.logger.debug"
     )
 
     page_obj: Any = page
@@ -250,16 +250,16 @@ async def test_log_page_telemetry_logs_snapshot_when_collector_exists(
 async def test_log_page_telemetry_is_noop_without_collector(
     mocker: MockerFixture,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.telemetry import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         log_page_telemetry,
     )
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.get_page_collector",
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.get_page_collector",
         return_value=None,
     )
     logger_debug = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.telemetry.logger.debug"
+        "nonebot_plugin_htmlrender.adapters.playwright.telemetry.logger.debug"
     )
 
     page_obj: Any = object()

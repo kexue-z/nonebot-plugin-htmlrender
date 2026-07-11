@@ -8,13 +8,13 @@ from pytest_mock import MockerFixture
 @pytest.mark.anyio
 async def test_check_mirror_connectivity(mocker: MockerFixture):
     # Mock socket connection
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         check_mirror_connectivity,
     )
     from nonebot_plugin_htmlrender.consts import MirrorSource  # noqa: PLC0415
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install._check_mirror_connectivity",
+        "nonebot_plugin_htmlrender.adapters.playwright.install._check_mirror_connectivity",
         new=mocker.AsyncMock(return_value=None),
     )
 
@@ -24,13 +24,13 @@ async def test_check_mirror_connectivity(mocker: MockerFixture):
 
 @pytest.mark.anyio
 async def test_download_context(mocker: MockerFixture):
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         download_context,
     )
     from nonebot_plugin_htmlrender.consts import MirrorSource  # noqa: PLC0415
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.check_mirror_connectivity",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
         return_value=MirrorSource("test", "http://test.com", 1),
     )
 
@@ -42,12 +42,12 @@ async def test_download_context(mocker: MockerFixture):
 
 @pytest.mark.anyio
 async def test_execute_install_command(mocker: MockerFixture):
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         execute_install_command,
     )
 
     execute_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install._execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install._execute_install_command",
         new=mocker.AsyncMock(return_value=(True, "Installation completed")),
     )
 
@@ -70,12 +70,12 @@ async def test_execute_install_command(mocker: MockerFixture):
 @pytest.mark.anyio
 async def test_execute_install_command_timeout(mocker: MockerFixture):
     """测试安装超时场景"""
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         execute_install_command,
     )
 
     execute_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install._execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install._execute_install_command",
         new=mocker.AsyncMock(return_value=(False, "Timed out (1s)")),
     )
 
@@ -91,12 +91,12 @@ async def test_execute_install_command_timeout(mocker: MockerFixture):
 @pytest.mark.anyio
 async def test_install_browser(mocker: MockerFixture):
     # Mock execute_install_command
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         install_browser,
     )
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.install.execute_install_command",
+        "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
         new=mocker.AsyncMock(return_value=(True, "安装完成")),
     )
 
@@ -105,7 +105,7 @@ async def test_install_browser(mocker: MockerFixture):
 
 
 def test_redact_url_masks_credentials_in_playwright_install_module() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         _redact_url,
     )
 
@@ -116,7 +116,7 @@ def test_redact_url_masks_credentials_in_playwright_install_module() -> None:
 
 
 def test_redact_url_masks_credentials_in_backend_install_module() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.install import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         _redact_url,
     )
 

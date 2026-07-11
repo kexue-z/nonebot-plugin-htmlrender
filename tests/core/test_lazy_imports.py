@@ -40,7 +40,7 @@ def test_default_plugin_import_does_not_load_engines_or_filehost() -> None:
 
         unexpected = {
             "playwright.async_api",
-            "nonebot_plugin_htmlrender.backend.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
             "nonebot_plugin_htmlrender.resources.filehost",
             "nonebot_plugin_htmlrender.resources.filehost.guard",
         } & set(sys.modules)
@@ -86,7 +86,7 @@ def test_playwright_provider_off_startup_stays_lazy() -> None:
         unexpected = {
             "playwright.async_api",
             "nonebot_plugin_filehost",
-            "nonebot_plugin_htmlrender.backend.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
             "nonebot_plugin_htmlrender.resources.filehost",
             "nonebot_plugin_htmlrender.resources.filehost.guard",
         } & set(sys.modules)
@@ -132,7 +132,7 @@ def test_filehost_policy_loads_filehost_before_startup() -> None:
 
         unexpected = {
             "playwright.async_api",
-            "nonebot_plugin_htmlrender.backend.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
         } & set(sys.modules)
         if unexpected:
             raise SystemExit(f"unexpected backend modules loaded: {sorted(unexpected)}")
@@ -173,8 +173,8 @@ def test_backend_packages_do_not_use_module_getattr_facades() -> None:
         nonebot.init(log_level="ERROR", render={"provider": None})
         nonebot.require("nonebot_plugin_htmlrender")
 
-        import nonebot_plugin_htmlrender.backend as backend
-        import nonebot_plugin_htmlrender.backend.playwright as playwright_pkg
+        import nonebot_plugin_htmlrender.adapters._backend as backend
+        import nonebot_plugin_htmlrender.adapters.playwright as playwright_pkg
 
         if "__getattr__" in backend.__dict__:
             raise SystemExit("backend package must not use module __getattr__")
@@ -182,7 +182,7 @@ def test_backend_packages_do_not_use_module_getattr_facades() -> None:
             raise SystemExit("playwright package must not use module __getattr__")
 
         unexpected = {
-            "nonebot_plugin_htmlrender.backend.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
             "nonebot_plugin_htmlrender.resources.filehost",
             "nonebot_plugin_htmlrender.resources.filehost.guard",
         } & set(sys.modules)
@@ -204,13 +204,13 @@ def test_playwright_package_submodule_import_does_not_load_backend_render() -> N
         nonebot.init(log_level="ERROR", render={"provider": None})
         nonebot.require("nonebot_plugin_htmlrender")
 
-        from nonebot_plugin_htmlrender.backend.playwright import runtime
+        from nonebot_plugin_htmlrender.adapters.playwright import runtime
 
-        if runtime.__name__ != "nonebot_plugin_htmlrender.backend.playwright.runtime":
+        if runtime.__name__ != "nonebot_plugin_htmlrender.adapters.playwright.runtime":
             raise SystemExit("runtime submodule import resolved incorrectly")
 
         unexpected = {
-            "nonebot_plugin_htmlrender.backend.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
             "nonebot_plugin_htmlrender.resources.filehost",
             "nonebot_plugin_htmlrender.resources.filehost.guard",
         } & set(sys.modules)

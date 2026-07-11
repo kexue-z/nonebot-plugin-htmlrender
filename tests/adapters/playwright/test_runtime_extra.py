@@ -10,8 +10,8 @@ if TYPE_CHECKING:
 
 
 def test_runtime_storage_and_legacy_path_helpers(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
-    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
         register_playwright_config_provider,
     )
@@ -29,7 +29,7 @@ def test_runtime_storage_and_legacy_path_helpers(mocker: MockerFixture) -> None:
     assert isinstance(default_storage, Path)
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.platform.system",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.platform.system",
         return_value="Other",
     )
     assert runtime.get_legacy_playwright_cache_path() is None
@@ -38,7 +38,7 @@ def test_runtime_storage_and_legacy_path_helpers(mocker: MockerFixture) -> None:
 def test_has_installed_browser_candidates(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     storage = tmp_path / "storage"
     storage.mkdir()
@@ -49,15 +49,15 @@ def test_has_installed_browser_candidates(
     (legacy / "firefox-999").mkdir()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_playwright_storage_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_playwright_storage_path",
         return_value=storage,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_legacy_playwright_cache_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_legacy_playwright_cache_path",
         return_value=legacy,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime._expected_browser_directory_groups",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime._expected_browser_directory_groups",
         side_effect=lambda engine: {
             BrowserEngine.CHROMIUM: (
                 ("chromium-1234",),
@@ -77,7 +77,7 @@ def test_has_installed_browser_rejects_stale_revision(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     storage = tmp_path / "storage"
     storage.mkdir()
@@ -85,15 +85,15 @@ def test_has_installed_browser_rejects_stale_revision(
     (storage / "chromium_headless_shell-older").mkdir()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_playwright_storage_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_playwright_storage_path",
         return_value=storage,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_legacy_playwright_cache_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_legacy_playwright_cache_path",
         return_value=None,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime._expected_browser_directory_groups",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime._expected_browser_directory_groups",
         return_value=(("chromium-new",), ("chromium_headless_shell-new",)),
     )
 
@@ -104,7 +104,7 @@ def test_expected_browser_directory_groups_reads_current_playwright_metadata(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     browsers_json = tmp_path / "browsers.json"
     browsers_json.write_text(
@@ -120,7 +120,7 @@ def test_expected_browser_directory_groups_reads_current_playwright_metadata(
         encoding="utf-8",
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime._playwright_browsers_json_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime._playwright_browsers_json_path",
         return_value=browsers_json,
     )
 
@@ -139,7 +139,7 @@ def test_record_playwright_runtime_state_warns_on_version_change(
 ) -> None:
     import json  # noqa: PLC0415
 
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     state_path = tmp_path / "playwright-runtime.json"
     state_path.write_text(
@@ -167,11 +167,11 @@ def test_record_playwright_runtime_state_warns_on_version_change(
         encoding="utf-8",
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime._runtime_state_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime._runtime_state_path",
         return_value=state_path,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.build_playwright_runtime_snapshot",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.build_playwright_runtime_snapshot",
         return_value={
             "venv": {"prefix": "/new/venv", "executable": "/new/venv/bin/python"},
             "playwright_version": "2.0.0",
@@ -194,7 +194,7 @@ def test_record_playwright_runtime_state_warns_on_version_change(
         },
     )
     warning = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.logger.warning"
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.logger.warning"
     )
 
     runtime.record_playwright_runtime_state()
@@ -216,7 +216,7 @@ def test_record_playwright_runtime_state_evicts_oldest_entries(
 ) -> None:
     import json  # noqa: PLC0415
 
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     history: dict[str, dict[str, object]] = {
         f"2026-01-{i:02d}T00:00:00+00:00": {
@@ -230,18 +230,18 @@ def test_record_playwright_runtime_state_evicts_oldest_entries(
     state_path.write_text(json.dumps(history), encoding="utf-8")
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime._runtime_state_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime._runtime_state_path",
         return_value=state_path,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.build_playwright_runtime_snapshot",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.build_playwright_runtime_snapshot",
         return_value={
             "venv": {"prefix": "/new", "executable": "/new/bin/python"},
             "playwright_version": "1.0.0",
             "engines": {},
         },
     )
-    mocker.patch("nonebot_plugin_htmlrender.backend.playwright.runtime.logger.warning")
+    mocker.patch("nonebot_plugin_htmlrender.adapters.playwright.runtime.logger.warning")
 
     runtime.record_playwright_runtime_state()
 
@@ -254,7 +254,7 @@ def test_reconcile_legacy_playwright_cache_warns_without_deleting_by_default(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     storage = tmp_path / "storage"
     legacy = tmp_path / "legacy"
@@ -262,15 +262,15 @@ def test_reconcile_legacy_playwright_cache_warns_without_deleting_by_default(
     legacy.mkdir()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_playwright_storage_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_playwright_storage_path",
         return_value=storage,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_legacy_playwright_cache_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_legacy_playwright_cache_path",
         return_value=legacy,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_playwright_config",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_playwright_config",
         return_value=type("Cfg", (), {"cleanup_legacy_cache": False})(),
     )
     logger_warning = mocker.patch.object(runtime.logger, "warning")
@@ -287,7 +287,7 @@ def test_reconcile_legacy_playwright_cache_deletes_legacy_cache_when_enabled(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     storage = tmp_path / "storage"
     legacy = tmp_path / "legacy"
@@ -295,11 +295,11 @@ def test_reconcile_legacy_playwright_cache_deletes_legacy_cache_when_enabled(
     legacy.mkdir()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_playwright_storage_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_playwright_storage_path",
         return_value=storage,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_legacy_playwright_cache_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_legacy_playwright_cache_path",
         return_value=legacy,
     )
     rmtree = mocker.patch.object(runtime.shutil, "rmtree")
@@ -313,17 +313,17 @@ def test_reconcile_legacy_playwright_cache_skips_when_storage_equals_legacy(
     mocker: MockerFixture,
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright import runtime  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright import runtime  # noqa: PLC0415
 
     shared = tmp_path / "shared"
     shared.mkdir()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_playwright_storage_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_playwright_storage_path",
         return_value=shared,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.runtime.get_legacy_playwright_cache_path",
+        "nonebot_plugin_htmlrender.adapters.playwright.runtime.get_legacy_playwright_cache_path",
         return_value=shared,
     )
     logger_warning = mocker.patch.object(runtime.logger, "warning")
@@ -336,7 +336,7 @@ def test_reconcile_legacy_playwright_cache_skips_when_storage_equals_legacy(
 
 
 def test_startup_steps_record_runtime_state() -> None:
-    from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
         PlaywrightBackend,
     )
 

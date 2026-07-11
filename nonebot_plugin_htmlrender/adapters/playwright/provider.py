@@ -14,7 +14,7 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     LeasedBackendLifecycle,
     LeasedPreparedHtmlExecutor,
 )
-from nonebot_plugin_htmlrender.backend.playwright.config import (
+from nonebot_plugin_htmlrender.adapters.playwright.config import (
     PlaywrightConfig,
     register_playwright_config_provider,
 )
@@ -45,7 +45,7 @@ from nonebot_plugin_htmlrender.resources.resolve import ResourceResolveError
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from nonebot_plugin_htmlrender.backend.base import RenderSession
+    from nonebot_plugin_htmlrender.adapters._backend import RenderSession
     from nonebot_plugin_htmlrender.preparation.models import (
         PreparedHtml,
         RasterOptions,
@@ -88,14 +88,14 @@ async def _rasterize(
     options: RasterOptions,
     resource_policy: ResourcePolicy | None,
 ) -> bytes:
-    from nonebot_plugin_htmlrender.backend.playwright.models import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
         RenderConfig,
         ViewportConfig,
         _build_screenshot_config,
     )
-    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
 
@@ -127,7 +127,7 @@ async def _rasterize(
 
 
 async def _probe(session: RenderSession) -> None:
-    from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
         open_page_context,
     )
 
@@ -155,7 +155,7 @@ class PlaywrightProvider:
 
     def availability(self, settings: object) -> ProviderAvailability:
         config = self._narrow(settings)
-        from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+        from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
             is_playwright_backend_available,
         )
 
@@ -215,7 +215,7 @@ class PlaywrightProvider:
             PLAYWRIGHT_CAPABILITIES,
             PlaywrightCapabilities,
         )
-        from nonebot_plugin_htmlrender.backend.playwright.render import (  # noqa: PLC0415
+        from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
             PlaywrightBackend,
         )
 

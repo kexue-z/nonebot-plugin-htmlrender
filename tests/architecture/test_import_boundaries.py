@@ -43,15 +43,9 @@ DOMAIN_SCOPES = ("rendering", "application", "preparation", "resources")
 
 DOMAIN_BANNED = (
     _absolute("adapters"),
+    _absolute("api"),
     _absolute("bootstrap"),
     _absolute("utils.telemetry"),
-    _absolute("backend"),
-    _absolute("config"),
-    _absolute("render"),
-    _absolute("browser"),
-    _absolute("data_source"),
-    _absolute("_compat"),
-    _absolute("_bootstrap"),
     "nonebot",
 )
 
@@ -88,14 +82,21 @@ RULES: tuple[LayerRule, ...] = (
         ),
     ),
     LayerRule(
+        # The provider SDK is composition-facing; only application's assembly
+        # helpers may reference its DTO types.
+        name="rendering must not import the provider SDK",
+        scopes=("rendering",),
+        banned=(_absolute("providers"),),
+    ),
+    LayerRule(
         name="takumi must not import playwright",
-        scopes=("backend.takumi", "adapters.takumi"),
-        banned=(_absolute("backend.playwright"), _absolute("adapters.playwright")),
+        scopes=("adapters.takumi",),
+        banned=(_absolute("adapters.playwright"),),
     ),
     LayerRule(
         name="playwright must not import takumi",
-        scopes=("backend.playwright", "adapters.playwright"),
-        banned=(_absolute("backend.takumi"), _absolute("adapters.takumi")),
+        scopes=("adapters.playwright",),
+        banned=(_absolute("adapters.takumi"),),
     ),
 )
 

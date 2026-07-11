@@ -23,7 +23,7 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping
     from contextlib import AbstractContextManager
 
-    from nonebot_plugin_htmlrender.backend.base import (
+    from nonebot_plugin_htmlrender.adapters._backend import (
         Backend,
         RenderRuntime,
         RenderSession,

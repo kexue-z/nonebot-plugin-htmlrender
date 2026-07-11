@@ -20,7 +20,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page
 
     from nonebot_plugin_htmlrender.adapters._lease import LeasedBackendLifecycle
-    from nonebot_plugin_htmlrender.backend.playwright.types import (
+    from nonebot_plugin_htmlrender.adapters.playwright.types import (
         CaptureElementKwargs,
         PageContextKwargs,
     )
@@ -39,7 +39,7 @@ class PlaywrightCapabilities:
         **kwargs: Unpack[PageContextKwargs],
     ) -> AsyncIterator[Page]:
         """Open a caller-controlled page bound to the leased browser."""
-        from nonebot_plugin_htmlrender.backend.playwright._page import (  # noqa: PLC0415
+        from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
             open_page_context,
         )
 
@@ -54,7 +54,7 @@ class PlaywrightCapabilities:
         **kwargs: Unpack[CaptureElementKwargs],
     ) -> bytes:
         """Navigate to ``url`` and capture ``element`` as image bytes."""
-        from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+        from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
             capture_html_element,
         )
 
