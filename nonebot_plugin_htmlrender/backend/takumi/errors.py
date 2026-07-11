@@ -2,6 +2,14 @@ class TakumiBackendError(RuntimeError):
     """Base error raised by the htmlrender Takumi adapter."""
 
 
+class TakumiInputError(TakumiBackendError):
+    """A field cannot be represented safely by the native Takumi boundary."""
+
+    def __init__(self, field: str, message: str) -> None:
+        self.field = field
+        super().__init__(f"Invalid Takumi field {field!r}: {message}")
+
+
 class TakumiRuntimeError(TakumiBackendError):
     """The Takumi runtime or session is unavailable."""
 
@@ -16,6 +24,7 @@ class TakumiResourceError(TakumiBackendError):
 
 __all__ = [
     "TakumiBackendError",
+    "TakumiInputError",
     "TakumiResourceError",
     "TakumiRuntimeError",
     "TakumiUnsupportedError",

@@ -17,10 +17,13 @@ from nonebot_plugin_htmlrender.preparation import (
     prepare_template,
     prepare_text,
 )
+from nonebot_plugin_htmlrender.resources.templating import (
+    render_template_html as render_jinja_template_html,
+)
 
 from .errors import TakumiUnsupportedError
 from .runtime import TakumiRuntimeState, render_defaults
-from .source import prepare_takumi_document
+from .source import materialize_takumi_document
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.backend.playwright.models import (
@@ -103,6 +106,11 @@ def _render_config_spec(
             "Takumi performs no HTTP requests and cannot apply user_agent or "
             "extra_http_headers."
         )
+    if page.document_url is not None:
+        raise TakumiUnsupportedError(
+            "Takumi has no browser navigation and cannot apply document_url. "
+            "Prepare resource bases through PreparedHtml.base_url instead."
+        )
 
     height = None if screenshot.full_page else page.viewport.height
     quality = cast("int | None", getattr(screenshot, "quality", None))
@@ -137,7 +145,7 @@ async def render_prepared_html(
 ) -> bytes:
     """Execute a backend-neutral prepared document with Takumi."""
     ratio = validate_device_pixel_ratio(device_pixel_ratio)
-    document = prepare_takumi_document(
+    document = await materialize_takumi_document(
         prepared,
         stylesheets=stylesheets,
         images=images,
@@ -166,7 +174,7 @@ async def render_prepared_html(
 
     rendered = await state.call_document(
         "render_compiled",
-        document.markup,
+        document.html,
         document.stylesheets,
         **native_options,
     )
@@ -209,10 +217,7 @@ async def render_html(
         width, height, ratio, image_format, request_quality = _render_config_spec(
             request.render
         )
-        prepared = prepare_html(
-            request.content.html,
-            base_url=request.render.page.base_url,
-        )
+        prepared = prepare_html(request.content.html)
         return await render_prepared_html(
             state,
             prepared,
@@ -308,6 +313,7 @@ async def render_markdown(
     quality: int | None = None,
     device_scale_factor: float = 2.0,
     screenshot_timeout: float | None = 30_000,
+    resource_strict: bool = True,
     render: RenderConfig | None = None,
 ) -> bytes:
     del screenshot_timeout
@@ -316,6 +322,7 @@ async def render_markdown(
         source,
         markdown_path=md_path,
         css_path=css_path,
+        resource_strict=resource_strict,
     )
     render_width, render_height, ratio, image_format, render_quality = (
         _spec_from_optional_render(
@@ -372,13 +379,25 @@ async def render_template_html(
     filters: Mapping[str, Any] | None = None,
     **variables: object,
 ) -> str:
-    prepared = await _prepare_template_config(
-        template,
-        template_name=template_name,
-        filters=filters,
-        variables=variables,
+    if isinstance(template, TemplateConfig):
+        template_path = template.template_path
+        resolved_name = template.template_name
+        resolved_filters = template.custom_filters or filters
+        resolved_variables = {**template.template_vars, **variables}
+    else:
+        if template_name is None:
+            raise ValueError("template_name is required when template is a path string")
+        template_path = template
+        resolved_name = template_name
+        resolved_filters = filters
+        resolved_variables = variables
+
+    return await render_jinja_template_html(
+        template_path,
+        resolved_name,
+        resolved_variables,
+        filters=cast("Mapping[str, FilterCallable] | None", resolved_filters),
     )
-    return prepared.html
 
 
 async def render_template(

@@ -24,7 +24,6 @@ from nonebot_plugin_htmlrender.preparation import (
 )
 from nonebot_plugin_htmlrender.resources import (
     FileCachePolicy,
-    read_resource_bytes,
 )
 from nonebot_plugin_htmlrender.utils import track_render
 
@@ -34,7 +33,7 @@ from .operations import (
     validate_device_pixel_ratio,
 )
 from .runtime import TakumiRuntimeState, render_defaults
-from .source import prepare_takumi_document
+from .source import materialize_takumi_document
 from .types import AnimationImageFormat, StaticImageFormat, TakumiImageResource
 
 if TYPE_CHECKING:
@@ -55,6 +54,7 @@ if TYPE_CHECKING:
     )
 
     from nonebot_plugin_htmlrender.resources.templating import FilterCallable
+    from nonebot_plugin_htmlrender.resources.weighted_cache import WeightedCacheStats
 
     ImageInput: TypeAlias = ImageResourceInput | TakumiImageResource
 else:
@@ -73,7 +73,9 @@ def _tracked(
     ) -> Callable[P, Awaitable[R]]:
         @wraps(func)
         async def _wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
+            extension = cast("TakumiExtension", args[0])
             async with track_render(operation, backend=RenderBackend.TAKUMI):
+                extension._state._ensure_open()
                 return await func(*args, **kwargs)
 
         return _wrapped
@@ -188,6 +190,12 @@ class TakumiExtension:
     def registered_font_families(self) -> tuple[str, ...]:
         return self._state.registered_font_families
 
+    @property
+    def compiled_cache_stats(self) -> WeightedCacheStats:
+        """Return an immutable snapshot of this runtime's compiled cache."""
+
+        return self._state.compiled_cache_stats
+
     @_tracked("takumi.extension.compile_html")
     async def compile_html(
         self,
@@ -202,13 +210,13 @@ class TakumiExtension:
             if isinstance(html, PreparedHtml)
             else prepare_html(html, base_url=base_url)
         )
-        document = prepare_takumi_document(
+        document = await materialize_takumi_document(
             prepared,
             stylesheets=stylesheets,
             images=cast("Sequence[object] | None", images),
         )
         node, compiled_stylesheets = await self._state.compile_document(
-            document.markup,
+            document.html,
             document.stylesheets,
         )
         return TakumiCompiledDocument(
@@ -238,8 +246,7 @@ class TakumiExtension:
         *,
         lossy: bool = False,
     ) -> CompiledStyleSheet:
-        method = "compile_stylesheet_lossy" if lossy else "compile_stylesheet"
-        compiled = await self._state.call_renderer(method, css)
+        compiled = await self._state.compile_stylesheet(css, lossy=lossy)
         return cast("CompiledStyleSheet", compiled)
 
     @_tracked("takumi.extension.compile_keyframes")
@@ -365,7 +372,7 @@ class TakumiExtension:
             if isinstance(html, PreparedHtml)
             else prepare_html(html, base_url=base_url)
         )
-        document = prepare_takumi_document(
+        document = await materialize_takumi_document(
             prepared,
             stylesheets=stylesheets,
             images=cast("Sequence[object] | None", images),
@@ -390,7 +397,7 @@ class TakumiExtension:
         options.pop("format")
         measured = await self._state.call_document(
             "measure_compiled",
-            document.markup,
+            document.html,
             document.stylesheets,
             **options,
         )
@@ -459,7 +466,7 @@ class TakumiExtension:
             if isinstance(html, PreparedHtml)
             else prepare_html(html, base_url=base_url)
         )
-        document = prepare_takumi_document(
+        document = await materialize_takumi_document(
             prepared,
             stylesheets=stylesheets,
             images=cast("Sequence[object] | None", images),
@@ -477,7 +484,7 @@ class TakumiExtension:
         )
         rendered = await self._state.call_document(
             "render_svg_compiled",
-            document.markup,
+            document.html,
             document.stylesheets,
             **options,
         )
@@ -797,21 +804,25 @@ class TakumiExtension:
         return _expect_bytes(rendered)
 
     @_tracked("takumi.extension.register_font")
-    async def register_font(self, font: FontResourceInput) -> tuple[str, ...]:
-        families = await self._state.call_renderer("register_font", font)
-        result = tuple(cast("Sequence[str]", families))
-        self._state.add_registered_font_families(result)
-        return result
+    async def register_font(
+        self,
+        font: FontResourceInput,
+        *,
+        source: str | None = None,
+    ) -> tuple[str, ...]:
+        return await self._state.register_font(font, source=source)
 
     @_tracked("takumi.extension.register_fonts")
     async def register_fonts(
         self,
         fonts: Sequence[FontResourceInput],
+        *,
+        sources: Sequence[str | None] | None = None,
     ) -> tuple[str, ...]:
-        families = await self._state.call_renderer("register_fonts", tuple(fonts))
-        result = tuple(cast("Sequence[str]", families))
-        self._state.add_registered_font_families(result)
-        return result
+        return await self._state.register_fonts(
+            cast("Sequence[object]", fonts),
+            sources=sources,
+        )
 
     @_tracked("takumi.extension.register_font_file")
     async def register_font_file(
@@ -840,25 +851,15 @@ class TakumiExtension:
         | None = None,
         cache_policy: FileCachePolicy = FileCachePolicy.REVALIDATE,
     ) -> tuple[str, ...]:
-        payload = await read_resource_bytes(path, policy=cache_policy)
-
-        def _register() -> tuple[str, ...]:
-            from takumi_py import FontResource  # noqa: PLC0415
-
-            return self._state.renderer.register_font(
-                FontResource(
-                    payload,
-                    name=name,
-                    weight=weight,
-                    style=style,
-                    subset_of=subset_of,
-                    generic_family=generic_family,
-                )
-            )
-
-        families = await self._state.run(_register)
-        self._state.add_registered_font_families(families)
-        return families
+        return await self._state.register_font_file(
+            path,
+            name=name,
+            weight=weight,
+            style=style,
+            subset_of=subset_of,
+            generic_family=generic_family,
+            cache_policy=cache_policy,
+        )
 
     @_tracked("takumi.extension.render_template")
     async def render_template(

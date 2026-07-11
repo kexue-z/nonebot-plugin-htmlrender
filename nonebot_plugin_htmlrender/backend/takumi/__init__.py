@@ -17,6 +17,9 @@ from .errors import (
     TakumiBackendError as TakumiBackendError,
 )
 from .errors import (
+    TakumiInputError as TakumiInputError,
+)
+from .errors import (
     TakumiResourceError as TakumiResourceError,
 )
 from .errors import (
@@ -37,6 +40,7 @@ __all__ = [
     "TakumiExtension",
     "TakumiFontConfig",
     "TakumiImageResource",
+    "TakumiInputError",
     "TakumiResourceError",
     "TakumiRuntimeError",
     "TakumiUnsupportedError",

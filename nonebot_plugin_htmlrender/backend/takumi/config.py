@@ -40,6 +40,7 @@ class TakumiFontConfig(BaseModel):
     style: str | None = None
     subset_of: str | None = None
     generic_family: GenericFontFamily | None = None
+    cache_policy: FileCachePolicy | None = None
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -83,9 +84,13 @@ class TakumiConfig(BaseModel):
 
     load_default_fonts: bool = True
     fonts: list[TakumiFontConfig] = Field(default_factory=list)
-    font_cache_policy: FileCachePolicy = FileCachePolicy.IMMUTABLE
+    font_cache_policy: FileCachePolicy = FileCachePolicy.REVALIDATE
     max_concurrency: int = Field(default_factory=_default_concurrency, ge=1, le=64)
     compiled_cache_max_entries: int = Field(default=128, ge=0, le=4096)
+    compiled_cache_max_bytes: int = Field(
+        default=32 * 1024 * 1024,
+        ge=0,
+    )
     html_options: TakumiHtmlOptionsConfig = Field(
         default_factory=TakumiHtmlOptionsConfig
     )

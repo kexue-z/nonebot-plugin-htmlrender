@@ -30,6 +30,7 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
     from nonebot_plugin_htmlrender.backend.takumi.runtime import TakumiRuntimeState
+    from nonebot_plugin_htmlrender.backend.takumi.types import TakumiImageResource
 
 
 @dataclass
@@ -72,9 +73,9 @@ async def test_rasterize_html_maps_logical_dimensions_and_keeps_auto_height() ->
     )
 
     assert result == b"rendered"
-    _, markup, stylesheets, options = state.calls[-1]
-    assert markup == prepared.markup
-    assert stylesheets == prepared.stylesheets
+    _, html, stylesheets, options = state.calls[-1]
+    assert html == prepared.html
+    assert stylesheets == tuple(stylesheet.css for stylesheet in prepared.stylesheets)
     assert options["width"] == 192
     assert options["height"] is None
     assert options["device_pixel_ratio"] == 2
@@ -183,6 +184,7 @@ async def test_common_content_operations_consume_shared_preparation(
         "# title",
         markdown_path="",
         css_path="markdown.css",
+        resource_strict=True,
     )
     assert execute_mock.await_args is not None
     assert execute_mock.await_args.args[1] is prepared_markdown
@@ -207,6 +209,90 @@ async def test_common_content_operations_consume_shared_preparation(
 
 
 @pytest.mark.anyio
+async def test_template_html_keeps_raw_binary_rendering_without_asset_side_channel(
+    tmp_path: Path,
+) -> None:
+    from nonebot_plugin_htmlrender.backend.takumi.operations import (  # noqa: PLC0415
+        render_template_html,
+    )
+
+    (tmp_path / "card.html").write_text(
+        '<img src="{{ payload }}">',
+        encoding="utf-8",
+    )
+
+    html = await render_template_html(
+        str(tmp_path),
+        template_name="card.html",
+        payload=b"raw-bytes",
+    )
+
+    assert html == '<img src="b&#39;raw-bytes&#39;">'
+    assert "memory://" not in html
+
+
+@pytest.mark.anyio
+async def test_markdown_template_and_custom_css_materialize_relative_images(
+    tmp_path: Path,
+) -> None:
+    state = _FakeState()
+    image_data = b"local-image"
+    (tmp_path / "image.png").write_bytes(image_data)
+
+    markdown_path = tmp_path / "card.md"
+    markdown_path.write_text("![avatar](image.png)", encoding="utf-8")
+    await render_markdown(
+        _runtime_state(state),
+        md_path=str(markdown_path),
+        device_scale_factor=1,
+    )
+    markdown_images = cast(
+        "tuple[TakumiImageResource, ...]",
+        state.calls[-1][-1]["images"],
+    )
+    assert [(image.src, image.data) for image in markdown_images] == [
+        ("image.png", image_data)
+    ]
+
+    (tmp_path / "card.html").write_text(
+        '<img src="image.png" width="1" height="1">',
+        encoding="utf-8",
+    )
+    await render_template(
+        _runtime_state(state),
+        str(tmp_path),
+        template_name="card.html",
+        device_scale_factor=1,
+    )
+    template_images = cast(
+        "tuple[TakumiImageResource, ...]",
+        state.calls[-1][-1]["images"],
+    )
+    assert [(image.src, image.data) for image in template_images] == [
+        ("image.png", image_data)
+    ]
+
+    css_path = tmp_path / "theme.css"
+    css_path.write_text(
+        "body { background-image: url(image.png) }",
+        encoding="utf-8",
+    )
+    await render_text(
+        _runtime_state(state),
+        "content",
+        css_path=str(css_path),
+        device_scale_factor=1,
+    )
+    css_images = cast(
+        "tuple[TakumiImageResource, ...]",
+        state.calls[-1][-1]["images"],
+    )
+    assert [(image.src, image.data) for image in css_images] == [
+        ("image.png", image_data)
+    ]
+
+
+@pytest.mark.anyio
 async def test_html_request_maps_portable_screenshot_semantics() -> None:
     state = _FakeState()
     request = HtmlRenderRequest(
@@ -214,7 +300,6 @@ async def test_html_request_maps_portable_screenshot_semantics() -> None:
         render=RenderConfig(
             page=PageConfig(
                 viewport=ViewportConfig(width=320, height=180),
-                base_url="https://example.com/base/",
             ),
             screenshot=JpegScreenshotOptions(
                 quality=81,
@@ -263,4 +348,16 @@ async def test_browser_only_options_are_rejected() -> None:
         await render_html(
             _runtime_state(state),
             request,
+        )
+
+    navigation_request = HtmlRenderRequest(
+        content=ContentConfig(html="<div>ok</div>"),
+        render=RenderConfig(
+            page=PageConfig(document_url="https://example.com/base/"),
+        ),
+    )
+    with pytest.raises(TakumiUnsupportedError, match="document_url"):
+        await render_html(
+            _runtime_state(state),
+            navigation_request,
         )

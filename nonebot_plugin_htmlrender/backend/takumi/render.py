@@ -138,8 +138,8 @@ class TakumiBackend:
         prepared: PreparedHtml,
         options: RasterOptions,
     ) -> bytes:
-        state = require_runtime_state(session.handle)
         async with track_render("takumi.rasterize_html", backend=self.backend):
+            state = require_runtime_state(session.handle)
             return await operations.rasterize_html(state, prepared, options)
 
     async def render_html(
@@ -148,8 +148,8 @@ class TakumiBackend:
         request: HtmlRenderRequest | str,
         **kwargs: Any,
     ) -> bytes:
-        state = require_runtime_state(session.handle)
         async with track_render("takumi.render_html", backend=self.backend):
+            state = require_runtime_state(session.handle)
             return await operations.render_html(state, request, **kwargs)
 
     async def render_text(
@@ -158,8 +158,8 @@ class TakumiBackend:
         text: str,
         **kwargs: Any,
     ) -> bytes:
-        state = require_runtime_state(session.handle)
         async with track_render("takumi.render_text", backend=self.backend):
+            state = require_runtime_state(session.handle)
             return await operations.render_text(state, text, **kwargs)
 
     async def render_markdown(
@@ -168,8 +168,8 @@ class TakumiBackend:
         markdown_text: str = "",
         **kwargs: Any,
     ) -> bytes:
-        state = require_runtime_state(session.handle)
         async with track_render("takumi.render_markdown", backend=self.backend):
+            state = require_runtime_state(session.handle)
             return await operations.render_markdown(
                 state,
                 markdown_text,
@@ -182,8 +182,8 @@ class TakumiBackend:
         request: TemplateRenderRequest | str,
         **kwargs: Any,
     ) -> bytes:
-        state = require_runtime_state(session.handle)
         async with track_render("takumi.render_template", backend=self.backend):
+            state = require_runtime_state(session.handle)
             return await operations.render_template(state, request, **kwargs)
 
     async def render_template_html(

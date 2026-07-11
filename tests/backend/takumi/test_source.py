@@ -1,21 +1,33 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
 import pytest
 
 from nonebot_plugin_htmlrender.backend.takumi import (
     TakumiImageResource,
+    TakumiInputError,
     TakumiResourceError,
     TakumiUnsupportedError,
 )
 from nonebot_plugin_htmlrender.backend.takumi.source import (
+    materialize_takumi_document,
     prepare_takumi_document,
 )
-from nonebot_plugin_htmlrender.preparation import PreparedAsset, prepare_html
+from nonebot_plugin_htmlrender.preparation import (
+    PreparedAsset,
+    PreparedStylesheet,
+    prepare_html,
+)
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 
-def test_prepared_document_preserves_shared_markup_and_stylesheet_order() -> None:
+def test_prepared_document_preserves_html_and_stylesheet_order() -> None:
     prepared = prepare_html(
-        "<style>.extracted { color: red }</style><div>ok</div>",
+        '<style>.extracted { color: red }</style><img src="memory:avatar">',
         stylesheets=(".explicit { color: blue }",),
         assets=(PreparedAsset("memory:avatar", b"image"),),
     )
@@ -25,7 +37,7 @@ def test_prepared_document_preserves_shared_markup_and_stylesheet_order() -> Non
         stylesheets=(".backend { display: flex }",),
     )
 
-    assert document.markup == prepared.markup
+    assert document.html == prepared.html
     assert document.stylesheets == (
         ".explicit { color: blue }",
         ".extracted { color: red }",
@@ -48,7 +60,7 @@ def test_image_references_accept_only_materialized_or_inline_sources(
     images: list[object] | None,
 ) -> None:
     document = prepare_takumi_document(prepare_html(html), images=images)
-    assert document.markup
+    assert document.html
 
 
 @pytest.mark.parametrize(
@@ -100,7 +112,7 @@ def test_duplicate_and_malformed_image_resources_are_rejected() -> None:
         '<img src="same">',
         assets=(PreparedAsset("same", b"asset"),),
     )
-    with pytest.raises(TakumiResourceError, match="more than once"):
+    with pytest.raises(TakumiResourceError, match="conflicting byte payloads"):
         prepare_takumi_document(prepared, images=[("same", b"explicit")])
 
     with pytest.raises(TypeError, match="exactly"):
@@ -108,3 +120,202 @@ def test_duplicate_and_malformed_image_resources_are_rejected() -> None:
             prepare_html("<div></div>"),
             images=[("key", b"data", "auto")],
         )
+
+
+def test_document_and_stylesheet_bases_select_only_referenced_assets() -> None:
+    prepared = prepare_html(
+        '<img src="./avatar.png"><div class="cover"></div>',
+        base_url="https://example.test/cards/card.html",
+        stylesheets=(
+            PreparedStylesheet(
+                css=".cover { background-image: url(../images/cover.png) }",
+                base_url="https://example.test/css/card.css",
+            ),
+        ),
+        assets=(
+            PreparedAsset("https://example.test/cards/avatar.png", b"avatar"),
+            PreparedAsset("https://example.test/images/cover.png", b"cover"),
+            PreparedAsset("memory:unused", b"unused"),
+        ),
+    )
+
+    document = prepare_takumi_document(prepared)
+
+    assert [(image.src, image.data) for image in document.images] == [
+        ("./avatar.png", b"avatar"),
+        ("../images/cover.png", b"cover"),
+    ]
+
+
+def test_canonical_asset_alias_conflicts_are_rejected() -> None:
+    prepared = prepare_html(
+        '<img src="./avatar.png">',
+        base_url="https://example.test/cards/card.html",
+        assets=(
+            PreparedAsset("./avatar.png", b"one"),
+            PreparedAsset("https://example.test/cards/avatar.png", b"two"),
+        ),
+    )
+
+    with pytest.raises(TakumiResourceError, match="same canonical URL"):
+        prepare_takumi_document(prepared)
+
+
+def test_same_native_key_resolving_to_different_css_assets_is_rejected() -> None:
+    prepared = prepare_html(
+        "<div></div>",
+        stylesheets=(
+            PreparedStylesheet(
+                ".a { background: url(icon.png) }",
+                base_url="https://a.example.test/style.css",
+            ),
+            PreparedStylesheet(
+                ".b { background: url(icon.png) }",
+                base_url="https://b.example.test/style.css",
+            ),
+        ),
+        assets=(
+            PreparedAsset("https://a.example.test/icon.png", b"a"),
+            PreparedAsset("https://b.example.test/icon.png", b"b"),
+        ),
+    )
+
+    with pytest.raises(TakumiResourceError, match=r"different.*bases"):
+        prepare_takumi_document(prepared)
+
+
+def test_raw_base_href_resolves_document_reference_to_canonical_asset() -> None:
+    prepared = prepare_html(
+        '<base href="https://cdn.example.test/assets/"><img src="avatar.png">',
+        assets=(
+            PreparedAsset("https://cdn.example.test/assets/avatar.png", b"avatar"),
+        ),
+    )
+
+    document = prepare_takumi_document(prepared)
+
+    assert document.images == (TakumiImageResource("avatar.png", b"avatar"),)
+
+
+@pytest.mark.anyio
+async def test_explicit_images_satisfy_materialization_before_local_io(
+    tmp_path: Path,
+) -> None:
+    prepared = prepare_html(
+        '<img src="provided.png"><img src="memory:avatar">',
+        base_url=(tmp_path / "document.html").as_uri(),
+    )
+
+    document = await materialize_takumi_document(
+        prepared,
+        images=(
+            TakumiImageResource("provided.png", b"relative"),
+            TakumiImageResource("memory:avatar", b"memory"),
+        ),
+    )
+
+    assert document.images == (
+        TakumiImageResource("provided.png", b"relative"),
+        TakumiImageResource("memory:avatar", b"memory"),
+    )
+
+
+def test_adapter_upstream_tuple_and_promised_duck_images_are_supported() -> None:
+    from takumi_py import ImageResource  # noqa: PLC0415
+
+    @dataclass(frozen=True)
+    class PromisedImage:
+        src: str
+        data: bytes
+        cache: str = "none"
+
+    prepared = prepare_html(
+        '<img src="adapter"><img src="upstream"><img src="tuple"><img src="duck">'
+    )
+    document = prepare_takumi_document(
+        prepared,
+        images=(
+            TakumiImageResource("adapter", b"a"),
+            ImageResource("upstream", b"b", cache="none"),
+            ("tuple", b"c"),
+            PromisedImage("duck", b"d"),
+            TakumiImageResource("unused", b"e"),
+        ),
+    )
+
+    assert [(image.src, image.data, image.cache) for image in document.images] == [
+        ("adapter", b"a", "auto"),
+        ("upstream", b"b", "none"),
+        ("tuple", b"c", "auto"),
+        ("duck", b"d", "none"),
+    ]
+
+
+def test_media_condition_is_rejected_instead_of_becoming_unconditional() -> None:
+    prepared = prepare_html(
+        "<div>print only</div>",
+        stylesheets=(
+            PreparedStylesheet(
+                css="div { display: none }",
+                media="print",
+            ),
+        ),
+    )
+
+    with pytest.raises(TakumiUnsupportedError, match=r"media='print'"):
+        prepare_takumi_document(prepared)
+
+    embedded = prepare_html(
+        '<style media="screen and (min-width: 1px)">div { color: red }</style>'
+        "<div>conditional</div>"
+    )
+    with pytest.raises(TakumiUnsupportedError, match="cannot be represented"):
+        prepare_takumi_document(embedded)
+
+
+def test_token_aware_rejection_ignores_html_and_css_text_lookalikes() -> None:
+    prepared = prepare_html(
+        "<!-- <link rel='stylesheet' href='ignored.css'> -->"
+        "<div>&lt;link rel='stylesheet' href='also-ignored.css'&gt;</div>",
+        stylesheets=(
+            PreparedStylesheet(
+                "/* @import 'ignored.css'; @font-face {} */"
+                'div::before { content: "@import @font-face"; }'
+                'div { background: url("data:image/svg+xml,@import"); }'
+            ),
+        ),
+    )
+
+    document = prepare_takumi_document(prepared)
+
+    assert document.html == prepared.html
+
+
+@pytest.mark.parametrize(
+    ("prepared", "images", "field"),
+    [
+        (prepare_html("<div>\ud800</div>"), None, "prepared.html"),
+        (
+            prepare_html(
+                "<div></div>",
+                stylesheets=(PreparedStylesheet("div { content: '\ud800' }"),),
+            ),
+            None,
+            "stylesheets[0].css",
+        ),
+        (
+            prepare_html('<img src="image">'),
+            (TakumiImageResource("\ud800", b"data"),),
+            "images[0].src",
+        ),
+    ],
+)
+def test_unencodable_strings_are_rejected_with_field_context(
+    prepared,
+    images,
+    field: str,
+) -> None:
+    with pytest.raises(TakumiInputError) as exc_info:
+        prepare_takumi_document(prepared, images=images)
+
+    assert exc_info.value.field == field

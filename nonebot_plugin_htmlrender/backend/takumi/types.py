@@ -17,11 +17,22 @@ class TakumiImageResource:
     cache: ImageCacheMode = "auto"
 
 
-TakumiImageInput: TypeAlias = TakumiImageResource | tuple[str, bytes]
+class TakumiImageResourceLike(Protocol):
+    """Promised image duck type accepted without a takumi-py import."""
+
+    src: str
+    data: bytes
+
+
+TakumiImageInput: TypeAlias = (
+    TakumiImageResource | tuple[str, bytes] | TakumiImageResourceLike
+)
 
 
 class NativeRenderer(Protocol):
     def compile_html(self, html: str, **kwargs: Any) -> NativeCompiledHtml: ...
+
+    def compile_stylesheet(self, css: str) -> object: ...
 
     def compile_stylesheet_lossy(self, css: str) -> object: ...
 
@@ -62,4 +73,5 @@ __all__ = [
     "StaticImageFormat",
     "TakumiImageInput",
     "TakumiImageResource",
+    "TakumiImageResourceLike",
 ]

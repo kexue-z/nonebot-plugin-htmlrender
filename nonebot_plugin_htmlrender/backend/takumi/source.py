@@ -1,124 +1,265 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from html import unescape
-import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+from urllib.parse import urljoin
 
-from nonebot_plugin_htmlrender.preparation import PreparedHtml, RenderRequirement
+from nonebot_plugin_htmlrender.preparation import (
+    PreparedAsset,
+    PreparedHtml,
+    PreparedStylesheet,
+    RenderRequirement,
+)
+from nonebot_plugin_htmlrender.preparation.assets import PreparedAssetIndex
+from nonebot_plugin_htmlrender.preparation.materialize import (
+    AssetMaterializationError,
+    materialize_local_assets,
+)
+from nonebot_plugin_htmlrender.preparation.references import (
+    css_at_rules,
+    css_resource_references,
+    inspect_html_references,
+)
 
 from .errors import TakumiResourceError, TakumiUnsupportedError
-from .types import TakumiImageResource
+from .types import (
+    ImageCacheMode,
+    TakumiImageResource,
+    TakumiImageResourceLike,
+)
+from .validation import ensure_utf8
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-_STYLESHEET_LINK_RE = re.compile(
-    r"<link\b(?=[^>]*\brel\s*=\s*(?:"
-    r"['\"][^'\"]*\bstylesheet\b[^'\"]*['\"]|"
-    r"[^\s>]*\bstylesheet\b))[^>]*>",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-_CSS_IMPORT_RE = re.compile(r"@import\b", flags=re.IGNORECASE)
-_FONT_FACE_RE = re.compile(r"@font-face\b", flags=re.IGNORECASE)
-_IMAGE_TAG_RE = re.compile(r"<(?:img|image)\b[^>]*>", re.IGNORECASE | re.DOTALL)
-_RESOURCE_ATTR_RE = re.compile(
-    r"\b(?:src|href|xlink:href)\s*=\s*"
-    r"(?:'(?P<single>[^']*)'|\"(?P<double>[^\"]*)\"|(?P<bare>[^\s>]+))",
-    flags=re.IGNORECASE | re.DOTALL,
-)
-_CSS_URL_RE = re.compile(
-    r"url\(\s*(?:'(?P<single>[^']*)'|\"(?P<double>[^\"]*)\"|(?P<bare>[^)]*))\s*\)",
-    flags=re.IGNORECASE | re.DOTALL,
-)
+    from nonebot_plugin_htmlrender.preparation.references import HtmlReferenceSnapshot
 
 
 @dataclass(frozen=True, slots=True)
 class TakumiDocument:
-    """Executor-ready document with every external image supplied in memory."""
+    """Executor-ready document with only referenced images supplied in memory."""
 
-    markup: str
+    html: str
     stylesheets: tuple[str, ...]
-    images: tuple[object, ...]
+    images: tuple[TakumiImageResource, ...]
 
 
-def _image_resource_key(image: object) -> str:
+@dataclass(frozen=True, slots=True)
+class _ImageCandidate:
+    asset: PreparedAsset
+    cache: ImageCacheMode
+    explicit: bool
+
+
+def normalize_image_input(image: object, *, field: str) -> TakumiImageResource:
+    """Normalize adapter, upstream, tuple, and promised duck image values."""
+
     if isinstance(image, TakumiImageResource):
-        return image.src
-    if isinstance(image, tuple):
-        if (
-            len(image) == 2
-            and isinstance(image[0], str)
-            and isinstance(image[1], bytes)
-        ):
-            return image[0]
-        raise TypeError("Takumi image tuples must contain exactly (str, bytes).")
-    src = getattr(image, "src", None)
-    data = getattr(image, "data", None)
-    if isinstance(src, str) and isinstance(data, bytes):
-        return src
-    raise TypeError(
-        "Takumi images must be TakumiImageResource, (src, bytes), or expose "
-        "string `src` and bytes `data` attributes."
+        src = image.src
+        data = image.data
+        cache = image.cache
+    elif isinstance(image, tuple):
+        if len(image) != 2:
+            raise TypeError(f"{field} must contain exactly (str, bytes).")
+        src, data = image
+        cache = "auto"
+    else:
+        try:
+            resource = cast("TakumiImageResourceLike", image)
+            src = resource.src
+            data = resource.data
+            cache = getattr(image, "cache", "auto")
+        except Exception as error:
+            raise TypeError(
+                f"{field} must be TakumiImageResource, (src, bytes), an upstream "
+                "ImageResource, or expose `src` and `data` attributes."
+            ) from error
+
+    if not isinstance(src, str):
+        raise TypeError(f"{field}.src must be str, got {type(src).__name__}.")
+    ensure_utf8(src, field=f"{field}.src")
+    if not isinstance(data, bytes):
+        raise TypeError(f"{field}.data must be bytes, got {type(data).__name__}.")
+    if cache not in {"auto", "none"}:
+        raise ValueError(f"{field}.cache must be 'auto' or 'none'.")
+    return TakumiImageResource(
+        src=src,
+        data=data,
+        cache=cast("ImageCacheMode", cache),
     )
+
+
+def _merge_image_candidates(
+    prepared: PreparedHtml,
+    images: Sequence[object] | None,
+    *,
+    document_base: str | None,
+) -> tuple[PreparedAssetIndex, dict[str, _ImageCandidate]]:
+    candidates: dict[str, _ImageCandidate] = {}
+
+    def _insert(candidate: _ImageCandidate) -> None:
+        source = candidate.asset.source
+        existing = candidates.get(source)
+        if existing is None:
+            candidates[source] = candidate
+            return
+        if existing.asset.data != candidate.asset.data:
+            raise TakumiResourceError(
+                f"Takumi image source {source!r} has conflicting byte payloads."
+            )
+        if (
+            existing.explicit
+            and candidate.explicit
+            and existing.cache != candidate.cache
+        ):
+            raise TakumiResourceError(
+                f"Takumi image source {source!r} has conflicting cache modes."
+            )
+        if candidate.explicit:
+            candidates[source] = candidate
+
+    for index, asset in enumerate(prepared.assets):
+        if not isinstance(asset.source, str):
+            raise TypeError(
+                "prepared.assets"
+                f"[{index}].source must be str, got {type(asset.source).__name__}."
+            )
+        ensure_utf8(asset.source, field=f"prepared.assets[{index}].source")
+        if not isinstance(asset.data, bytes):
+            raise TypeError(
+                "prepared.assets"
+                f"[{index}].data must be bytes, got {type(asset.data).__name__}."
+            )
+        _insert(_ImageCandidate(asset=asset, cache="auto", explicit=False))
+
+    for index, image in enumerate(images or ()):
+        normalized = normalize_image_input(image, field=f"images[{index}]")
+        _insert(
+            _ImageCandidate(
+                asset=PreparedAsset(source=normalized.src, data=normalized.data),
+                cache=normalized.cache,
+                explicit=True,
+            )
+        )
+
+    try:
+        asset_index = PreparedAssetIndex(
+            (candidate.asset for candidate in candidates.values()),
+            base_url=document_base,
+        )
+    except ValueError as error:
+        raise TakumiResourceError(str(error)) from error
+    return asset_index, candidates
+
+
+def _normalize_reference(value: str, *, field: str) -> str:
+    reference = unescape(value).strip().strip("'\"")
+    ensure_utf8(reference, field=field)
+    return reference
+
+
+def _does_not_need_materialization(reference: str) -> bool:
+    lowered = reference.lower()
+    return not reference or lowered.startswith("data:") or reference.startswith("#")
+
+
+def _validate_stylesheet(stylesheet: PreparedStylesheet, *, field: str) -> None:
+    ensure_utf8(stylesheet.css, field=f"{field}.css")
+    if stylesheet.media is not None:
+        raise TakumiUnsupportedError(
+            f"{field}.media={stylesheet.media!r} cannot be represented by Takumi; "
+            "remove the media condition or use Playwright."
+        )
+    at_rules = frozenset(css_at_rules(stylesheet.css))
+    if "import" in at_rules:
+        raise TakumiUnsupportedError(
+            f"{field} contains CSS @import, which Takumi cannot resolve; inline "
+            "the imported stylesheet."
+        )
+    if "font-face" in at_rules:
+        raise TakumiUnsupportedError(
+            f"{field} contains @font-face, which Takumi cannot load; register font "
+            "bytes through the Takumi extension or render_takumi.fonts."
+        )
 
 
 def image_resource_keys(images: Sequence[object] | None) -> frozenset[str]:
-    if not images:
-        return frozenset()
-    return frozenset(_image_resource_key(image) for image in images)
+    """Return normalized source keys for every supported image input form."""
 
-
-def _merge_images(
-    prepared: PreparedHtml,
-    images: Sequence[object] | None,
-) -> tuple[object, ...]:
-    merged: list[object] = [
-        TakumiImageResource(asset.source, asset.data) for asset in prepared.assets
-    ]
-    merged.extend(images or ())
-
-    seen: set[str] = set()
-    for image in merged:
-        key = _image_resource_key(image)
-        if key in seen:
-            raise TakumiResourceError(
-                f"Takumi image source {key!r} was supplied more than once."
-            )
-        seen.add(key)
-    return tuple(merged)
-
-
-def _is_available_reference(value: str, image_keys: frozenset[str]) -> bool:
-    reference = unescape(value).strip().strip("'\"")
-    if not reference:
-        return True
-    return (
-        reference.lower().startswith("data:")
-        or reference.startswith("#")
-        or reference in image_keys
+    return frozenset(
+        normalize_image_input(image, field=f"images[{index}]").src
+        for index, image in enumerate(images or ())
     )
 
 
-def _html_image_references(markup: str) -> list[str]:
-    references: list[str] = []
-    for tag in _IMAGE_TAG_RE.findall(markup):
-        attribute = _RESOURCE_ATTR_RE.search(tag)
-        if attribute is not None:
-            references.append(
-                attribute.group("single")
-                or attribute.group("double")
-                or attribute.group("bare")
-                or ""
-            )
-    return references
+def _inspect_document(
+    prepared: PreparedHtml,
+) -> tuple[HtmlReferenceSnapshot, str | None]:
+    ensure_utf8(prepared.html, field="prepared.html")
+    if not prepared.html.strip():
+        raise ValueError("HTML content cannot be empty")
+    snapshot = inspect_html_references(
+        prepared.html,
+        base_url=prepared.base_url,
+    )
+    document_base = (
+        urljoin(prepared.base_url, snapshot.base_href)
+        if prepared.base_url and snapshot.base_href
+        else snapshot.base_href or prepared.base_url
+    )
+    if snapshot.has_script or RenderRequirement.JAVASCRIPT in prepared.requirements:
+        raise TakumiUnsupportedError(
+            "Takumi does not execute JavaScript; remove <script> elements or use "
+            "the Playwright backend."
+        )
+    if snapshot.linked_stylesheets:
+        raise TakumiUnsupportedError(
+            "Takumi cannot load <link rel='stylesheet'> resources; provide CSS "
+            "content through PreparedStylesheet or an explicit stylesheet string."
+        )
+    return snapshot, document_base
 
 
-def _css_references(css: str) -> list[str]:
-    return [
-        (match.group("single") or match.group("double") or match.group("bare") or "")
-        for match in _CSS_URL_RE.finditer(css)
-    ]
+async def materialize_takumi_document(
+    prepared: PreparedHtml,
+    *,
+    stylesheets: Sequence[str] = (),
+    images: Sequence[object] | None = None,
+) -> TakumiDocument:
+    """Materialize local references before applying Takumi native constraints."""
+
+    _, document_base = _inspect_document(prepared)
+    _, candidates = _merge_image_candidates(
+        prepared,
+        images,
+        document_base=document_base,
+    )
+    staged = replace(
+        prepared,
+        assets=tuple(candidate.asset for candidate in candidates.values()),
+    )
+    if stylesheets:
+        staged = replace(
+            staged,
+            stylesheets=(
+                *staged.stylesheets,
+                *(
+                    PreparedStylesheet(css=css, base_url=document_base)
+                    for css in stylesheets
+                ),
+            ),
+        )
+    for index, stylesheet in enumerate(staged.stylesheets):
+        _validate_stylesheet(stylesheet, field=f"stylesheets[{index}]")
+    try:
+        materialized = await materialize_local_assets(staged, strict=True)
+    except AssetMaterializationError as error:
+        raise TakumiResourceError(str(error)) from error
+    return prepare_takumi_document(
+        materialized,
+        images=images,
+    )
 
 
 def prepare_takumi_document(
@@ -127,63 +268,84 @@ def prepare_takumi_document(
     stylesheets: Sequence[str] = (),
     images: Sequence[object] | None = None,
 ) -> TakumiDocument:
-    """Validate a shared prepared document against Takumi's native constraints."""
-    if not prepared.markup.strip():
-        raise ValueError("HTML content cannot be empty")
-    if RenderRequirement.JAVASCRIPT in prepared.requirements:
-        raise TakumiUnsupportedError(
-            "Takumi does not execute JavaScript; remove <script> elements or use "
-            "the Playwright backend."
-        )
-    if _STYLESHEET_LINK_RE.search(prepared.markup):
-        raise TakumiUnsupportedError(
-            "Takumi cannot load <link rel='stylesheet'> resources; provide CSS "
-            "content as a <style> block or an explicit stylesheet string."
-        )
+    """Validate and adapt one backend-neutral document for Takumi 0.2.0."""
 
-    all_stylesheets = (*prepared.stylesheets, *stylesheets)
-    for css in all_stylesheets:
-        if _CSS_IMPORT_RE.search(css):
-            raise TakumiUnsupportedError(
-                "Takumi cannot resolve CSS @import; inline the imported stylesheet."
-            )
-        if _FONT_FACE_RE.search(css):
-            raise TakumiUnsupportedError(
-                "Takumi does not load @font-face URLs; register font bytes through "
-                "render_takumi.fonts instead."
-            )
+    snapshot, document_base = _inspect_document(prepared)
 
-    merged_images = _merge_images(prepared, images)
-    keys = image_resource_keys(merged_images)
-    references = _html_image_references(prepared.markup)
-    references.extend(_css_references(prepared.markup))
-    for css in all_stylesheets:
-        references.extend(_css_references(css))
-
-    unresolved = sorted(
-        {
-            unescape(reference).strip()
-            for reference in references
-            if not _is_available_reference(reference, keys)
-        }
+    shared_stylesheets = tuple(prepared.stylesheets)
+    backend_stylesheets = tuple(
+        PreparedStylesheet(css=css, base_url=document_base) for css in stylesheets
     )
+    all_stylesheets = (*shared_stylesheets, *backend_stylesheets)
+    for index, stylesheet in enumerate(all_stylesheets):
+        _validate_stylesheet(stylesheet, field=f"stylesheets[{index}]")
+
+    asset_index, candidates = _merge_image_candidates(
+        prepared,
+        images,
+        document_base=document_base,
+    )
+    references: list[tuple[str, str | None, str]] = [
+        (reference, document_base, f"prepared.html.references[{index}]")
+        for index, reference in enumerate(snapshot.references)
+    ]
+    for stylesheet_index, stylesheet in enumerate(all_stylesheets):
+        references.extend(
+            (
+                reference,
+                stylesheet.base_url,
+                f"stylesheets[{stylesheet_index}].references[{reference_index}]",
+            )
+            for reference_index, reference in enumerate(
+                css_resource_references(stylesheet.css)
+            )
+        )
+
+    selected: dict[str, TakumiImageResource] = {}
+    unresolved: list[str] = []
+    for raw_reference, base_url, field in references:
+        reference = _normalize_reference(raw_reference, field=field)
+        if _does_not_need_materialization(reference):
+            continue
+        matched = asset_index.match(reference, base_url=base_url)
+        if matched is None:
+            unresolved.append(reference)
+            continue
+        candidate = candidates[matched.source]
+        resource = TakumiImageResource(
+            src=reference,
+            data=matched.data,
+            cache=candidate.cache,
+        )
+        existing = selected.get(reference)
+        if existing is not None and existing != resource:
+            raise TakumiResourceError(
+                f"Takumi resource key {reference!r} resolves to conflicting assets "
+                "under different document or stylesheet bases. Use distinct source "
+                "keys or inline one resource."
+            )
+        selected.setdefault(reference, resource)
+
     if unresolved:
-        preview = ", ".join(repr(value) for value in unresolved[:3])
-        suffix = " ..." if len(unresolved) > 3 else ""
+        unique = tuple(dict.fromkeys(unresolved))
+        preview = ", ".join(repr(value) for value in unique[:3])
+        suffix = " ..." if len(unique) > 3 else ""
         raise TakumiResourceError(
-            "Takumi performs no network or filesystem fetches. Supply exact source "
-            f"keys with image bytes; unresolved resources: {preview}{suffix}"
+            "Takumi performs no network or filesystem fetches. Materialize every "
+            f"referenced image as bytes; unresolved resources: {preview}{suffix}"
         )
 
     return TakumiDocument(
-        markup=prepared.markup,
-        stylesheets=all_stylesheets,
-        images=merged_images,
+        html=prepared.html,
+        stylesheets=tuple(stylesheet.css for stylesheet in all_stylesheets),
+        images=tuple(selected.values()),
     )
 
 
 __all__ = [
     "TakumiDocument",
     "image_resource_keys",
+    "materialize_takumi_document",
+    "normalize_image_input",
     "prepare_takumi_document",
 ]
