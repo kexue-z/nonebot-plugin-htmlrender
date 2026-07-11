@@ -270,8 +270,8 @@ async def test_render_markdown_reads_md_path_and_custom_css(
     assert result == b"markdown-image"
     assert render_html_mock.await_args is not None
     request = render_html_mock.await_args.args[0]
-    assert "&lt;h1&gt;Title&lt;/h1&gt;" in request.content.html
-    assert "&lt;p&gt;Paragraph&lt;/p&gt;" in request.content.html
+    assert "<h1>Title</h1>" in request.content.html
+    assert "<p>Paragraph</p>" in request.content.html
     assert ".markdown-body { color: green; }" in request.content.html
     assert request.render.page.base_url == css_path.resolve().as_uri()
     assert request.render.page.viewport.width == 360
