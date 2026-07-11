@@ -58,7 +58,7 @@ def check(condition: object, message: str) -> None:
         raise RuntimeError(message)
 
 
-nonebot.init(driver="~none", render_startup_mode="off")
+nonebot.init(driver="~none", render={"provider": None})
 plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
 check(plugin is not None, "NoneBot could not load nonebot_plugin_htmlrender")
 
@@ -126,13 +126,14 @@ def check(condition: object, message: str) -> None:
         raise RuntimeError(message)
 
 
-nonebot.init(driver="~none", render_startup_mode="off")
+nonebot.init(driver="~none", render={"provider": "takumi", "startup": "off"})
 plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
 check(plugin is not None, "NoneBot could not load nonebot_plugin_htmlrender")
 
-from nonebot_plugin_htmlrender.backend.takumi import TakumiConfig, TakumiExtension
-from nonebot_plugin_htmlrender.backend.takumi.operations import render_text
-from nonebot_plugin_htmlrender.backend.takumi.runtime import create_runtime_state
+from nonebot_plugin_htmlrender.adapters.takumi import TakumiConfig, TakumiExtension
+from nonebot_plugin_htmlrender.adapters.takumi.operations import rasterize_html
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import create_runtime_state
+from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_text
 
 installed_version = version("nonebot-plugin-htmlrender")
 expected_version = os.environ["HTMLRENDER_EXPECTED_VERSION"]
@@ -171,11 +172,11 @@ async def main() -> None:
             f"Takumi node smoke produced unexpected dimensions: {dimensions!r}",
         )
 
-        prepared = await render_text(
+        prepared_text = await prepare_text("installed Takumi smoke")
+        prepared = await rasterize_html(
             state,
-            "installed Takumi smoke",
-            width=180,
-            device_scale_factor=1,
+            prepared_text,
+            RasterOptions(width=180, device_pixel_ratio=1.0),
         )
         check(
             prepared.startswith(b"\x89PNG\r\n\x1a\n"),

@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.7.2"
+version = "0.8.0a1"
 description = "使用 Playwright 或 Takumi 渲染 HTML、Markdown 与模板图片"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
@@ -75,13 +75,13 @@ markers = [
 omit = [
     # Telemetry / observability
     "nonebot_plugin_htmlrender/utils/telemetry/*",
-    "nonebot_plugin_htmlrender/backend/playwright/telemetry.py",
+    "nonebot_plugin_htmlrender/adapters/playwright/telemetry.py",
     # Signal & process management
     "nonebot_plugin_htmlrender/utils/signal.py",
     "nonebot_plugin_htmlrender/utils/process.py",
     # Installation helpers
     "nonebot_plugin_htmlrender/utils/install.py",
-    "nonebot_plugin_htmlrender/backend/playwright/install.py",
+    "nonebot_plugin_htmlrender/adapters/playwright/install.py",
 ]
 
 [tool.coverage.report]

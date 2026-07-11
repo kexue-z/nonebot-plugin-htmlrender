@@ -171,6 +171,7 @@ nav:
           - 常见问题: users/faq.md
           - 安全须知: users/security.md
       - 迁移:
+          - v0.8 迁移指南: users/migration-v080.md
           - v0.7.2 迁移说明: users/migration-v072.md
           - 旧版本迁移指南: users/migration.md
   - 面向开发者:

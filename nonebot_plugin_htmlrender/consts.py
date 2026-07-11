@@ -36,15 +36,9 @@ MIRRORS = [
 
 
 class RenderBackend(StrEnum):
-    """Rendering backend selector.
+    """First-party engine identifiers used for telemetry labels."""
 
-    Values are consumed by plugin config / env vars.
-    """
-
-    SKIA = "skia"
     PLAYWRIGHT = "playwright"
-    PILLOW = "pillow"
-    HTMLKIT = "htmlkit"
     TAKUMI = "takumi"
 
 
