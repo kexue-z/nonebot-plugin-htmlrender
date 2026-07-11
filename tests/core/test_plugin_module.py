@@ -4,7 +4,6 @@ from importlib import import_module
 import sys
 from types import ModuleType, SimpleNamespace
 from typing import TYPE_CHECKING
-from unittest.mock import call
 
 import pytest
 
@@ -22,20 +21,9 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def test_plugin_import_bootstraps_telemetry_plugins(mocker: MockerFixture) -> None:
-    mocker.patch.object(_bootstrap, "find_spec", return_value=object())
-    require = mocker.patch.object(_bootstrap, "require")
-    patch_filehost = mocker.patch.object(
-        _bootstrap, "_patch_filehost_request_headers_validator"
-    )
-
-    plugin._bootstrap_optional_plugins_on_import()
-
-    assert require.call_args_list == [
-        call("nonebot_plugin_sentry"),
-        call("nonebot_plugin_prometheus"),
-    ]
-    patch_filehost.assert_not_called()
+def test_plugin_import_keeps_telemetry_provider_loading_lazy() -> None:
+    assert not hasattr(plugin, "_bootstrap_optional_plugins_on_import")
+    assert not hasattr(_bootstrap, "_bootstrap_optional_plugins_on_import")
 
 
 def test_patch_filehost_request_headers_validator_for_pydantic_v2_compat(

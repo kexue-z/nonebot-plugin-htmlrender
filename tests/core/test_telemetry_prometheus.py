@@ -14,6 +14,11 @@ def _reset_prometheus_state() -> None:
     prometheus._state.plugin = None
     prometheus._state.counter = None
     prometheus._state.histogram = None
+    prometheus._state.filehost_upload_bytes = None
+    prometheus._state.filehost_dedup_hits = None
+    prometheus._state.filehost_active_mappings = None
+    prometheus._state.filehost_active_leases = None
+    prometheus._state.filehost_cleanup_capable = None
 
 
 def test_is_prometheus_enabled_defaults_to_true(mocker: MockerFixture) -> None:
@@ -51,6 +56,19 @@ def test_load_prometheus_guard_paths(mocker: MockerFixture) -> None:
     assert prometheus.load_prometheus() is None
 
 
+def test_load_prometheus_isolates_plugin_discovery_failure(
+    mocker: MockerFixture,
+) -> None:
+    _reset_prometheus_state()
+    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
+    mocker.patch(
+        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.find_spec",
+        side_effect=RuntimeError("discovery failed"),
+    )
+
+    assert prometheus.load_prometheus() is None
+
+
 def test_load_prometheus_success_and_cache(mocker: MockerFixture) -> None:
     _reset_prometheus_state()
     counter_obj = object()
@@ -85,9 +103,7 @@ def test_load_prometheus_success_and_cache(mocker: MockerFixture) -> None:
 
 def test_load_prometheus_init_exception_returns_none(mocker: MockerFixture) -> None:
     _reset_prometheus_state()
-    logger_debug = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.logger.debug"
-    )
+    logger_opt = mocker.patch.object(prometheus.logger, "opt")
 
     def _raise(*_args, **_kwargs):
         raise RuntimeError("bad init")
@@ -105,7 +121,7 @@ def test_load_prometheus_init_exception_returns_none(mocker: MockerFixture) -> N
     sys_modules.get.return_value = fake_module
 
     assert prometheus.load_prometheus() is None
-    logger_debug.assert_called_once()
+    logger_opt.return_value.warning.assert_called_once()
     assert prometheus._state.counter is None
     assert prometheus._state.histogram is None
 
@@ -185,3 +201,41 @@ def test_record_metrics_guard_and_exception_fallbacks(
     assert counter_metric.inc.call_args_list[1].args == ()
     assert histogram_metric.observe.call_count == 2
     assert histogram_metric.observe.call_args_list[1].args == (1.25,)
+
+
+def test_record_metrics_is_failure_isolated(mocker: MockerFixture) -> None:
+    counter = mocker.Mock()
+    counter.labels.side_effect = RuntimeError("labels failed")
+    histogram = mocker.Mock()
+    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
+    mocker.patch.object(
+        prometheus,
+        "load_prometheus",
+        return_value=(counter, histogram),
+    )
+
+    prometheus.record_metrics("render", "takumi", "ok", 1.0, trace_id=None)
+
+
+def test_record_filehost_cache_metrics_updates_counter_and_gauges(
+    mocker: MockerFixture,
+) -> None:
+    upload = mocker.Mock()
+    dedup = mocker.Mock()
+    mappings = mocker.Mock()
+    leases = mocker.Mock()
+    cleanup = mocker.Mock()
+    mocker.patch.object(
+        prometheus,
+        "_load_filehost_metrics",
+        return_value=(upload, dedup, mappings, leases, cleanup),
+    )
+
+    prometheus.record_filehost_cache_metrics("upload", 4096, 3, 2, 0)
+    prometheus.record_filehost_cache_metrics("dedup", 1, 3, 2, 0)
+
+    upload.inc.assert_called_once_with(4096)
+    dedup.inc.assert_called_once_with(1)
+    assert mappings.set.call_args_list == [mocker.call(3), mocker.call(3)]
+    assert leases.set.call_args_list == [mocker.call(2), mocker.call(2)]
+    assert cleanup.set.call_args_list == [mocker.call(0), mocker.call(0)]

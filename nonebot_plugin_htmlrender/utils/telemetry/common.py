@@ -113,13 +113,19 @@ def set_span_attribute(span: object, key: str, value: object) -> None:
         key: 属性键。
         value: 属性值。
     """
-    set_attribute = getattr(span, "set_attribute", None)
+    try:
+        set_attribute = getattr(span, "set_attribute", None)
+    except Exception:
+        set_attribute = None
     if callable(set_attribute):
         with suppress(Exception):
             set_attribute(key, value)
             return
 
-    set_data = getattr(span, "set_data", None)
+    try:
+        set_data = getattr(span, "set_data", None)
+    except Exception:
+        set_data = None
     if callable(set_data):
         with suppress(Exception):
             set_data(key, value)
@@ -132,7 +138,10 @@ def set_span_status(span: object, status: str) -> None:
         span: 追踪 span 对象。
         status: 状态字符串（如 "ok" 或 "error"）。
     """
-    set_status = getattr(span, "set_status", None)
+    try:
+        set_status = getattr(span, "set_status", None)
+    except Exception:
+        return
     if not callable(set_status):
         return
     with suppress(Exception):
@@ -148,8 +157,17 @@ def get_trace_id(span: object) -> str | None:
     Returns:
         trace ID 字符串，无法提取时返回 None。
     """
-    trace_id = getattr(span, "trace_id", None)
-    to_string = getattr(trace_id, "to_string", None)
+    try:
+        trace_id = getattr(span, "trace_id", None)
+    except Exception:
+        return None
+    if isinstance(trace_id, str):
+        return trace_id or None
+
+    try:
+        to_string = getattr(trace_id, "to_string", None)
+    except Exception:
+        return None
     if not callable(to_string):
         return None
     with suppress(Exception):

@@ -12,13 +12,9 @@ from nonebot_plugin_htmlrender._bootstrap import (
     _bootstrap_filehost_guard_on_import as _bootstrap_filehost_guard_on_import,
 )
 from nonebot_plugin_htmlrender._bootstrap import (
-    _bootstrap_optional_plugins_on_import as _bootstrap_optional_plugins_on_import,
-)
-from nonebot_plugin_htmlrender._bootstrap import (
     _patch_filehost_request_headers_validator as _patch_filehost_request_headers_validator,
 )
 
-_bootstrap_optional_plugins_on_import()
 _bootstrap_filehost_guard_on_import()
 
 from nonebot_plugin_htmlrender._compat import (
@@ -55,6 +51,7 @@ from nonebot_plugin_htmlrender.consts import RenderBackend, RenderStartupMode
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedHtml,
+    PreparedStylesheet,
     RasterOptions,
     RenderRequirement,
     prepare_html,
@@ -93,7 +90,7 @@ from nonebot_plugin_htmlrender.resources import (
 
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-htmlrender",
-    description="通过浏览器渲染图片",
+    description="使用 Playwright 或 Takumi 渲染 HTML、Markdown 与模板图片",
     usage=(
         "提供 HTML/Markdown/模板渲染为图片的能力，作为库插件供其他插件调用。\n"
         "主要接口：render_html, render_text, render_markdown, render_template 等。"
@@ -170,6 +167,7 @@ __all__ = [
     "BackendExtension",
     "PreparedAsset",
     "PreparedHtml",
+    "PreparedStylesheet",
     "RasterOptions",
     "RenderRequirement",
     "ResourceResolveError",

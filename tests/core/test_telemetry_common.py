@@ -144,6 +144,11 @@ def test_set_span_attribute_status_and_trace_id_paths() -> None:
 
     assert common.get_trace_id(SpanTrace()) == "trace-id"
 
+    class StringSpanTrace:
+        trace_id = "real-sentry-trace-id"
+
+    assert common.get_trace_id(StringSpanTrace()) == "real-sentry-trace-id"
+
     class SpanTraceError:
         class _TraceId:
             def to_string(self) -> str:
@@ -152,3 +157,16 @@ def test_set_span_attribute_status_and_trace_id_paths() -> None:
         trace_id = _TraceId()
 
     assert common.get_trace_id(SpanTraceError()) is None
+
+
+def test_span_helpers_isolate_attribute_access_failures() -> None:
+    class BrokenSpan:
+        def __getattribute__(self, name: str) -> object:
+            if name in {"set_attribute", "set_data", "set_status", "trace_id"}:
+                raise RuntimeError(f"cannot access {name}")
+            return super().__getattribute__(name)
+
+    span = BrokenSpan()
+    common.set_span_attribute(span, "render.backend", "takumi")
+    common.set_span_status(span, "ok")
+    assert common.get_trace_id(span) is None

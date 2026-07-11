@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from nonebot import require
 from nonebot.log import logger
@@ -10,10 +10,17 @@ from nonebot.log import logger
 from .common import get_config_value
 
 if TYPE_CHECKING:
-    from prometheus_client import Counter, Histogram
+    from prometheus_client import Counter, Gauge, Histogram
 
 _PROM_COUNTER_NAME = "nonebot_htmlrender_operations_total"
 _PROM_HISTOGRAM_NAME = "nonebot_htmlrender_duration_seconds"
+_PROM_FILEHOST_UPLOAD_BYTES_NAME = "nonebot_htmlrender_filehost_upload_bytes"
+_PROM_FILEHOST_DEDUP_HITS_NAME = "nonebot_htmlrender_filehost_dedup_hits"
+_PROM_FILEHOST_ACTIVE_MAPPINGS_NAME = "nonebot_htmlrender_filehost_active_url_mappings"
+_PROM_FILEHOST_ACTIVE_LEASES_NAME = "nonebot_htmlrender_filehost_active_leases"
+_PROM_FILEHOST_CLEANUP_CAPABLE_NAME = (
+    "nonebot_htmlrender_filehost_physical_cleanup_capable"
+)
 
 
 class _PrometheusState:
@@ -28,6 +35,11 @@ class _PrometheusState:
         self.plugin: object | None = None
         self.counter: Counter | None = None
         self.histogram: Histogram | None = None
+        self.filehost_upload_bytes: Counter | None = None
+        self.filehost_dedup_hits: Counter | None = None
+        self.filehost_active_mappings: Gauge | None = None
+        self.filehost_active_leases: Gauge | None = None
+        self.filehost_cleanup_capable: Gauge | None = None
 
 
 _state = _PrometheusState()
@@ -55,11 +67,33 @@ def ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
     Returns:
         插件可用时返回 ``True``。
     """
+    try:
+        if not is_prometheus_enabled():
+            return False
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Cannot read Prometheus configuration "
+            "({reason}): <r>{error}</r>.",
+            reason=reason,
+            error=error,
+        )
+        return False
+
     if _state.checked:
         return _state.plugin is not None
 
     _state.checked = True
-    if find_spec("nonebot_plugin_prometheus") is None:
+    try:
+        installed = find_spec("nonebot_plugin_prometheus") is not None
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Cannot locate Prometheus plugin "
+            "({reason}): <r>{error}</r>.",
+            reason=reason,
+            error=error,
+        )
+        return False
+    if not installed:
         logger.opt(colors=True).debug(
             "<d>[htmlrender.telemetry]</d> Prometheus plugin not installed, skip bootstrap ({reason}).",
             reason=reason,
@@ -98,25 +132,23 @@ def load_prometheus() -> tuple[Counter, Histogram] | None:
         ``(Counter, Histogram)`` 二元组；当 Prometheus 未启用、插件不可用
         或指标初始化失败时返回 ``None``。
     """
-    if _state.counter is not None and _state.histogram is not None:
-        return _state.counter, _state.histogram
-
-    if not is_prometheus_enabled():
-        return None
-
-    if not ensure_prometheus_plugin_loaded(reason="runtime"):
-        return None
-
-    prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
-    if prometheus is None:
-        return None
-
-    counter_cls = getattr(prometheus, "Counter", None)
-    histogram_cls = getattr(prometheus, "Histogram", None)
-    if counter_cls is None or histogram_cls is None:
-        return None
-
     try:
+        if not is_prometheus_enabled():
+            return None
+        if _state.counter is not None and _state.histogram is not None:
+            return _state.counter, _state.histogram
+        if not ensure_prometheus_plugin_loaded(reason="runtime"):
+            return None
+
+        prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
+        if prometheus is None:
+            return None
+
+        counter_cls = getattr(prometheus, "Counter", None)
+        histogram_cls = getattr(prometheus, "Histogram", None)
+        if counter_cls is None or histogram_cls is None:
+            return None
+
         _state.counter = counter_cls(
             _PROM_COUNTER_NAME,
             "Total render operations.",
@@ -127,8 +159,12 @@ def load_prometheus() -> tuple[Counter, Histogram] | None:
             "Render operation duration in seconds.",
             ["op", "backend", "status"],
         )
-    except Exception as exc:
-        logger.debug(f"Failed to initialize Prometheus metrics: {exc}")
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Prometheus provider initialization "
+            "failed: <r>{error}</r>.",
+            error=error,
+        )
         _state.counter = None
         _state.histogram = None
         return None
@@ -157,43 +193,147 @@ def record_metrics(
         duration: 操作耗时，单位为秒。
         trace_id: 关联的追踪 ID，用于 exemplar；可为 ``None``。
     """
-    if not is_prometheus_enabled():
-        return
+    try:
+        if not is_prometheus_enabled():
+            return
 
-    metrics = load_prometheus()
-    if metrics is None:
-        return
+        metrics = load_prometheus()
+        if metrics is None:
+            return
 
-    counter, histogram = metrics
-    labels = {"op": op, "backend": backend, "status": status}
-    counter_metric = counter.labels(**labels)
-    histogram_metric = histogram.labels(**labels)
+        counter, histogram = metrics
+        labels = {"op": op, "backend": backend, "status": status}
+        counter_metric = counter.labels(**labels)
+        histogram_metric = histogram.labels(**labels)
 
-    if trace_id:
-        try:
-            counter_metric.inc(1, exemplar={"trace_id": trace_id})
-            counter_recorded = True
-        except TypeError:
-            counter_metric.inc()
-            counter_recorded = True
-        except Exception:
+        if trace_id:
+            try:
+                counter_metric.inc(1, exemplar={"trace_id": trace_id})
+                counter_recorded = True
+            except Exception:
+                counter_recorded = False
+            try:
+                histogram_metric.observe(duration, exemplar={"trace_id": trace_id})
+                histogram_recorded = True
+            except Exception:
+                histogram_recorded = False
+        else:
             counter_recorded = False
-        else:
-            counter_recorded = True
-        try:
-            histogram_metric.observe(duration, exemplar={"trace_id": trace_id})
-            histogram_recorded = True
-        except TypeError:
             histogram_recorded = False
-        except Exception:
-            histogram_recorded = False
-        else:
-            histogram_recorded = True
-    else:
-        counter_recorded = False
-        histogram_recorded = False
 
-    if not counter_recorded:
-        counter_metric.inc()
-    if not histogram_recorded:
-        histogram_metric.observe(duration)
+        if not counter_recorded:
+            counter_metric.inc()
+        if not histogram_recorded:
+            histogram_metric.observe(duration)
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Prometheus metric export failed: "
+            "<r>{error}</r>.",
+            error=error,
+        )
+
+
+def _load_filehost_metrics() -> tuple[Counter, Counter, Gauge, Gauge, Gauge] | None:
+    try:
+        if not is_prometheus_enabled():
+            return None
+        cached = (
+            _state.filehost_upload_bytes,
+            _state.filehost_dedup_hits,
+            _state.filehost_active_mappings,
+            _state.filehost_active_leases,
+            _state.filehost_cleanup_capable,
+        )
+        if all(metric is not None for metric in cached):
+            return cast("tuple[Counter, Counter, Gauge, Gauge, Gauge]", cached)
+        if not ensure_prometheus_plugin_loaded(reason="filehost_metrics"):
+            return None
+        prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
+        if prometheus is None:
+            return None
+        counter_cls = getattr(prometheus, "Counter", None)
+        gauge_cls = getattr(prometheus, "Gauge", None)
+        if not callable(counter_cls) or not callable(gauge_cls):
+            return None
+        _state.filehost_upload_bytes = cast(
+            "Counter",
+            counter_cls(
+                _PROM_FILEHOST_UPLOAD_BYTES_NAME,
+                "Bytes uploaded through the explicit htmlrender filehost adapter.",
+            ),
+        )
+        _state.filehost_dedup_hits = cast(
+            "Counter",
+            counter_cls(
+                _PROM_FILEHOST_DEDUP_HITS_NAME,
+                "Filehost uploads avoided by content-addressed URL mappings.",
+            ),
+        )
+        _state.filehost_active_mappings = cast(
+            "Gauge",
+            gauge_cls(
+                _PROM_FILEHOST_ACTIVE_MAPPINGS_NAME,
+                "Active process-local filehost URL mappings.",
+            ),
+        )
+        _state.filehost_active_leases = cast(
+            "Gauge",
+            gauge_cls(
+                _PROM_FILEHOST_ACTIVE_LEASES_NAME,
+                "Active process-local filehost leases.",
+            ),
+        )
+        _state.filehost_cleanup_capable = cast(
+            "Gauge",
+            gauge_cls(
+                _PROM_FILEHOST_CLEANUP_CAPABLE_NAME,
+                "Whether per-file physical cleanup is supported by the adapter.",
+            ),
+        )
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Prometheus filehost metric "
+            "initialization failed: <r>{error}</r>.",
+            error=error,
+        )
+        return None
+
+    metrics = (
+        _state.filehost_upload_bytes,
+        _state.filehost_dedup_hits,
+        _state.filehost_active_mappings,
+        _state.filehost_active_leases,
+        _state.filehost_cleanup_capable,
+    )
+    if any(metric is None for metric in metrics):
+        return None
+    return metrics
+
+
+def record_filehost_cache_metrics(
+    event: str,
+    value: int,
+    active_mappings: int,
+    active_leases: int,
+    physical_cleanup_capable: int,
+) -> None:
+    """Record low-cardinality filehost counters and current-state gauges."""
+
+    try:
+        metrics = _load_filehost_metrics()
+        if metrics is None:
+            return
+        upload_bytes, dedup_hits, mappings, leases, cleanup = metrics
+        if event == "upload":
+            upload_bytes.inc(value)
+        elif event == "dedup":
+            dedup_hits.inc(value)
+        mappings.set(active_mappings)
+        leases.set(active_leases)
+        cleanup.set(physical_cleanup_capable)
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Prometheus filehost metric export "
+            "failed: <r>{error}</r>.",
+            error=error,
+        )

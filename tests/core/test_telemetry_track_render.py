@@ -45,11 +45,18 @@ async def test_track_render_with_span_records_attrs_and_error_status(
     mocker: MockerFixture,
 ) -> None:
     span = mocker.Mock()
-    span.__exit__ = mocker.Mock(side_effect=RuntimeError("ignored"))
+    exit_context = mocker.Mock(return_value=False)
+
+    class TraceContext:
+        def __enter__(self) -> object:
+            return span
+
+        def __exit__(self, exc_type, exc, traceback) -> bool:
+            return exit_context(exc_type, exc, traceback)
 
     mocker.patch.object(telemetry, "normalize_backend", return_value="playwright")
     mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=True)
-    mocker.patch.object(telemetry, "start_trace", return_value=span)
+    mocker.patch.object(telemetry, "start_trace", return_value=TraceContext())
     mocker.patch.object(telemetry, "perf_counter", side_effect=[20.0, 20.4])
     set_span_attr = mocker.patch.object(telemetry, "set_span_attribute")
     set_span_status = mocker.patch.object(telemetry, "set_span_status")
@@ -71,7 +78,10 @@ async def test_track_render_with_span_records_attrs_and_error_status(
     set_span_attr.assert_any_call(span, "render.sentry.profiling", "true")
     set_span_attr.assert_any_call(span, "x", "1")
     set_span_attr.assert_any_call(span, "render.status", "error")
-    span.__exit__.assert_called_once_with(None, None, None)
+    assert exit_context.call_count == 1
+    assert exit_context.call_args.args[0] is ValueError
+    assert isinstance(exit_context.call_args.args[1], ValueError)
+    assert exit_context.call_args.args[2] is not None
     assert record_sentry.call_count == 1
     assert record_sentry.call_args.args[:3] == (
         "render.template",
@@ -83,3 +93,86 @@ async def test_track_render_with_span_records_attrs_and_error_status(
     assert record_prom.call_args.args[:3] == ("render.template", "playwright", "error")
     assert record_prom.call_args.args[3] == pytest.approx(0.4)
     assert record_prom.call_args.args[4] == "trace-id"
+
+
+@pytest.mark.anyio
+async def test_track_render_isolates_trace_and_exporter_failures(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
+    mocker.patch.object(
+        telemetry,
+        "start_trace",
+        side_effect=RuntimeError("trace initialization failed"),
+    )
+    record_sentry = mocker.patch.object(
+        telemetry,
+        "record_sentry_metrics",
+        side_effect=RuntimeError("sentry export failed"),
+    )
+    record_prometheus = mocker.patch.object(
+        telemetry,
+        "record_prometheus_metrics",
+        side_effect=RuntimeError("prometheus export failed"),
+    )
+
+    async with telemetry.track_render("render.safe", backend="takumi"):
+        result = "rendered"
+
+    assert result == "rendered"
+    record_sentry.assert_called_once()
+    record_prometheus.assert_called_once()
+
+
+@pytest.mark.anyio
+async def test_track_render_preserves_original_error_when_trace_exit_fails(
+    mocker: MockerFixture,
+) -> None:
+    span = mocker.Mock()
+
+    class BrokenExitContext:
+        def __enter__(self) -> object:
+            return span
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            del exc_type, exc, traceback
+            raise RuntimeError("trace exit failed")
+
+    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
+    mocker.patch.object(
+        telemetry,
+        "start_trace",
+        return_value=BrokenExitContext(),
+    )
+    mocker.patch.object(telemetry, "record_sentry_metrics")
+    mocker.patch.object(telemetry, "record_prometheus_metrics")
+
+    with pytest.raises(ValueError, match="render failed"):
+        async with telemetry.track_render("render.error", backend="takumi"):
+            raise ValueError("render failed")
+
+
+@pytest.mark.anyio
+async def test_track_render_isolates_trace_enter_failure(
+    mocker: MockerFixture,
+) -> None:
+    class BrokenEnterContext:
+        def __enter__(self) -> None:
+            raise RuntimeError("trace enter failed")
+
+        def __exit__(self, exc_type, exc, traceback) -> None:
+            del exc_type, exc, traceback
+
+    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
+    mocker.patch.object(
+        telemetry,
+        "start_trace",
+        return_value=BrokenEnterContext(),
+    )
+    mocker.patch.object(telemetry, "record_sentry_metrics")
+    mocker.patch.object(telemetry, "record_prometheus_metrics")
+
+    async with telemetry.track_render("render.safe", backend="takumi"):
+        result = b"image"
+
+    assert result == b"image"

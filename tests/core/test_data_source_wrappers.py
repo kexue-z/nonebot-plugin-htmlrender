@@ -52,6 +52,8 @@ async def test_data_source_wrappers_delegate_to_render_layer(
         filters=None,
         title="x",
     )
+    assert tpl.await_args is not None
+    assert tpl.await_args.kwargs["pages"] == {"viewport": {"width": 500, "height": 10}}
     capture.assert_awaited_once()
 
 
