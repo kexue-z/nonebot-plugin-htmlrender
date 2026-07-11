@@ -77,7 +77,15 @@ Sentry 适配器按第一次实际使用惰性初始化，并直接适配 Sentry
 ### :lucide-chart-spline: [prometheus](https://github.com/nonebot/plugin-prometheus)
 
 用于将渲染链路指标暴露到 Prometheus。
-Prometheus 适配器独立于 Sentry 惰性初始化。依赖缺失、关闭或初始化失败都不会阻断插件导入；是否实际记录指标仍受 `prometheus_enable` 控制（显式设为 `false` 时禁用）。
+Prometheus 适配器独立于 Sentry 初始化。依赖缺失、关闭或初始化失败都不会阻断插件导入；是否实际记录指标受 `prometheus_enable` 控制，**默认关闭，需显式设为 `true` 启用**。
+
+!!! info "`/metrics` 端点由 htmlrender 在导入阶段按配置引导"
+    `nonebot_plugin_prometheus` 通过 `@driver.on_startup` 挂载 `/metrics` 路由，该钩子必须在驱动器启动阶段被消费**之前**注册。因此 `nonebot-plugin-htmlrender` 在**导入阶段**（早于 `nonebot.run()` 的 startup）就按配置选择性地 `require("nonebot_plugin_prometheus")`：仅当集成启用（显式 `prometheus_enable=true`）且插件已安装时才加载。此时 startup 钩子如期触发，端点正常挂载，指标可被外部抓取。
+
+    该引导按 htmlrender 自身配置门控且**默认关闭**，不会强行加载「装了但未启用」的插件。未显式 `prometheus_enable=true` 时 htmlrender 不引导；此时如仍需端点，请自行加载 `nonebot_plugin_prometheus`。
+
+    对照：`sentry` 在插件导入阶段即完成 `sentry_sdk.init()`，无 `on_startup` 时序依赖；同样默认关闭，htmlrender 在导入阶段按是否配置了 `sentry_dsn` 来选择性引导。
+
 指标暴露与采集方式可参考 plugin-prometheus 文档。
 
 </div>
@@ -98,7 +106,7 @@ Prometheus 适配器独立于 Sentry 惰性初始化。依赖缺失、关闭或�
     追踪相关：`sentry_traces_sample_rate`、`sentry_traces_sampler`
     Profiling 相关：`sentry_profiles_sample_rate`、`sentry_profiles_sampler`、`sentry_profile_session_sample_rate`。
 
-- `prometheus`: `prometheus_enable`（显式设为 `false` 时禁用；否则默认启用）。
+- `prometheus`: `prometheus_enable`（默认关闭，显式设为 `true` 启用）。
 
 ## 观测指标与追踪名称
 
@@ -106,25 +114,43 @@ Prometheus 适配器独立于 Sentry 惰性初始化。依赖缺失、关闭或�
 
 ### Prometheus
 
-| 类型      | 名称                                  | labels                    |
-| --------- | ------------------------------------- | ------------------------- |
-| Counter   | `nonebot_htmlrender_operations_total` | `op`, `backend`, `status` |
-| Histogram | `nonebot_htmlrender_duration_seconds` | `op`, `backend`, `status` |
+| 类型      | 名称                                                   | labels                    |
+| --------- | ------------------------------------------------------ | ------------------------- |
+| Counter   | `nonebot_htmlrender_operations_total`                  | `op`, `backend`, `status` |
+| Histogram | `nonebot_htmlrender_duration_seconds`                  | `op`, `backend`, `status` |
+| Counter   | `nonebot_htmlrender_cache_events_total`                | `cache`, `event`          |
+| Gauge     | `nonebot_htmlrender_cache_entries`                     | `cache`                   |
+| Gauge     | `nonebot_htmlrender_cache_resident_bytes`              | `cache`                   |
+| Counter   | `nonebot_htmlrender_filehost_upload_bytes_total`        | 无                        |
+| Counter   | `nonebot_htmlrender_filehost_dedup_hits_total`          | 无                        |
+| Gauge     | `nonebot_htmlrender_filehost_active_url_mappings`       | 无                        |
+| Gauge     | `nonebot_htmlrender_filehost_active_leases`             | 无                        |
+| Gauge     | `nonebot_htmlrender_filehost_physical_cleanup_capable`  | 无                        |
 
 说明：
 
 - `op` 对应 `track_render(op=...)` 中的操作名，例如 `render.get_render`、`render.startup`、`playwright.html_render.render_template`、`takumi.render_html`
 - `backend` 为稳定的低基数标签，正式后端取值为 `playwright` 或 `takumi`
 - `status` 由遥测层写为 `ok` 或 `error`
+- `cache` 仅取 `resource`、`template_environment`、`takumi_compiled`；`event` 仅记录 `hit`、`miss`、`load`、`wait`、`eviction`
+- `cache_resident_bytes` 只为 byte-weighted cache 写入；Jinja environment cache 只更新 entries gauge
 
 两个 exporter 完全隔离。记录 span/counter/histogram 失败时只降级观测，不覆盖成功渲染结果，也不替换原始业务异常。标签限制为低基数 `backend`、`op`、`status` 与汇总 cache stats，不记录路径、HTML、URL、字体名、digest 或资源内容。
 
 ### Sentry
 
-| 类型            | 名称                          | tags                      |
-| --------------- | ----------------------------- | ------------------------- |
-| Counter metric  | `nonebot.htmlrender.count`    | `op`, `backend`, `status` |
-| Duration metric | `nonebot.htmlrender.duration` | `op`, `backend`, `status` |
+| 类型            | 名称                                             | tags                      |
+| --------------- | ------------------------------------------------ | ------------------------- |
+| Counter metric  | `nonebot.htmlrender.count`                       | `op`, `backend`, `status` |
+| Duration metric | `nonebot.htmlrender.duration`                    | `op`, `backend`, `status` |
+| Counter metric  | `nonebot.htmlrender.cache.events`                | `cache`, `event`          |
+| Gauge metric    | `nonebot.htmlrender.cache.entries`               | `cache`                   |
+| Gauge metric    | `nonebot.htmlrender.cache.resident_bytes`        | `cache`                   |
+| Counter metric  | `nonebot.htmlrender.filehost.upload_bytes`       | `component=filehost`      |
+| Counter metric  | `nonebot.htmlrender.filehost.dedup_hits`         | `component=filehost`      |
+| Gauge metric    | `nonebot.htmlrender.filehost.active_url_mappings` | `component=filehost`     |
+| Gauge metric    | `nonebot.htmlrender.filehost.active_leases`      | `component=filehost`      |
+| Gauge metric    | `nonebot.htmlrender.filehost.physical_cleanup_capable` | `component=filehost` |
 
 Sentry trace/span 的操作名同样来自 `track_render(op=...)` 的 `op`。
 Takumi 的公共操作使用 `takumi.render_*` / `takumi.rasterize_html`，特有能力使用 `takumi.extension.*`；span 与 metric 不附带 HTML、Markdown、模板路径、URL 或资源内容。

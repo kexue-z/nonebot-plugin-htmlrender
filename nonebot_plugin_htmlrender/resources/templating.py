@@ -15,6 +15,7 @@ import jinja2
 from jinja2.ext import Extension
 
 from nonebot_plugin_htmlrender.config import plugin_config
+from nonebot_plugin_htmlrender.utils.telemetry import record_cache_metrics
 
 from .source import FilesystemResourceSource, PackageResourceSource
 
@@ -24,10 +25,23 @@ if TYPE_CHECKING:
 FilterCallable: TypeAlias = Callable[..., Any]
 ExtensionSpec: TypeAlias = str | type[Extension]
 _FilterItem: TypeAlias = tuple[str, FilterCallable]
-_IdentityPart: TypeAlias = tuple[str, str | int]
 TemplateSource: TypeAlias = (
     str | Path | FilesystemResourceSource | PackageResourceSource
 )
+
+
+@dataclass(frozen=True, slots=True)
+class _ObjectIdentity:
+    value: object
+
+    def __hash__(self) -> int:
+        return id(self.value)
+
+    def __eq__(self, other: object) -> bool:
+        return isinstance(other, _ObjectIdentity) and self.value is other.value
+
+
+_IdentityPart: TypeAlias = tuple[str, str | _ObjectIdentity]
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +60,7 @@ class _EnvironmentKey:
     source_identity: tuple[str, ...]
     immutable: bool
     extensions: tuple[_IdentityPart, ...]
-    filters: tuple[tuple[str, int], ...]
+    filters: tuple[tuple[str, _ObjectIdentity], ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -109,7 +123,7 @@ def _snapshot_filters(
 def _extension_identity(extension: ExtensionSpec) -> _IdentityPart:
     if isinstance(extension, str):
         return ("name", extension)
-    return ("type", id(extension))
+    return ("type", _ObjectIdentity(extension))
 
 
 def _build_key(
@@ -123,7 +137,9 @@ def _build_key(
         source_identity=tuple(source.identity),
         immutable=immutable,
         extensions=tuple(_extension_identity(extension) for extension in extensions),
-        filters=tuple((name, id(filter_func)) for name, filter_func in filters),
+        filters=tuple(
+            (name, _ObjectIdentity(filter_func)) for name, filter_func in filters
+        ),
     )
 
 
@@ -150,10 +166,13 @@ def _build_environment(
     return _EnvironmentEntry(environment=environment)
 
 
-def _enforce_cache_limit_locked(max_entries: int) -> None:
+def _enforce_cache_limit_locked(max_entries: int) -> int:
+    evictions = 0
     while len(_ENVIRONMENT_CACHE) > max_entries:
         _ENVIRONMENT_CACHE.popitem(last=False)
         _CACHE_COUNTERS.evictions += 1
+        evictions += 1
+    return evictions
 
 
 def _get_environment_entry(
@@ -173,26 +192,28 @@ def _get_environment_entry(
     max_entries = _get_cache_max_entries()
 
     with _CACHE_LOCK:
-        _enforce_cache_limit_locked(max_entries)
+        evictions = _enforce_cache_limit_locked(max_entries)
         cached = _ENVIRONMENT_CACHE.get(key)
         if cached is not None:
             _ENVIRONMENT_CACHE.move_to_end(key)
             _CACHE_COUNTERS.hits += 1
-            return cached
-
-        _CACHE_COUNTERS.misses += 1
-        entry = _build_environment(
-            normalized_source,
-            immutable=immutable,
-            extensions=extensions,
-            filters=filters,
-        )
-        if max_entries == 0:
-            return entry
-
-        _ENVIRONMENT_CACHE[key] = entry
-        _enforce_cache_limit_locked(max_entries)
-        return entry
+            entry = cached
+            events = {"hit": 1, "eviction": evictions}
+        else:
+            _CACHE_COUNTERS.misses += 1
+            entry = _build_environment(
+                normalized_source,
+                immutable=immutable,
+                extensions=extensions,
+                filters=filters,
+            )
+            if max_entries > 0:
+                _ENVIRONMENT_CACHE[key] = entry
+                evictions += _enforce_cache_limit_locked(max_entries)
+            events = {"miss": 1, "eviction": evictions}
+        entries = len(_ENVIRONMENT_CACHE)
+    record_cache_metrics("template_environment", events, entries)
+    return entry
 
 
 def _load_template(
@@ -223,7 +244,11 @@ async def render_template_html(
     immutable: bool = False,
     extensions: Sequence[ExtensionSpec] = (),
 ) -> str:
-    """使用共享 Jinja 环境异步渲染一个文件系统模板。"""
+    """使用共享 Jinja 环境异步渲染一个文件系统模板。
+
+    缓存按 filter callable 和 extension type 的对象身份区分配置；调用方应复用
+    callable，而不是在每次渲染时新建 lambda。
+    """
     filter_snapshot = _snapshot_filters(filters)
     extension_snapshot = tuple(extensions)
     variable_snapshot = dict(variables)
@@ -248,6 +273,7 @@ def clear_template_environment_cache() -> None:
         _CACHE_COUNTERS.hits = 0
         _CACHE_COUNTERS.misses = 0
         _CACHE_COUNTERS.evictions = 0
+    record_cache_metrics("template_environment", {}, 0)
 
 
 def invalidate_template_environment_cache(template_path: TemplateSource) -> int:
@@ -258,7 +284,9 @@ def invalidate_template_environment_cache(template_path: TemplateSource) -> int:
         keys = [key for key in _ENVIRONMENT_CACHE if key.source_identity == identity]
         for key in keys:
             del _ENVIRONMENT_CACHE[key]
-        return len(keys)
+        entries = len(_ENVIRONMENT_CACHE)
+    record_cache_metrics("template_environment", {}, entries)
+    return len(keys)
 
 
 def get_template_environment_cache_stats() -> TemplateEnvironmentCacheStats:

@@ -7,7 +7,7 @@ from hashlib import sha256
 import math
 from pathlib import Path
 import threading
-from typing import TYPE_CHECKING, TypeVar, cast
+from typing import TYPE_CHECKING, TypeGuard, TypeVar, cast
 
 import anyio
 from anyio.to_thread import run_sync
@@ -20,26 +20,22 @@ from nonebot_plugin_htmlrender.resources.weighted_cache import (
 
 from .errors import TakumiInputError, TakumiRuntimeError
 from .source import normalize_image_input
-from .validation import ensure_utf8, utf8_weight, validate_native_strings
+from .validation import (
+    ensure_native_identifier,
+    ensure_utf8,
+    utf8_weight,
+    validate_native_strings,
+)
 
 if TYPE_CHECKING:
-    from typing import Protocol
-
     from takumi_py import FontResourceInput
 
     from .config import GenericFontFamily, TakumiConfig, TakumiFontConfig
     from .types import NativeCompiledHtml, NativeRenderer, TakumiImageResource
 
-    class _FontResourceLike(Protocol):
-        data: bytes
-        name: str | None
-        weight: float | None
-        style: str | None
-        subset_of: str | None
-        generic_family: str | None
-
-
 T = TypeVar("T")
+_MISSING = object()
+_CLOSE_WAIT_TIMEOUT = 30.0
 
 _GENERIC_FONT_FAMILIES = frozenset(
     {
@@ -58,6 +54,10 @@ _GENERIC_FONT_FAMILIES = frozenset(
         "fangsong",
     }
 )
+
+
+def _is_generic_font_family(value: str) -> TypeGuard[GenericFontFamily]:
+    return value in _GENERIC_FONT_FAMILIES
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,7 +120,7 @@ def _validate_font_spec(spec: _FontSpec, *, field_name: str) -> _FontSpec:
         ("generic_family", spec.generic_family),
     ):
         if value is not None:
-            ensure_utf8(value, field=f"{field_name}.{attribute}")
+            ensure_native_identifier(value, field=f"{field_name}.{attribute}")
     if spec.weight is not None and (
         not math.isfinite(spec.weight) or not 1 <= spec.weight <= 1000
     ):
@@ -139,36 +139,55 @@ def _validate_font_spec(spec: _FontSpec, *, field_name: str) -> _FontSpec:
     return spec
 
 
+def _optional_identifier(value: object, *, field: str) -> str | None:
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{field} must be str or None, got {type(value).__name__}.")
+    return ensure_native_identifier(value, field=field)
+
+
+def _optional_generic_family(
+    value: object,
+    *,
+    field: str,
+) -> GenericFontFamily | None:
+    normalized = _optional_identifier(value, field=field)
+    if normalized is None:
+        return None
+    if not _is_generic_font_family(normalized):
+        raise TakumiInputError(field, f"unsupported generic font family {normalized!r}")
+    return normalized
+
+
 def _coerce_font_spec(font: object, *, field_name: str) -> _FontSpec:
     if isinstance(font, bytes):
         return _FontSpec(data=font)
-    try:
-        resource = cast("_FontResourceLike", font)
-        data = resource.data
-        name = resource.name
-        weight = resource.weight
-        style = resource.style
-        subset_of = resource.subset_of
-        generic_family = cast("GenericFontFamily | None", resource.generic_family)
-    except Exception as error:
+    values = tuple(
+        getattr(font, attribute, _MISSING)
+        for attribute in (
+            "data",
+            "name",
+            "weight",
+            "style",
+            "subset_of",
+            "generic_family",
+        )
+    )
+    if any(value is _MISSING for value in values):
         raise TypeError(
             f"{field_name} must be bytes or expose FontResource-compatible fields."
-        ) from error
+        )
+    data, raw_name, weight, raw_style, raw_subset_of, raw_generic_family = values
     if not isinstance(data, bytes):
         raise TypeError(f"{field_name}.data must be bytes, got {type(data).__name__}.")
-    for attribute, value in (
-        ("name", name),
-        ("style", style),
-        ("subset_of", subset_of),
-        ("generic_family", generic_family),
-    ):
-        if value is not None and not isinstance(value, str):
-            raise TypeError(
-                f"{field_name}.{attribute} must be str or None, "
-                f"got {type(value).__name__}."
-            )
-        if isinstance(value, str):
-            ensure_utf8(value, field=f"{field_name}.{attribute}")
+    name = _optional_identifier(raw_name, field=f"{field_name}.name")
+    style = _optional_identifier(raw_style, field=f"{field_name}.style")
+    subset_of = _optional_identifier(raw_subset_of, field=f"{field_name}.subset_of")
+    generic_family = _optional_generic_family(
+        raw_generic_family,
+        field=f"{field_name}.generic_family",
+    )
     if weight is not None:
         if isinstance(weight, bool) or not isinstance(weight, (int, float)):
             raise TypeError(
@@ -250,6 +269,7 @@ class TakumiRuntimeState:
         self._compiled = SyncWeightedSingleflightLRU(
             max_entries=self.config.compiled_cache_max_entries,
             max_weight=self.config.compiled_cache_max_bytes,
+            telemetry_name="takumi_compiled",
         )
         self._drained.set()
 
@@ -307,8 +327,13 @@ class TakumiRuntimeState:
     ) -> T:
         self._begin_call()
         try:
+            operation = getattr(func, "__name__", type(func).__name__)
             return await run_sync(
-                partial(func, *args, **kwargs),
+                partial(
+                    _invoke_native,
+                    operation,
+                    partial(func, *args, **kwargs),
+                ),
                 limiter=self.limiter,
             )
         finally:
@@ -493,7 +518,7 @@ class TakumiRuntimeState:
     ) -> tuple[str, ...]:
         spec = _coerce_font_spec(font, field_name="font")
         if source is not None:
-            ensure_utf8(source, field="font.source")
+            ensure_native_identifier(source, field="font.source")
             if not source:
                 raise TakumiInputError("font.source", "must not be empty")
         return await self.run(
@@ -514,7 +539,7 @@ class TakumiRuntimeState:
             spec = _coerce_font_spec(font, field_name=f"fonts[{index}]")
             source = sources[index] if sources is not None else None
             if source is not None:
-                ensure_utf8(source, field=f"fonts[{index}].source")
+                ensure_native_identifier(source, field=f"fonts[{index}].source")
                 if not source:
                     raise TakumiInputError(
                         f"fonts[{index}].source",
@@ -573,7 +598,7 @@ class TakumiRuntimeState:
 
         with anyio.CancelScope(shield=True):
             if not owner:
-                await run_sync(self._closed_event.wait)
+                await _wait_for_close(self._closed_event)
                 return
             await run_sync(self._drained.wait)
             try:
@@ -582,6 +607,38 @@ class TakumiRuntimeState:
                     self._lifecycle = "closed"
             finally:
                 self._closed_event.set()
+
+
+def _is_native_error(error: BaseException) -> bool:
+    import takumi_py  # noqa: PLC0415
+
+    native_error = getattr(takumi_py, "TakumiError", ())
+    return isinstance(error, native_error) or (
+        type(error).__module__ == "pyo3_runtime"
+        and type(error).__name__ == "PanicException"
+    )
+
+
+def _invoke_native(operation: str, func: Callable[[], T]) -> T:
+    try:
+        return func()
+    except BaseException as error:
+        if _is_native_error(error):
+            raise TakumiRuntimeError(
+                f"Takumi native operation {operation!r} failed: {error}"
+            ) from error
+        raise
+
+
+async def _wait_for_close(event: threading.Event) -> None:
+    try:
+        with anyio.fail_after(_CLOSE_WAIT_TIMEOUT):
+            while not event.is_set():  # noqa: ASYNC110 - avoids one worker per waiter
+                await anyio.sleep(0.01)
+    except TimeoutError as error:
+        raise TakumiRuntimeError(
+            "Timed out waiting for another caller to close the Takumi runtime."
+        ) from error
 
 
 async def _load_font_payloads(
@@ -638,6 +695,20 @@ def _prepare_call_kwargs(
             )
     for name, value in normalized.items():
         validate_native_strings(value, field=f"{method_name}.{name}")
+    lang = normalized.get("lang")
+    if isinstance(lang, str):
+        ensure_native_identifier(lang, field=f"{method_name}.lang")
+    font_families = normalized.get("font_families")
+    if isinstance(font_families, Sequence) and not isinstance(
+        font_families,
+        (str, bytes),
+    ):
+        for index, family in enumerate(font_families):
+            if isinstance(family, str):
+                ensure_native_identifier(
+                    family,
+                    field=f"{method_name}.font_families[{index}]",
+                )
     return normalized
 
 
@@ -731,12 +802,14 @@ async def create_runtime_state(config: TakumiConfig) -> TakumiRuntimeState:
                 registrations[source] = existing
             all_families.extend(existing.families)
         return (
-            cast("NativeRenderer", renderer),
+            renderer,
             tuple(dict.fromkeys(all_families)),
             registrations,
         )
 
     renderer, registered_families, registrations = await run_sync(
+        _invoke_native,
+        "create_runtime",
         _build,
         limiter=limiter,
     )

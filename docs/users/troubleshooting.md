@@ -156,7 +156,7 @@ img = await render_template(
 
 ## 资源解析与 Filehost
 
-### `Refused to expose local path via filehost without an allowed root.`
+### `Refused local access without an allowed root.`
 
 filehost 拒绝暴露任意本地路径。在严格模式下抛错；非严格模式记录 warning 后原值返回。
 解决：
@@ -177,7 +177,7 @@ filehost 拒绝暴露任意本地路径。在严格模式下抛错；非严格�
 
     详见 [安全须知](security.md)。
 
-### `Local path ... is outside allowed filehost roots: ...`
+### `Local path ... is outside allowed roots: ...`
 
 路径不在任何允许根下。要么把目录加入 `filehost_allowed_paths`，要么传 `template_base` 指到该目录的祖先。
 

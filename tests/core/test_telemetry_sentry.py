@@ -216,6 +216,40 @@ def test_record_filehost_cache_metrics_uses_count_and_gauge(
     assert [call.args[2] for call in call_metric.call_args_list[1:]] == [4, 2, 0]
 
 
+def test_record_cache_metrics_uses_bounded_cache_and_event_tags(
+    mocker: MockerFixture,
+) -> None:
+    metrics = types.SimpleNamespace(count=mocker.Mock(), gauge=mocker.Mock())
+    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
+    mocker.patch.object(
+        sentry,
+        "load_sentry",
+        return_value=types.SimpleNamespace(metrics=metrics),
+    )
+    call_metric = mocker.patch.object(sentry, "call_metric")
+
+    sentry.record_cache_metrics(
+        "resource",
+        {"miss": 2, "wait": 0},
+        4,
+        1024,
+    )
+
+    assert call_metric.call_count == 3
+    assert call_metric.call_args_list[0].kwargs["tags"] == {
+        "cache": "resource",
+        "event": "miss",
+    }
+    assert call_metric.call_args_list[1].args[1:3] == (
+        "nonebot.htmlrender.cache.entries",
+        4,
+    )
+    assert call_metric.call_args_list[2].args[1:3] == (
+        "nonebot.htmlrender.cache.resident_bytes",
+        1024,
+    )
+
+
 def test_start_trace_returns_none_for_unavailable_paths(mocker: MockerFixture) -> None:
     mocker.patch.object(sentry, "load_sentry", return_value=None)
     mocker.patch.object(sentry, "is_sentry_tracing_enabled", return_value=True)

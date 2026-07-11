@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import types
 from typing import TYPE_CHECKING
 
@@ -19,14 +20,20 @@ def _reset_prometheus_state() -> None:
     prometheus._state.filehost_active_mappings = None
     prometheus._state.filehost_active_leases = None
     prometheus._state.filehost_cleanup_capable = None
+    prometheus._state.cache_events = None
+    prometheus._state.cache_entries = None
+    prometheus._state.cache_resident_bytes = None
 
 
-def test_is_prometheus_enabled_defaults_to_true(mocker: MockerFixture) -> None:
+def test_is_prometheus_enabled_defaults_to_false(mocker: MockerFixture) -> None:
     mocker.patch.object(prometheus, "get_config_value", return_value=None)
-    assert prometheus.is_prometheus_enabled() is True
+    assert prometheus.is_prometheus_enabled() is False
 
     mocker.patch.object(prometheus, "get_config_value", return_value=False)
     assert prometheus.is_prometheus_enabled() is False
+
+    mocker.patch.object(prometheus, "get_config_value", return_value=True)
+    assert prometheus.is_prometheus_enabled() is True
 
 
 def test_load_prometheus_guard_paths(mocker: MockerFixture) -> None:
@@ -239,3 +246,65 @@ def test_record_filehost_cache_metrics_updates_counter_and_gauges(
     assert mappings.set.call_args_list == [mocker.call(3), mocker.call(3)]
     assert leases.set.call_args_list == [mocker.call(2), mocker.call(2)]
     assert cleanup.set.call_args_list == [mocker.call(0), mocker.call(0)]
+
+
+def test_record_cache_metrics_updates_labeled_counter_and_gauges(
+    mocker: MockerFixture,
+) -> None:
+    event_metric = mocker.Mock()
+    event_counter = mocker.Mock()
+    event_counter.labels.return_value = event_metric
+    entries_metric = mocker.Mock()
+    entries_gauge = mocker.Mock()
+    entries_gauge.labels.return_value = entries_metric
+    bytes_metric = mocker.Mock()
+    bytes_gauge = mocker.Mock()
+    bytes_gauge.labels.return_value = bytes_metric
+    mocker.patch.object(
+        prometheus,
+        "_load_cache_metrics",
+        return_value=(event_counter, entries_gauge, bytes_gauge),
+    )
+
+    prometheus.record_cache_metrics(
+        "takumi_compiled",
+        {"hit": 2, "eviction": 0},
+        3,
+        4096,
+    )
+
+    event_counter.labels.assert_called_once_with(
+        cache="takumi_compiled",
+        event="hit",
+    )
+    event_metric.inc.assert_called_once_with(2)
+    entries_gauge.labels.assert_called_once_with(cache="takumi_compiled")
+    entries_metric.set.assert_called_once_with(3)
+    bytes_gauge.labels.assert_called_once_with(cache="takumi_compiled")
+    bytes_metric.set.assert_called_once_with(4096)
+
+
+def test_cache_metric_collectors_initialize_once_under_concurrency(
+    mocker: MockerFixture,
+) -> None:
+    _reset_prometheus_state()
+    events = object()
+    entries = object()
+    resident_bytes = object()
+    counter_cls = mocker.Mock(return_value=events)
+    gauge_cls = mocker.Mock(side_effect=[entries, resident_bytes])
+    prometheus._state.checked = True
+    prometheus._state.plugin = types.SimpleNamespace(
+        Counter=counter_cls,
+        Gauge=gauge_cls,
+    )
+    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        loaded = list(
+            executor.map(lambda _: prometheus._load_cache_metrics(), range(8))
+        )
+
+    assert loaded == [(events, entries, resident_bytes)] * 8
+    assert counter_cls.call_count == 1
+    assert gauge_cls.call_count == 2

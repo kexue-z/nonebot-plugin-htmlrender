@@ -19,6 +19,7 @@ from nonebot_plugin_htmlrender.consts import (
 )
 
 from .config import get_resource_config
+from .path_guard import validate_local_access
 
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _EXPLICIT_RESOURCE_POLICIES = frozenset(
@@ -118,61 +119,56 @@ def _is_local_path_string(text: str, template_base: Path | None) -> bool:
     return ("/" in stripped or "\\" in stripped) and " " not in stripped
 
 
-def _resolve_local_path(
+def _local_path_candidate(
     value: str | Path,
     *,
     template_base: Path | None = None,
 ) -> Path:
-    """解析本地文件路径为绝对路径。"""
     if isinstance(value, Path):
         path = value.expanduser()
     else:
         path = Path(value.strip()).expanduser()
 
     if path.is_absolute():
-        return path.resolve()
+        return path
     if template_base is not None:
-        return (template_base / path).resolve()
-    return path.resolve()
+        return template_base / path
+    return path
 
 
-def _is_subpath(path: Path, root: Path) -> bool:
-    """判断路径是否为指定根路径的子路径。"""
-    try:
-        path.relative_to(root)
-    except ValueError:
-        return False
-    return True
+def _resolve_local_path(
+    value: str | Path,
+    *,
+    template_base: Path | None = None,
+) -> Path:
+    """解析本地文件路径为绝对路径。"""
+
+    return _local_path_candidate(value, template_base=template_base).resolve()
 
 
-def _validate_filehost_path_allowed(path: Path, *, template_base: Path | None) -> None:
+def _validate_filehost_path_allowed(
+    path: Path,
+    *,
+    template_base: Path | None,
+) -> Path:
     """验证路径是否在 filehost 允许范围内。"""
     cfg = get_resource_config()
-    if cfg.filehost_allow_any_path:
-        return
-
     allowed_roots: list[Path] = []
     if template_base is not None:
-        allowed_roots.append(template_base.resolve())
-    allowed_roots.extend(
-        root.expanduser().resolve() for root in cfg.filehost_allowed_paths
+        allowed_roots.append(template_base)
+    allowed_roots.extend(cfg.filehost_allowed_paths)
+    normalized_path = validate_local_access(
+        path,
+        allowed_roots=allowed_roots,
+        allow_any=cfg.filehost_allow_any_path,
+        on_deny=ResourceResolveError,
     )
-
-    if not allowed_roots:
-        raise ResourceResolveError(
-            "Refused to expose local path via filehost without an allowed root. "
-            "Provide `template_base`, configure `render_playwright.filehost_allowed_paths`, "
-            "or set `render_playwright.filehost_allow_any_path=true` explicitly."
+    if cfg.filehost_allow_any_path:
+        logger.warning(
+            f"Exposing unrestricted local path {normalized_path!s} because "
+            "filehost_allow_any_path is enabled"
         )
-
-    normalized_path = path.resolve()
-    if any(_is_subpath(normalized_path, root) for root in allowed_roots):
-        return
-
-    roots = ", ".join(str(root) for root in allowed_roots)
-    raise ResourceResolveError(
-        f"Local path {normalized_path!s} is outside allowed filehost roots: {roots}."
-    )
+    return normalized_path
 
 
 def _is_bytes_resource(value: object) -> TypeGuard[bytes | bytearray | BytesIO]:
@@ -284,10 +280,12 @@ async def _resolve_scalar_resource(
 
         if policy == RemoteLocalResourcePolicy.FILEHOST.value:
             if isinstance(value, str):
-                value = _resolve_local_path(value, template_base=template_base)
+                value = _local_path_candidate(value, template_base=template_base)
             if isinstance(value, Path):
-                value = value.resolve()
-                _validate_filehost_path_allowed(value, template_base=template_base)
+                value = _validate_filehost_path_allowed(
+                    value,
+                    template_base=template_base,
+                )
             if isinstance(value, bytearray):
                 value = bytes(value)
             if isinstance(value, BytesIO):

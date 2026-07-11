@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+from pathlib import Path
+from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
 
+from nonebot_plugin_htmlrender.preparation import materialize as materialize_module
 from nonebot_plugin_htmlrender.preparation import prepare_html, prepare_markdown
 from nonebot_plugin_htmlrender.preparation.materialize import (
     AssetMaterializationError,
@@ -11,8 +14,6 @@ from nonebot_plugin_htmlrender.preparation.materialize import (
 )
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from pytest_mock import MockerFixture
 
 
@@ -150,3 +151,46 @@ async def test_document_base_element_resolves_local_assets(tmp_path: Path) -> No
     materialized = await materialize_local_assets(prepared)
 
     assert [asset.source for asset in materialized.assets] == [image.as_uri()]
+
+
+@pytest.mark.anyio
+async def test_document_base_cannot_expand_local_read_root(tmp_path: Path) -> None:
+    allowed = tmp_path / "allowed"
+    allowed.mkdir()
+    document = allowed / "document.html"
+    secret = tmp_path / "secret.txt"
+    secret.write_text("secret", encoding="utf-8")
+    prepared = prepare_html(
+        f'<base href="{tmp_path.as_uri()}/"><img src="secret.txt">',
+        base_url=document.as_uri(),
+    )
+
+    with pytest.raises(AssetMaterializationError, match="outside allowed roots"):
+        await materialize_local_assets(prepared)
+
+
+def test_allow_any_path_still_denies_sensitive_roots(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    warning = mocker.patch.object(materialize_module.logger, "warning")
+    mocker.patch.object(
+        materialize_module,
+        "get_resource_config",
+        return_value=SimpleNamespace(
+            filehost_allow_any_path=True,
+            filehost_allowed_paths=(),
+        ),
+    )
+
+    with pytest.raises(AssetMaterializationError, match="sensitive local path"):
+        materialize_module._validate_local_path(
+            Path.home() / ".ssh" / "id_rsa",
+            base_url=None,
+        )
+
+    materialize_module._validate_local_path(tmp_path / "asset.png", base_url=None)
+    warning.assert_called_once_with(
+        f"Reading unrestricted local asset {tmp_path / 'asset.png'!s} because "
+        "filehost_allow_any_path is enabled"
+    )

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 import sys
+import threading
 from typing import TYPE_CHECKING, Mapping, cast
 
 from nonebot import require
@@ -22,6 +23,9 @@ _SENTRY_FILEHOST_ACTIVE_LEASES = "nonebot.htmlrender.filehost.active_leases"
 _SENTRY_FILEHOST_CLEANUP_CAPABLE = (
     "nonebot.htmlrender.filehost.physical_cleanup_capable"
 )
+_SENTRY_CACHE_EVENTS = "nonebot.htmlrender.cache.events"
+_SENTRY_CACHE_ENTRIES = "nonebot.htmlrender.cache.entries"
+_SENTRY_CACHE_RESIDENT_BYTES = "nonebot.htmlrender.cache.resident_bytes"
 
 
 class _SentryState:
@@ -33,6 +37,7 @@ class _SentryState:
 
 
 _state = _SentryState()
+_state_lock = threading.RLock()
 
 
 def is_sentry_enabled() -> bool:
@@ -73,7 +78,7 @@ def is_sentry_profiling_enabled() -> bool:
     )
 
 
-def ensure_sentry_plugin_loaded(*, reason: str) -> bool:
+def _ensure_sentry_plugin_loaded(*, reason: str) -> bool:
     """确保 ``nonebot_plugin_sentry`` 已被加载并可用。
 
     第一次调用时尝试加载，并将结果缓存供后续调用复用。
@@ -140,6 +145,13 @@ def ensure_sentry_plugin_loaded(*, reason: str) -> bool:
         reason=reason,
     )
     return True
+
+
+def ensure_sentry_plugin_loaded(*, reason: str) -> bool:
+    """Serialize optional-plugin discovery and bootstrap."""
+
+    with _state_lock:
+        return _ensure_sentry_plugin_loaded(reason=reason)
 
 
 def load_sentry() -> object | None:
@@ -385,6 +397,62 @@ def record_filehost_cache_metrics(
     except Exception as error:
         logger.opt(colors=True).warning(
             "<d>[htmlrender.telemetry]</d> Sentry filehost metric export failed: "
+            "<r>{error}</r>.",
+            error=error,
+        )
+
+
+def record_cache_metrics(
+    cache: str,
+    events: Mapping[str, int],
+    entries: int,
+    resident_bytes: int | None,
+) -> None:
+    """Record generic cache deltas without exporting cache keys or paths."""
+
+    try:
+        if not is_sentry_enabled():
+            return
+        sentry = load_sentry()
+        metrics = getattr(sentry, "metrics", None) if sentry is not None else None
+        if metrics is None:
+            return
+        count = (
+            getattr(metrics, "count", None)
+            or getattr(metrics, "increment", None)
+            or getattr(metrics, "incr", None)
+        )
+        gauge = getattr(metrics, "gauge", None)
+        if callable(count):
+            for event, value in events.items():
+                if value > 0:
+                    call_metric(
+                        count,
+                        _SENTRY_CACHE_EVENTS,
+                        value,
+                        unit=None,
+                        tags={"cache": cache, "event": event},
+                    )
+        if callable(gauge):
+            tags = {"cache": cache}
+            call_metric(
+                gauge,
+                _SENTRY_CACHE_ENTRIES,
+                entries,
+                unit=None,
+                tags=tags,
+            )
+            if resident_bytes is not None:
+                call_metric(
+                    gauge,
+                    _SENTRY_CACHE_RESIDENT_BYTES,
+                    resident_bytes,
+                    unit="byte",
+                    tags=tags,
+                )
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Sentry cache metric export failed: "
             "<r>{error}</r>.",
             error=error,
         )

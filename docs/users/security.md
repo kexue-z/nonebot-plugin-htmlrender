@@ -87,15 +87,22 @@ filehost 是显式兼容模式，会把本地内容以 HTTP URL 暴露给运行�
 
 ### 默认护栏
 
-1. **路径白名单**：未传 `template_base` 且 `filehost_allowed_paths` 为空时，任何本地路径都会被拒绝（`Refused to expose local path via filehost without an allowed root.`）。
-1. **目录隔离**：路径必须落在 `template_base` 或 `filehost_allowed_paths` 任一根目录下。否则报 `Local path ... is outside allowed filehost roots`。
+1. **路径白名单**：未传 `template_base` 且 `filehost_allowed_paths` 为空时，任何本地路径都会被拒绝（`Refused local access without an allowed root.`）。
+1. **目录隔离**：路径必须落在 `template_base` 或 `filehost_allowed_paths` 任一根目录下。否则报 `Local path ... is outside allowed roots`。
 1. **请求头守卫**：插件向 NoneBot 的 FastAPI 应用注入 `/filehost/*` 中间件，要求请求带 `X-HTMLRender-Filehost-Request: <token>`。token 默认基于设备指纹派生（`py-machineid` 或 MAC 地址）。
 1. **请求侧自动附带 token**：插件渲染请求时通过 Playwright `extra_http_headers` 自动带上 token，配合中间件形成闭环。
 
 ### 风险开关
 
-`render_playwright.filehost_allow_any_path=true` 会**完全跳过路径白名单**。
-等同于把 NoneBot 进程的 filesystem 任意只读路径开放给当前 filehost 入口。仅在以下情境使用：
+`render_playwright.filehost_allow_any_path=true` 会跳过路径白名单，但仍以非穷尽
+denylist 拒绝常见的系统与用户秘密位置（包括 POSIX 的 `/etc`、`/proc`、
+`/sys`、`/root`，Windows 注册表 hive，以及 `~/.ssh`、`~/.aws`、
+`~/.gnupg`、`~/.kube`、Docker 凭据与 `.env*`），并为每次非白名单本地访问
+写入警告日志。这只是纵深防御，不是信任边界或文件系统沙箱。
+
+路径检查会先解析符号链接，但检查与之后的读取或上传之间仍存在 TOCTOU 窗口。
+不要让不可信本地用户能够同时改写待访问的路径。
+除上述非穷尽 denylist 外，这等同于把 NoneBot 进程的 filesystem 任意只读路径开放给当前 filehost 入口。仅在以下情境使用：
 
 - 部署在严格隔离的容器中；
 - 该容器没有任何敏感数据；
@@ -187,7 +194,7 @@ await render_template_html(template=user_supplied_template_string)
 
 - [ ] 渲染入口已与不可信用户输入解耦（用模板变量而非字符串拼接）；
 - [ ] 自定义模板后缀时显式开 `autoescape=True`；
-- [ ] 不要使用 `filehost_allow_any_path=true`，除非环境严格隔离；
+- [ ] 不要使用 `filehost_allow_any_path=true`，除非环境严格隔离；内置敏感目录拒绝规则只是纵深防御，不是完整沙箱；
 - [ ] 远程默认使用 `memory`；只有明确需要稳定 HTTP URL 时才启用 filehost；
 - [ ] `filehost_allowed_paths` 显式列出可暴露目录，且不包含 `~`、`/etc`、`/var`、`/srv` 整目录；
 - [ ] 多机部署时配置了共享 `filehost_request_header_value`；

@@ -231,7 +231,7 @@ async def test_resolve_template_vars_filehost_rejects_path_outside_template_base
         ),
     )
 
-    with pytest.raises(ResourceResolveError, match="outside allowed filehost roots"):
+    with pytest.raises(ResourceResolveError, match="outside allowed roots"):
         await resolve_template_vars(
             {"secret": outside},
             template_base=template_dir,

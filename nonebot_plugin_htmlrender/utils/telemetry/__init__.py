@@ -9,10 +9,16 @@ from nonebot.log import logger
 
 from .common import get_trace_id, normalize_backend, set_span_attribute, set_span_status
 from .prometheus import (
+    record_cache_metrics as record_prometheus_cache_metrics,
+)
+from .prometheus import (
     record_filehost_cache_metrics as record_prometheus_filehost_cache_metrics,
 )
 from .prometheus import record_metrics as record_prometheus_metrics
 from .sentry import is_sentry_profiling_enabled, start_trace
+from .sentry import (
+    record_cache_metrics as record_sentry_cache_metrics,
+)
 from .sentry import (
     record_filehost_cache_metrics as record_sentry_filehost_cache_metrics,
 )
@@ -132,6 +138,19 @@ def record_filehost_cache_metrics(
         record_prometheus_filehost_cache_metrics,
         *args,
     )
+
+
+def record_cache_metrics(
+    cache: str,
+    events: Mapping[str, int],
+    entries: int,
+    resident_bytes: int | None = None,
+) -> None:
+    """Export low-cardinality cache event deltas and current capacity."""
+
+    args = (cache, events, entries, resident_bytes)
+    _record_metrics_safely("Sentry", record_sentry_cache_metrics, *args)
+    _record_metrics_safely("Prometheus", record_prometheus_cache_metrics, *args)
 
 
 @asynccontextmanager

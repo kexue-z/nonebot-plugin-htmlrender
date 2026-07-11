@@ -1,7 +1,9 @@
 """Bootstrap helpers executed at plugin import time."""
 
 from importlib import import_module
+from importlib.util import find_spec
 
+from nonebot import require
 from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.config import plugin_config
@@ -78,6 +80,61 @@ def _patch_filehost_request_headers_validator() -> None:
             "Failed to patch <c>nonebot_plugin_filehost</c> validator compatibility: <r>{e}</r>",
             e=e,
         )
+
+
+def _require_optional_plugin_on_import(
+    *,
+    plugin_name: str,
+    integration_enabled: bool,
+) -> None:
+    """Eagerly ``require`` an optional telemetry plugin during plugin import.
+
+    Import-time loading is required because these plugins register their own
+    ``@driver.on_startup`` hooks (e.g. Prometheus mounts the ``/metrics`` route
+    there); a lazy ``require`` at first render happens after the driver startup
+    phase has already been consumed, so the hook would never fire. Loading is
+    gated on this plugin's own configuration so an installed-but-unwanted
+    integration is never force-loaded.
+    """
+
+    if not integration_enabled:
+        return
+    if find_spec(plugin_name) is None:
+        logger.opt(colors=True).debug(
+            "Optional plugin <d>{plugin_name}</d> enabled but not installed, "
+            "skip import bootstrap.",
+            plugin_name=plugin_name,
+        )
+        return
+    try:
+        require(plugin_name)
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "Failed to bootstrap optional plugin <c>{plugin_name}</c> on import: "
+            "<r>{error}</r>.",
+            plugin_name=plugin_name,
+            error=error,
+        )
+        return
+    logger.opt(colors=True).debug(
+        "Optional plugin <c>{plugin_name}</c> bootstrapped on import.",
+        plugin_name=plugin_name,
+    )
+
+
+def _bootstrap_optional_plugins_on_import() -> None:
+    """Load enabled telemetry plugins before the driver startup phase runs."""
+
+    prometheus = import_module("nonebot_plugin_htmlrender.utils.telemetry.prometheus")
+    sentry = import_module("nonebot_plugin_htmlrender.utils.telemetry.sentry")
+    _require_optional_plugin_on_import(
+        plugin_name="nonebot_plugin_prometheus",
+        integration_enabled=prometheus.is_prometheus_enabled(),
+    )
+    _require_optional_plugin_on_import(
+        plugin_name="nonebot_plugin_sentry",
+        integration_enabled=sentry.is_sentry_enabled(),
+    )
 
 
 def _bootstrap_filehost_guard_on_import() -> None:

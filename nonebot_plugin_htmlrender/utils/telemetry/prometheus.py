@@ -2,7 +2,8 @@ from __future__ import annotations
 
 from importlib.util import find_spec
 import sys
-from typing import TYPE_CHECKING, cast
+import threading
+from typing import TYPE_CHECKING, Mapping, cast
 
 from nonebot import require
 from nonebot.log import logger
@@ -21,6 +22,9 @@ _PROM_FILEHOST_ACTIVE_LEASES_NAME = "nonebot_htmlrender_filehost_active_leases"
 _PROM_FILEHOST_CLEANUP_CAPABLE_NAME = (
     "nonebot_htmlrender_filehost_physical_cleanup_capable"
 )
+_PROM_CACHE_EVENTS_NAME = "nonebot_htmlrender_cache_events"
+_PROM_CACHE_ENTRIES_NAME = "nonebot_htmlrender_cache_entries"
+_PROM_CACHE_RESIDENT_BYTES_NAME = "nonebot_htmlrender_cache_resident_bytes"
 
 
 class _PrometheusState:
@@ -40,22 +44,25 @@ class _PrometheusState:
         self.filehost_active_mappings: Gauge | None = None
         self.filehost_active_leases: Gauge | None = None
         self.filehost_cleanup_capable: Gauge | None = None
+        self.cache_events: Counter | None = None
+        self.cache_entries: Gauge | None = None
+        self.cache_resident_bytes: Gauge | None = None
 
 
 _state = _PrometheusState()
+_state_lock = threading.RLock()
 
 
 def is_prometheus_enabled() -> bool:
     """判断 Prometheus 集成是否启用。
 
     Returns:
-        当配置中未显式设置为 ``False`` 时返回 ``True``。
+        仅当配置显式设置为 ``True`` 时返回 ``True``；默认关闭。
     """
-    enabled = get_config_value("prometheus_enable")
-    return enabled is not False
+    return get_config_value("prometheus_enable") is True
 
 
-def ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
+def _ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
     """确保 ``nonebot_plugin_prometheus`` 已被加载并可用。
 
     第一次调用时尝试通过 NoneBot 的 ``require`` 机制加载插件，并将结果缓存；
@@ -125,7 +132,14 @@ def ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
     return True
 
 
-def load_prometheus() -> tuple[Counter, Histogram] | None:
+def ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
+    """Serialize optional-plugin discovery and bootstrap."""
+
+    with _state_lock:
+        return _ensure_prometheus_plugin_loaded(reason=reason)
+
+
+def _load_prometheus() -> tuple[Counter, Histogram] | None:
     """加载并返回渲染相关的 Prometheus 计数器与直方图。
 
     Returns:
@@ -172,6 +186,13 @@ def load_prometheus() -> tuple[Counter, Histogram] | None:
     if _state.counter is None or _state.histogram is None:
         return None
     return _state.counter, _state.histogram
+
+
+def load_prometheus() -> tuple[Counter, Histogram] | None:
+    """Load render metrics once, including under concurrent first use."""
+
+    with _state_lock:
+        return _load_prometheus()
 
 
 def record_metrics(
@@ -233,7 +254,9 @@ def record_metrics(
         )
 
 
-def _load_filehost_metrics() -> tuple[Counter, Counter, Gauge, Gauge, Gauge] | None:
+def _load_filehost_metrics_unlocked() -> (
+    tuple[Counter, Counter, Gauge, Gauge, Gauge] | None
+):
     try:
         if not is_prometheus_enabled():
             return None
@@ -310,6 +333,11 @@ def _load_filehost_metrics() -> tuple[Counter, Counter, Gauge, Gauge, Gauge] | N
     return metrics
 
 
+def _load_filehost_metrics() -> tuple[Counter, Counter, Gauge, Gauge, Gauge] | None:
+    with _state_lock:
+        return _load_filehost_metrics_unlocked()
+
+
 def record_filehost_cache_metrics(
     event: str,
     value: int,
@@ -334,6 +362,100 @@ def record_filehost_cache_metrics(
     except Exception as error:
         logger.opt(colors=True).warning(
             "<d>[htmlrender.telemetry]</d> Prometheus filehost metric export "
+            "failed: <r>{error}</r>.",
+            error=error,
+        )
+
+
+def _load_cache_metrics_unlocked() -> tuple[Counter, Gauge, Gauge] | None:
+    try:
+        if not is_prometheus_enabled():
+            return None
+        cached = (
+            _state.cache_events,
+            _state.cache_entries,
+            _state.cache_resident_bytes,
+        )
+        if all(metric is not None for metric in cached):
+            return cast("tuple[Counter, Gauge, Gauge]", cached)
+        if not ensure_prometheus_plugin_loaded(reason="cache_metrics"):
+            return None
+        prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
+        if prometheus is None:
+            return None
+        counter_cls = getattr(prometheus, "Counter", None)
+        gauge_cls = getattr(prometheus, "Gauge", None)
+        if not callable(counter_cls) or not callable(gauge_cls):
+            return None
+        _state.cache_events = cast(
+            "Counter",
+            counter_cls(
+                _PROM_CACHE_EVENTS_NAME,
+                "Cache events by bounded cache and event type.",
+                ["cache", "event"],
+            ),
+        )
+        _state.cache_entries = cast(
+            "Gauge",
+            gauge_cls(
+                _PROM_CACHE_ENTRIES_NAME,
+                "Current resident entries by bounded cache.",
+                ["cache"],
+            ),
+        )
+        _state.cache_resident_bytes = cast(
+            "Gauge",
+            gauge_cls(
+                _PROM_CACHE_RESIDENT_BYTES_NAME,
+                "Current resident bytes by byte-weighted cache.",
+                ["cache"],
+            ),
+        )
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Prometheus cache metric "
+            "initialization failed: <r>{error}</r>.",
+            error=error,
+        )
+        return None
+
+    metrics = (
+        _state.cache_events,
+        _state.cache_entries,
+        _state.cache_resident_bytes,
+    )
+    if any(metric is None for metric in metrics):
+        return None
+    return metrics
+
+
+def _load_cache_metrics() -> tuple[Counter, Gauge, Gauge] | None:
+    with _state_lock:
+        return _load_cache_metrics_unlocked()
+
+
+def record_cache_metrics(
+    cache: str,
+    events: Mapping[str, int],
+    entries: int,
+    resident_bytes: int | None,
+) -> None:
+    """Record generic cache deltas and state with bounded labels."""
+
+    try:
+        metrics = _load_cache_metrics()
+        if metrics is None:
+            return
+        event_counter, entries_gauge, resident_bytes_gauge = metrics
+        for event, value in events.items():
+            if value > 0:
+                event_counter.labels(cache=cache, event=event).inc(value)
+        entries_gauge.labels(cache=cache).set(entries)
+        if resident_bytes is not None:
+            resident_bytes_gauge.labels(cache=cache).set(resident_bytes)
+    except Exception as error:
+        logger.opt(colors=True).warning(
+            "<d>[htmlrender.telemetry]</d> Prometheus cache metric export "
             "failed: <r>{error}</r>.",
             error=error,
         )

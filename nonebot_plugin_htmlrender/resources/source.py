@@ -11,7 +11,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 from importlib.resources import files
 from pathlib import Path, PurePosixPath
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import anyio
 from anyio.to_thread import run_sync
@@ -149,32 +149,39 @@ class PackageResourceCache:
         self._lock = anyio.Lock()
 
     async def read_bytes(self, resource: PackageResource) -> bytes:
+        try:
+            return await self._read_bytes(resource)
+        finally:
+            self._budget.export_metrics()
+
+    async def _read_bytes(self, resource: PackageResource) -> bytes:
         key = resource.cache_key
         owner = False
         async with self._lock:
-            cached = self._entries.get(key)
-            if cached is not None:
-                self._entries.move_to_end(key)
-                self._budget.touch(self, key)
-                self._budget.record_hit()
-                return cached.data
-            epoch = self._epoch
-            inflight_key = (epoch, key)
-            inflight = self._inflight.get(inflight_key)
-            if inflight is None:
-                inflight = _PackageInflight(event=anyio.Event(), epoch=epoch)
-                self._inflight[inflight_key] = inflight
-                self._budget.record_miss()
-                owner = True
-            else:
-                self._budget.record_wait()
+            with self._budget.locked():
+                cached = self._entries.get(key)
+                if cached is not None:
+                    self._entries.move_to_end(key)
+                    self._budget.touch(self, key)
+                    self._budget.record_hit()
+                    return cached.data
+                epoch = self._epoch
+                inflight_key = (epoch, key)
+                inflight = self._inflight.get(inflight_key)
+                if inflight is None:
+                    inflight = _PackageInflight(event=anyio.Event(), epoch=epoch)
+                    self._inflight[inflight_key] = inflight
+                    self._budget.record_miss()
+                    owner = True
+                else:
+                    self._budget.record_wait()
 
         if not owner:
             await inflight.event.wait()
             if inflight.error is not None:
                 raise inflight.error
             if inflight.data is None:
-                return await self.read_bytes(resource)
+                return await self._read_bytes(resource)
             return inflight.data
 
         try:
@@ -182,20 +189,20 @@ class PackageResourceCache:
             self._budget.record_load()
             with anyio.CancelScope(shield=True):
                 async with self._lock:
-                    if self._epoch == inflight.epoch:
-                        self._store(key, data)
-                    current = self._inflight.pop(inflight_key, None)
-                    if current is inflight:
-                        inflight.data = data
-                        inflight.event.set()
+                    with self._budget.locked():
+                        if self._epoch == inflight.epoch:
+                            self._store(key, data)
+                        current = self._inflight.pop(inflight_key, None)
+                        if current is inflight:
+                            inflight.data = data
+                            inflight.event.set()
             return data
         except BaseException as error:
             with anyio.CancelScope(shield=True):
                 async with self._lock:
                     current = self._inflight.pop(inflight_key, None)
                     if current is inflight:
-                        if isinstance(error, Exception):
-                            inflight.error = error
+                        inflight.error = error
                         inflight.event.set()
             raise
 
@@ -211,11 +218,8 @@ class PackageResourceCache:
         self._resident_bytes += size
         self._budget.store(self, key, size)
 
-    def _evict_budget_entry(self, key: object) -> None:
-        if not isinstance(key, tuple):
-            return
-        cache_key = cast("tuple[str, str, str]", key)
-        entry = self._entries.pop(cache_key, None)
+    def _evict_budget_entry(self, key: tuple[str, str, str]) -> None:
+        entry = self._entries.pop(key, None)
         if entry is not None:
             self._resident_bytes -= len(entry.data)
 
@@ -235,19 +239,24 @@ class PackageResourceCache:
         key = resource.cache_key
         text_key = (encoding, errors)
         async with self._lock:
-            cached = self._entries.get(key)
-            if cached is not None and cached.data is data:
-                text = cached.texts.get(text_key)
-                if text is None:
-                    text = data.decode(encoding, errors)
-                    cached.texts[text_key] = text
-                return text
+            with self._budget.locked():
+                cached = self._entries.get(key)
+                if cached is not None and cached.data is data:
+                    text = cached.texts.get(text_key)
+                    if text is None:
+                        text = data.decode(encoding, errors)
+                        cached.texts[text_key] = text
+                    return text
         return data.decode(encoding, errors)
 
     async def clear(self) -> None:
-        async with self._lock:
-            self._clear_budget_entries()
-            self._budget.clear_participant(self)
+        try:
+            async with self._lock:
+                with self._budget.locked():
+                    self._clear_budget_entries()
+                    self._budget.clear_participant(self)
+        finally:
+            self._budget.export_metrics()
 
 
 @dataclass(slots=True)

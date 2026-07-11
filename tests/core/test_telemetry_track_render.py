@@ -176,3 +176,22 @@ async def test_track_render_isolates_trace_enter_failure(
         result = b"image"
 
     assert result == b"image"
+
+
+def test_record_cache_metrics_isolates_each_exporter(
+    mocker: MockerFixture,
+) -> None:
+    sentry_recorder = mocker.patch.object(
+        telemetry,
+        "record_sentry_cache_metrics",
+        side_effect=RuntimeError("sentry failed"),
+    )
+    prometheus_recorder = mocker.patch.object(
+        telemetry,
+        "record_prometheus_cache_metrics",
+    )
+
+    telemetry.record_cache_metrics("resource", {"hit": 1}, 2, 64)
+
+    sentry_recorder.assert_called_once_with("resource", {"hit": 1}, 2, 64)
+    prometheus_recorder.assert_called_once_with("resource", {"hit": 1}, 2, 64)

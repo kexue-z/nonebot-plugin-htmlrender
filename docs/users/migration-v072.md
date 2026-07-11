@@ -118,6 +118,18 @@ uv add "nonebot-plugin-htmlrender[takumi]"
 
 需要 JS、网页导航、元素截图或完整浏览器布局时继续使用 Playwright。
 
+## 可选遥测插件改为按配置选择性引导
+
+v0.7.1 在导入阶段无条件 `require` 两个可选插件（只要装了就加载），且 Prometheus 默认启用。v0.7.2 改为**按 htmlrender 自身配置门控**的导入期引导，且**两个集成均默认关闭**：仅当集成显式启用且插件已安装时才 `require`。
+
+- **Prometheus**：`nonebot_plugin_prometheus` 通过 `@driver.on_startup` 挂载 `/metrics` 路由，必须在启动阶段被消费前注册。htmlrender 在导入阶段按 `prometheus_enable`（**默认关闭，需显式 `true`**）+ 安装状态引导，启用时端点如期挂载、指标可被抓取。
+- **Sentry**：`nonebot_plugin_sentry` 导入即 `sentry_sdk.init()`，htmlrender 在导入阶段按是否配置了 `sentry_dsn`（默认未配置即关闭）来引导。
+
+需要主动迁移的点：
+
+- **Prometheus 默认翻转为关闭**。v0.7.1 只要装了插件就默认启用并暴露 `/metrics`；v0.7.2 起必须显式设 `prometheus_enable=true` 才会引导端点与记录指标。依赖旧默认的部署需补上该配置。
+- 若你此前依赖「装了但通过配置关闭仍被加载」这一副作用，也需调整为显式启用。
+
 ## 升级验收清单
 
 - [ ] 远程 `render_text` 与普通/数学 Markdown 不出现 Bot 侧 `file://` 导航；
@@ -127,6 +139,7 @@ uv add "nonebot-plugin-htmlrender[takumi]"
 - [ ] 共享卷部署已显式选择 `passthrough`，filehost 部署已显式选择 `filehost`；
 - [ ] 依赖页面导航的代码已从 `base_url` 迁移到 `document_url`；
 - [ ] Takumi 内容不包含 JS、网络资源或条件 stylesheet；
-- [ ] 不再导入未发布的模板 Path 常量或 `PreparedHtml.markup`。
+- [ ] 不再导入未发布的模板 Path 常量或 `PreparedHtml.markup`；
+- [ ] 依赖 Prometheus 的部署已显式设 `prometheus_enable=true`（默认已关闭），`/metrics` 端点正常挂载。
 
 更多细节见 [远程 Playwright 与资源桥](remote-playwright.md)、[Takumi 配置与能力](config/takumi.md) 与 [资源准备和传输方案](../maintainers/architecture/filehost-resource-resolution.md)。

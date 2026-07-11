@@ -13,6 +13,7 @@ from anyio.to_thread import run_sync as run_sync_in_worker
 import pytest
 
 from nonebot_plugin_htmlrender.backend.takumi import (
+    TakumiBackendError,
     TakumiConfig,
     TakumiFontConfig,
     TakumiImageResource,
@@ -380,6 +381,103 @@ async def test_native_string_validation_reports_nested_field_before_call() -> No
 
     assert exc_info.value.field == "render_node.args[0]['text']"
     assert renderer.render_calls == []
+
+
+@pytest.mark.anyio
+async def test_native_string_validation_covers_sets_and_rejects_iterators() -> None:
+    renderer = _FakeRenderer()
+    state = _state(renderer)
+
+    with pytest.raises(TakumiInputError) as set_error:
+        await state.call_renderer("render_node", {"values": {"\ud800"}})
+    assert set_error.value.field.startswith("render_node.args[0]['values'][")
+
+    with pytest.raises(TakumiInputError, match="one-shot iterator"):
+        await state.call_renderer(
+            "render_node",
+            {"values": (value for value in ("safe",))},
+        )
+
+
+@pytest.mark.anyio
+async def test_native_errors_are_translated_to_backend_error(
+    fake_takumi_module: None,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    del fake_takumi_module
+
+    class NativeError(Exception):
+        pass
+
+    module = sys.modules["takumi_py"]
+    monkeypatch.setattr(module, "TakumiError", NativeError, raising=False)
+
+    class FailingRenderer(_FakeRenderer):
+        def where(self) -> int:
+            raise NativeError("native failure")
+
+    with pytest.raises(TakumiBackendError, match="native failure") as exc_info:
+        await _state(FailingRenderer()).call_renderer("where")
+    assert isinstance(exc_info.value.__cause__, NativeError)
+
+
+@pytest.mark.anyio
+async def test_panic_exception_is_translated_to_backend_error(
+    fake_takumi_module: None,
+) -> None:
+    del fake_takumi_module
+    panic_type = type(
+        "PanicException",
+        (BaseException,),
+        {"__module__": "pyo3_runtime"},
+    )
+
+    class PanickingRenderer(_FakeRenderer):
+        def where(self) -> int:
+            raise panic_type("panic")
+
+    with pytest.raises(TakumiBackendError, match="panic") as exc_info:
+        await _state(PanickingRenderer()).call_renderer("where")
+    assert isinstance(exc_info.value.__cause__, panic_type)
+
+
+@pytest.mark.anyio
+async def test_non_owner_close_wait_is_bounded(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    state = _state(_FakeRenderer())
+    with state._lifecycle_lock:
+        state._lifecycle = "closing"
+    monkeypatch.setattr(takumi_runtime, "_CLOSE_WAIT_TIMEOUT", 0.02)
+
+    with pytest.raises(TakumiRuntimeError, match="Timed out"):
+        await state.aclose()
+
+
+@pytest.mark.anyio
+async def test_identifier_fields_reject_nul_before_native_call() -> None:
+    renderer = _FakeRenderer()
+    state = _state(renderer)
+
+    with pytest.raises(TakumiInputError, match="NUL"):
+        await state.call_renderer(
+            "render_node",
+            {"type": "container"},
+            lang="en\0ignored",
+        )
+    with pytest.raises(TakumiInputError, match="NUL"):
+        await state.call_renderer("render_node", {"type\0ignored": "container"})
+    assert renderer.render_calls == []
+
+
+def test_font_duck_type_does_not_mask_property_errors() -> None:
+    class BrokenFont:
+        @property
+        def data(self) -> bytes:
+            raise KeyError("broken property")
+
+    with pytest.raises(KeyError, match="broken property"):
+        takumi_runtime._coerce_font_spec(BrokenFont(), field_name="font")
 
 
 @pytest.mark.anyio

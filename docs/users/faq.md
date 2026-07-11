@@ -144,7 +144,7 @@ dict 中的 `Path` / 路径字符串在启用资源解析时会被自动转换�
 **默认不会通过 HTTP 暴露**。内存资产 route 只绑定当前 Page，并仍受资源允许根约束。
 
 显式 filehost 模式只暴露调用方明确给定的资源（受 `filehost_allowed_paths` 与 `template_base` 双重约束），且 `/filehost/*` 端点带请求头守卫。
-但如果你显式打开 `filehost_allow_any_path=true`，就等于绕过路径白名单，需要自己评估风险。
+但如果你显式打开 `filehost_allow_any_path=true`，就等于绕过路径白名单，需要自己评估风险。内置逻辑仍会用非穷尽 denylist 拒绝常见系统与用户秘密位置并记录警告日志，但这不是信任边界或完整的文件系统沙箱，也不能消除本地路径的 TOCTOU 风险。
 完整说明参考 [安全须知](security.md)。
 
 ### 多个 Bot 共用同一远端浏览器可以吗？

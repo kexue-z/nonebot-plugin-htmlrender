@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from html import unescape
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urljoin, urlsplit
 
 if TYPE_CHECKING:
@@ -11,7 +11,12 @@ if TYPE_CHECKING:
 
     from .models import PreparedAsset
 
-_DEFAULT_BASE = object()
+
+class _DefaultBase:
+    __slots__ = ()
+
+
+_DEFAULT_BASE = _DefaultBase()
 
 
 def resolve_document_reference(base_url: str | None, reference: str) -> str:
@@ -61,14 +66,14 @@ class PreparedAssetIndex:
         self,
         reference: str,
         *,
-        base_url: str | None | object = _DEFAULT_BASE,
+        base_url: str | None | _DefaultBase = _DEFAULT_BASE,
     ) -> PreparedAsset | None:
         normalized = unescape(reference).strip().strip("'\"")
         exact = self._exact.get(normalized)
         if exact is not None:
             return exact
         resolved_base = (
-            self.base_url if base_url is _DEFAULT_BASE else cast("str | None", base_url)
+            self.base_url if isinstance(base_url, _DefaultBase) else base_url
         )
         canonical = resolve_document_reference(resolved_base, normalized)
         return self._canonical.get(canonical)

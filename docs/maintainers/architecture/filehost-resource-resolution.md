@@ -107,7 +107,7 @@ filehost 适用于确实需要 HTTP URL 或既有 `/filehost/*` 网关的部署�
 
 ### 请求守卫
 
-显式启用 filehost 时，bootstrap 才加载可选依赖并尝试给 `/filehost/*` 安装请求头守卫。路径必须位于模板根或 `filehost_allowed_paths`；`filehost_allow_any_path=true` 会绕过这条边界，不应在非隔离环境启用。
+显式启用 filehost 时，bootstrap 才加载可选依赖并尝试给 `/filehost/*` 安装请求头守卫。路径必须位于模板根或 `filehost_allowed_paths`；`filehost_allow_any_path=true` 会绕过这条白名单边界，但统一的 path guard 仍以跨平台、非穷尽 denylist 拒绝常见系统与用户秘密位置并记录警告日志。该纵深防御不是信任边界或沙箱，且不能消除检查到使用之间的 TOCTOU 窗口，不应在非隔离环境启用。
 
 守卫不可用时不会伪装为安全成功：启动日志会报告 ASGI/FastAPI 不满足。生产部署应改用内存桥，或在外部网关完成等价鉴权。
 

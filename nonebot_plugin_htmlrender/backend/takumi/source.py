@@ -26,9 +26,10 @@ from .errors import TakumiResourceError, TakumiUnsupportedError
 from .types import (
     ImageCacheMode,
     TakumiImageResource,
-    TakumiImageResourceLike,
 )
-from .validation import ensure_utf8
+from .validation import ensure_native_identifier, ensure_utf8
+
+_MISSING = object()
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -65,20 +66,18 @@ def normalize_image_input(image: object, *, field: str) -> TakumiImageResource:
         src, data = image
         cache = "auto"
     else:
-        try:
-            resource = cast("TakumiImageResourceLike", image)
-            src = resource.src
-            data = resource.data
-            cache = getattr(image, "cache", "auto")
-        except Exception as error:
+        src = getattr(image, "src", _MISSING)
+        data = getattr(image, "data", _MISSING)
+        if src is _MISSING or data is _MISSING:
             raise TypeError(
                 f"{field} must be TakumiImageResource, (src, bytes), an upstream "
                 "ImageResource, or expose `src` and `data` attributes."
-            ) from error
+            )
+        cache = getattr(image, "cache", "auto")
 
     if not isinstance(src, str):
         raise TypeError(f"{field}.src must be str, got {type(src).__name__}.")
-    ensure_utf8(src, field=f"{field}.src")
+    ensure_native_identifier(src, field=f"{field}.src")
     if not isinstance(data, bytes):
         raise TypeError(f"{field}.data must be bytes, got {type(data).__name__}.")
     if cache not in {"auto", "none"}:
@@ -125,7 +124,10 @@ def _merge_image_candidates(
                 "prepared.assets"
                 f"[{index}].source must be str, got {type(asset.source).__name__}."
             )
-        ensure_utf8(asset.source, field=f"prepared.assets[{index}].source")
+        ensure_native_identifier(
+            asset.source,
+            field=f"prepared.assets[{index}].source",
+        )
         if not isinstance(asset.data, bytes):
             raise TypeError(
                 "prepared.assets"
@@ -155,7 +157,7 @@ def _merge_image_candidates(
 
 def _normalize_reference(value: str, *, field: str) -> str:
     reference = unescape(value).strip().strip("'\"")
-    ensure_utf8(reference, field=field)
+    ensure_native_identifier(reference, field=field)
     return reference
 
 

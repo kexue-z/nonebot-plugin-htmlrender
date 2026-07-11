@@ -13,6 +13,7 @@ from nonebot_plugin_htmlrender.backend.takumi import (
 )
 from nonebot_plugin_htmlrender.backend.takumi.source import (
     materialize_takumi_document,
+    normalize_image_input,
     prepare_takumi_document,
 )
 from nonebot_plugin_htmlrender.preparation import (
@@ -44,6 +45,16 @@ def test_prepared_document_preserves_html_and_stylesheet_order() -> None:
         ".backend { display: flex }",
     )
     assert document.images == (TakumiImageResource("memory:avatar", b"image"),)
+
+
+def test_image_duck_type_does_not_mask_property_errors() -> None:
+    class BrokenImage:
+        @property
+        def src(self) -> str:
+            raise KeyError("broken property")
+
+    with pytest.raises(KeyError, match="broken property"):
+        normalize_image_input(BrokenImage(), field="image")
 
 
 @pytest.mark.parametrize(

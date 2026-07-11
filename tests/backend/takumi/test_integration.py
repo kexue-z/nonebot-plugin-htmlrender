@@ -9,7 +9,7 @@ import pytest
 
 takumi_py = pytest.importorskip("takumi_py")
 
-from nonebot_plugin_htmlrender.backend.takumi import TakumiConfig
+from nonebot_plugin_htmlrender.backend.takumi import TakumiConfig, TakumiRuntimeError
 from nonebot_plugin_htmlrender.backend.takumi.api import (
     TakumiExtension,
 )
@@ -49,6 +49,17 @@ def _node(color: str = "#ff0000") -> dict[str, object]:
 
 def test_exact_takumi_version_is_installed() -> None:
     assert version("takumi-py") == "0.2.0"
+
+
+@pytest.mark.anyio
+async def test_native_stylesheet_error_is_translated() -> None:
+    state = await create_runtime_state(TakumiConfig())
+    try:
+        with pytest.raises(TakumiRuntimeError, match="compile") as exc_info:
+            await state.compile_stylesheet("}", lossy=False)
+        assert isinstance(exc_info.value.__cause__, takumi_py.StyleSheetError)
+    finally:
+        await state.aclose()
 
 
 @pytest.mark.anyio

@@ -300,3 +300,30 @@ def test_clear_cache_resets_entries_and_statistics(
             evictions=0,
         )
     )
+
+
+def test_template_cache_exports_hit_miss_and_current_entries(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    export = mocker.patch.object(templating, "record_cache_metrics")
+    root = tmp_path / "templates"
+    _write_template(root, "unused")
+
+    templating._get_environment_entry(
+        root,
+        immutable=False,
+        extensions=(),
+        filters=(),
+    )
+    templating._get_environment_entry(
+        root,
+        immutable=False,
+        extensions=(),
+        filters=(),
+    )
+
+    assert export.call_args_list == [
+        mocker.call("template_environment", {"miss": 1, "eviction": 0}, 1),
+        mocker.call("template_environment", {"hit": 1, "eviction": 0}, 1),
+    ]

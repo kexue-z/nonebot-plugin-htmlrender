@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 import threading
 from typing import TYPE_CHECKING
 
@@ -12,8 +13,13 @@ from nonebot_plugin_htmlrender.resources import (
     PackageResourceSource,
     read_resource_text,
 )
+from nonebot_plugin_htmlrender.resources import budget as budget_module
 from nonebot_plugin_htmlrender.resources.budget import ResourceCacheBudget
-from nonebot_plugin_htmlrender.resources.cache import FileResourceCache
+from nonebot_plugin_htmlrender.resources.cache import (
+    FileResourceCache,
+    FileRevision,
+    FileSnapshot,
+)
 from nonebot_plugin_htmlrender.resources.source import (
     PackageResource,
     PackageResourceCache,
@@ -21,6 +27,37 @@ from nonebot_plugin_htmlrender.resources.source import (
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pytest_mock import MockerFixture
+
+
+def test_resource_budget_exports_atomic_event_deltas(
+    mocker: MockerFixture,
+) -> None:
+    export = mocker.patch.object(budget_module, "record_cache_metrics")
+    budget = ResourceCacheBudget(max_entries=4, max_bytes=32)
+    budget.record_hit()
+    budget.record_miss()
+    budget.record_load()
+    budget.record_wait()
+
+    budget.export_metrics()
+    budget.export_metrics()
+
+    assert export.call_args_list == [
+        mocker.call(
+            "resource",
+            {"hit": 1, "miss": 1, "load": 1, "wait": 1, "eviction": 0},
+            0,
+            0,
+        ),
+        mocker.call(
+            "resource",
+            {"hit": 0, "miss": 0, "load": 0, "wait": 0, "eviction": 0},
+            0,
+            0,
+        ),
+    ]
 
 
 def test_resource_sources_use_stable_identities_and_reject_traversal(
@@ -140,6 +177,57 @@ async def test_package_and_filesystem_sources_share_one_weighted_budget(
     assert await filesystem_cache.read_bytes(path) == b"file"
     assert (await filesystem_cache.stats()).evictions == 2
     assert package_reads == 1
+
+
+def test_shared_budget_serializes_cross_participant_eviction(tmp_path: Path) -> None:
+    budget = ResourceCacheBudget(max_entries=4, max_bytes=16)
+    filesystem_cache = FileResourceCache(
+        max_entries=4,
+        max_bytes=16,
+        revalidate_seconds=60,
+        budget=budget,
+    )
+    package_cache = PackageResourceCache(
+        max_entries=4,
+        max_bytes=16,
+        budget=budget,
+    )
+    revision = FileRevision(device=1, inode=1, size=4, mtime_ns=1, ctime_ns=1)
+
+    def store_files(index: int) -> None:
+        for offset in range(100):
+            path = tmp_path / f"file-{index}-{offset}.bin"
+            snapshot = FileSnapshot(path=path, revision=revision, data=b"file")
+            with budget.locked():
+                filesystem_cache._store(
+                    snapshot,
+                    checked_at=0,
+                    epoch=0,
+                    generation=0,
+                )
+
+    def store_packages(index: int) -> None:
+        for offset in range(100):
+            key = ("package", str(index), str(offset))
+            with budget.locked():
+                package_cache._store(key, b"pkg")
+
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        futures = [
+            executor.submit(store_files, 0),
+            executor.submit(store_packages, 0),
+            executor.submit(store_files, 1),
+            executor.submit(store_packages, 1),
+        ]
+        for future in futures:
+            future.result()
+
+    stats = budget.stats()
+    assert stats.entries <= 4
+    assert stats.resident_bytes >= 0
+    assert stats.resident_bytes == (
+        filesystem_cache._resident_bytes + package_cache._resident_bytes
+    )
 
 
 @pytest.mark.anyio

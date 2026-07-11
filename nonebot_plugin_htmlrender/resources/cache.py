@@ -90,6 +90,15 @@ class _InflightLoad:
     error: BaseException | None = None
 
 
+@dataclass(frozen=True, slots=True)
+class _LoadSlot:
+    owner: bool
+    cached: _CacheEntry | None
+    inflight: _InflightLoad
+    inflight_key: tuple[int, Path, int]
+    ready: FileSnapshot | None = None
+
+
 def _normalize_path(path: str | Path) -> Path:
     return Path(path).expanduser().resolve()
 
@@ -150,146 +159,188 @@ class FileResourceCache:
         policy: FileCachePolicy = FileCachePolicy.REVALIDATE,
         refresh: bool = False,
     ) -> FileSnapshot:
+        try:
+            return await self._snapshot(path, policy=policy, refresh=refresh)
+        finally:
+            self._budget.export_metrics()
+
+    async def _snapshot(
+        self,
+        path: str | Path,
+        *,
+        policy: FileCachePolicy,
+        refresh: bool,
+    ) -> FileSnapshot:
         resolved = await run_sync(_normalize_path, path)
-        first_attempt = True
+        force_refresh = refresh
 
         while True:
-            owner = False
-            cached: _CacheEntry | None = None
-            inflight: _InflightLoad | None = None
-            inflight_key: tuple[int, Path, int] | None = None
             now = time.monotonic()
             async with self._lock:
-                if refresh and first_attempt:
-                    refresh_key = self._refresh_inflight.get(resolved)
-                    if refresh_key is not None:
-                        current_epoch = self._epoch
-                        current_generation = self._generations.get(resolved, 0)
-                        if refresh_key != (
-                            current_epoch,
-                            resolved,
-                            current_generation,
-                        ):
-                            self._refresh_inflight.pop(resolved, None)
-                            existing_refresh = None
-                        else:
-                            existing_refresh = self._inflight.get(refresh_key)
-                        if existing_refresh is not None:
-                            inflight = existing_refresh
-                            self._budget.record_wait()
-                            owner = False
-                            first_attempt = False
-                            existing = inflight
-                            cached = None
-                            inflight_key = refresh_key
-                        else:
-                            self._refresh_inflight.pop(resolved, None)
-                            existing = None
-                    else:
-                        existing = None
+                with self._budget.locked():
+                    slot = self._acquire_load_slot(
+                        resolved,
+                        policy=policy,
+                        force_refresh=force_refresh,
+                        now=now,
+                    )
+            force_refresh = False
+            if slot.ready is not None:
+                return slot.ready
 
-                    if existing is None:
-                        generation = self._generations.get(resolved, 0) + 1
-                        self._generations[resolved] = generation
-                        epoch = self._epoch
-                        inflight_key = (epoch, resolved, generation)
-                        inflight = _InflightLoad(
-                            event=anyio.Event(),
-                            epoch=epoch,
-                            generation=generation,
-                            refresh=True,
-                        )
-                        self._inflight[inflight_key] = inflight
-                        self._refresh_inflight[resolved] = inflight_key
-                        self._budget.record_miss()
-                        owner = True
-                        cached = None
-                        entry = self._entries.pop(resolved, None)
-                        if entry is not None:
-                            self._resident_bytes -= len(entry.snapshot.data)
-                            self._budget.remove(self, resolved)
-                    first_attempt = False
-                else:
-                    epoch = self._epoch
-                    generation = self._generations.get(resolved, 0)
-                    inflight_key = (epoch, resolved, generation)
-                    cached = self._entries.get(resolved)
-                    if cached is not None and (
-                        cached.epoch != epoch or cached.generation != generation
-                    ):
-                        cached = None
-
-                    if cached is not None and (
-                        policy is FileCachePolicy.IMMUTABLE
-                        or now - cached.checked_at < self.revalidate_seconds
-                    ):
-                        self._entries.move_to_end(resolved)
-                        self._budget.touch(self, resolved)
-                        self._budget.record_hit()
-                        return cached.snapshot
-
-                    existing = self._inflight.get(inflight_key)
-                    if existing is None:
-                        inflight = _InflightLoad(
-                            event=anyio.Event(),
-                            epoch=epoch,
-                            generation=generation,
-                        )
-                        self._inflight[inflight_key] = inflight
-                        self._budget.record_miss()
-                        owner = True
-                    else:
-                        inflight = existing
-                        self._budget.record_wait()
-
-            if inflight is None or inflight_key is None:
-                raise RuntimeError("Resource cache load state was not initialized")
-
-            if not owner:
-                await inflight.event.wait()
-                if inflight.error is not None:
-                    raise inflight.error
-                if inflight.snapshot is not None:
-                    return inflight.snapshot
+            if not slot.owner:
+                await slot.inflight.event.wait()
+                if slot.inflight.error is not None:
+                    raise slot.inflight.error
+                if slot.inflight.snapshot is not None:
+                    return slot.inflight.snapshot
                 continue
 
             try:
                 snapshot, loaded = await self._load(
                     resolved,
-                    cached=cached,
-                    refresh=inflight.refresh,
+                    cached=slot.cached,
+                    refresh=slot.inflight.refresh,
                 )
                 async with self._lock:
-                    if loaded:
-                        self._budget.record_load()
-                    if (
-                        self._epoch == inflight.epoch
-                        and self._generations.get(resolved, 0) == inflight.generation
-                    ):
-                        self._store(
-                            snapshot,
-                            checked_at=time.monotonic(),
-                            epoch=inflight.epoch,
-                            generation=inflight.generation,
-                        )
-                    current = self._inflight.pop(inflight_key, None)
-                    if current is inflight:
-                        if self._refresh_inflight.get(resolved) == inflight_key:
-                            self._refresh_inflight.pop(resolved, None)
-                        inflight.snapshot = snapshot
-                        inflight.event.set()
+                    with self._budget.locked():
+                        if loaded:
+                            self._budget.record_load()
+                        if (
+                            self._epoch == slot.inflight.epoch
+                            and self._generations.get(resolved, 0)
+                            == slot.inflight.generation
+                        ):
+                            self._store(
+                                snapshot,
+                                checked_at=time.monotonic(),
+                                epoch=slot.inflight.epoch,
+                                generation=slot.inflight.generation,
+                            )
+                        self._finish_load_slot(slot, snapshot=snapshot)
                 return snapshot
             except BaseException as error:
                 with anyio.CancelScope(shield=True):
                     async with self._lock:
-                        current = self._inflight.pop(inflight_key, None)
-                        if current is inflight:
-                            if self._refresh_inflight.get(resolved) == inflight_key:
-                                self._refresh_inflight.pop(resolved, None)
-                            if isinstance(error, Exception):
-                                inflight.error = error
-                            inflight.event.set()
+                        with self._budget.locked():
+                            self._finish_load_slot(slot, error=error)
                 raise
+
+    def _acquire_load_slot(
+        self,
+        path: Path,
+        *,
+        policy: FileCachePolicy,
+        force_refresh: bool,
+        now: float,
+    ) -> _LoadSlot:
+        epoch = self._epoch
+        generation = self._generations.get(path, 0)
+
+        if force_refresh:
+            refresh_key = self._refresh_inflight.get(path)
+            expected_key = (epoch, path, generation)
+            if refresh_key is not None and refresh_key == expected_key:
+                existing = self._inflight.get(refresh_key)
+                if existing is not None:
+                    self._budget.record_wait()
+                    return _LoadSlot(
+                        owner=False,
+                        cached=None,
+                        inflight=existing,
+                        inflight_key=refresh_key,
+                    )
+            if refresh_key is not None:
+                self._refresh_inflight.pop(path, None)
+
+            generation += 1
+            self._generations[path] = generation
+            inflight_key = (epoch, path, generation)
+            inflight = _InflightLoad(
+                event=anyio.Event(),
+                epoch=epoch,
+                generation=generation,
+                refresh=True,
+            )
+            self._inflight[inflight_key] = inflight
+            self._refresh_inflight[path] = inflight_key
+            self._budget.record_miss()
+            entry = self._entries.pop(path, None)
+            if entry is not None:
+                self._resident_bytes -= len(entry.snapshot.data)
+                self._budget.remove(self, path)
+            return _LoadSlot(
+                owner=True,
+                cached=None,
+                inflight=inflight,
+                inflight_key=inflight_key,
+            )
+
+        inflight_key = (epoch, path, generation)
+        cached = self._entries.get(path)
+        if cached is not None and (
+            cached.epoch != epoch or cached.generation != generation
+        ):
+            cached = None
+        if cached is not None and (
+            policy is FileCachePolicy.IMMUTABLE
+            or now - cached.checked_at < self.revalidate_seconds
+        ):
+            self._entries.move_to_end(path)
+            self._budget.touch(self, path)
+            self._budget.record_hit()
+            placeholder = _InflightLoad(
+                event=anyio.Event(),
+                epoch=epoch,
+                generation=generation,
+            )
+            return _LoadSlot(
+                owner=False,
+                cached=cached,
+                inflight=placeholder,
+                inflight_key=inflight_key,
+                ready=cached.snapshot,
+            )
+
+        existing = self._inflight.get(inflight_key)
+        if existing is not None:
+            self._budget.record_wait()
+            return _LoadSlot(
+                owner=False,
+                cached=cached,
+                inflight=existing,
+                inflight_key=inflight_key,
+            )
+        inflight = _InflightLoad(
+            event=anyio.Event(),
+            epoch=epoch,
+            generation=generation,
+        )
+        self._inflight[inflight_key] = inflight
+        self._budget.record_miss()
+        return _LoadSlot(
+            owner=True,
+            cached=cached,
+            inflight=inflight,
+            inflight_key=inflight_key,
+        )
+
+    def _finish_load_slot(
+        self,
+        slot: _LoadSlot,
+        *,
+        snapshot: FileSnapshot | None = None,
+        error: BaseException | None = None,
+    ) -> None:
+        current = self._inflight.pop(slot.inflight_key, None)
+        if current is not slot.inflight:
+            return
+        path = slot.inflight_key[1]
+        if self._refresh_inflight.get(path) == slot.inflight_key:
+            self._refresh_inflight.pop(path, None)
+        slot.inflight.snapshot = snapshot
+        slot.inflight.error = error
+        slot.inflight.event.set()
 
     async def _load(
         self,
@@ -331,9 +382,7 @@ class FileResourceCache:
         self._resident_bytes += size
         self._budget.store(self, snapshot.path, size)
 
-    def _evict_budget_entry(self, key: object) -> None:
-        if not isinstance(key, Path):
-            return
+    def _evict_budget_entry(self, key: Path) -> None:
         entry = self._entries.pop(key, None)
         if entry is not None:
             self._resident_bytes -= len(entry.snapshot.data)
@@ -366,28 +415,36 @@ class FileResourceCache:
         snapshot = await self.snapshot(path, policy=policy, refresh=refresh)
         text_key = (encoding, errors)
         async with self._lock:
-            cached = self._entries.get(snapshot.path)
-            if cached is not None and cached.snapshot.revision == snapshot.revision:
-                text = cached.texts.get(text_key)
-                if text is None:
-                    text = snapshot.data.decode(encoding, errors)
-                    cached.texts[text_key] = text
-                return text
+            with self._budget.locked():
+                cached = self._entries.get(snapshot.path)
+                if cached is not None and cached.snapshot.revision == snapshot.revision:
+                    text = cached.texts.get(text_key)
+                    if text is None:
+                        text = snapshot.data.decode(encoding, errors)
+                        cached.texts[text_key] = text
+                    return text
         return snapshot.data.decode(encoding, errors)
 
     async def invalidate(self, path: str | Path) -> None:
-        resolved = await run_sync(_normalize_path, path)
-        async with self._lock:
-            self._generations[resolved] = self._generations.get(resolved, 0) + 1
-            self._refresh_inflight.pop(resolved, None)
-            entry = self._entries.pop(resolved, None)
-            if entry is not None:
-                self._resident_bytes -= len(entry.snapshot.data)
-                self._budget.remove(self, resolved)
+        try:
+            resolved = await run_sync(_normalize_path, path)
+            async with self._lock:
+                with self._budget.locked():
+                    self._generations[resolved] = self._generations.get(resolved, 0) + 1
+                    self._refresh_inflight.pop(resolved, None)
+                    entry = self._entries.pop(resolved, None)
+                    if entry is not None:
+                        self._resident_bytes -= len(entry.snapshot.data)
+                        self._budget.remove(self, resolved)
+        finally:
+            self._budget.export_metrics()
 
     async def clear(self) -> None:
-        async with self._lock:
-            self._budget.clear_all()
+        try:
+            async with self._lock:
+                self._budget.clear_all()
+        finally:
+            self._budget.export_metrics()
 
     async def stats(self) -> ResourceCacheStats:
         async with self._lock:

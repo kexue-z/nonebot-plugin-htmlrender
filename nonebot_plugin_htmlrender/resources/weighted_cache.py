@@ -7,6 +7,8 @@ from dataclasses import dataclass
 import threading
 from typing import TYPE_CHECKING, Generic, TypeVar, cast
 
+from nonebot_plugin_htmlrender.utils.telemetry import record_cache_metrics
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -42,7 +44,13 @@ class _Inflight(Generic[V]):
 class SyncWeightedSingleflightLRU(Generic[K, V]):
     """Bounded LRU that compiles different keys concurrently."""
 
-    def __init__(self, *, max_entries: int, max_weight: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_entries: int,
+        max_weight: int,
+        telemetry_name: str | None = None,
+    ) -> None:
         if max_entries < 0 or max_weight < 0:
             raise ValueError("Weighted cache limits must not be negative")
         self.max_entries = max_entries
@@ -56,8 +64,20 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
         self._loads = 0
         self._waits = 0
         self._evictions = 0
+        self._telemetry_name = telemetry_name
+        self._reported_hits = 0
+        self._reported_misses = 0
+        self._reported_loads = 0
+        self._reported_waits = 0
+        self._reported_evictions = 0
 
     def get_or_insert(self, key: K, *, weight: int, factory: Callable[[], V]) -> V:
+        try:
+            return self._get_or_insert(key, weight=weight, factory=factory)
+        finally:
+            self._export_metrics()
+
+    def _get_or_insert(self, key: K, *, weight: int, factory: Callable[[], V]) -> V:
         if weight < 0:
             raise ValueError("Cache entry weight must not be negative")
         owner = False
@@ -81,7 +101,7 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
             if inflight.error is not None:
                 raise inflight.error
             if not inflight.completed:
-                return self.get_or_insert(key, weight=weight, factory=factory)
+                return self._get_or_insert(key, weight=weight, factory=factory)
             return cast("V", inflight.value)
 
         try:
@@ -125,6 +145,32 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
         with self._lock:
             self._entries.clear()
             self._resident_weight = 0
+        self._export_metrics()
+
+    def _export_metrics(self) -> None:
+        if self._telemetry_name is None:
+            return
+        with self._lock:
+            events = {
+                "hit": self._hits - self._reported_hits,
+                "miss": self._misses - self._reported_misses,
+                "load": self._loads - self._reported_loads,
+                "wait": self._waits - self._reported_waits,
+                "eviction": self._evictions - self._reported_evictions,
+            }
+            self._reported_hits = self._hits
+            self._reported_misses = self._misses
+            self._reported_loads = self._loads
+            self._reported_waits = self._waits
+            self._reported_evictions = self._evictions
+            entries = len(self._entries)
+            resident_weight = self._resident_weight
+        record_cache_metrics(
+            self._telemetry_name,
+            events,
+            entries,
+            resident_weight,
+        )
 
     def stats(self) -> WeightedCacheStats:
         with self._lock:

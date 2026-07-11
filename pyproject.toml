@@ -15,7 +15,7 @@ dependencies = [
     "nonebot2>=2.5.0",
     "playwright>=1.60.0",
     "pygments>=2.10.0",
-    "pymdown-extensions>=10.21.2",
+    "pymdown-extensions>=11.0",
     "python-markdown-math>=0.8",
     "tenacity>=9.1.2",
     "typing-extensions>=4.15.0",
@@ -24,9 +24,7 @@ dependencies = [
 filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
-takumi = [
-    "takumi-py==0.2.0",
-]
+takumi = ["takumi-py==0.2.0"]
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
@@ -41,10 +39,8 @@ dev = [
     "ty>=0.0.34",
 ]
 docs = [
-    "zensical>=0.0.41",
+    "zensical>=0.0.45",
     "mike @ git+https://github.com/squidfunk/mike.git",
-    "mdformat>=1.0.0",
-    "mdformat-mkdocs>=4.4.2",
     "mkdocstrings-python>=2.0.1",
 ]
 remote-smoke = [

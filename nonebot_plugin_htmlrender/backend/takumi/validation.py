@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Set as AbstractSet
 from dataclasses import fields, is_dataclass
 
 from .errors import TakumiInputError
@@ -19,6 +20,15 @@ def ensure_utf8(value: str, *, field: str) -> str:
             "must contain valid UTF-8 text "
             f"(unencodable code point at index {error.start})",
         ) from error
+    return value
+
+
+def ensure_native_identifier(value: str, *, field: str) -> str:
+    """Validate text used as a native identifier or resource key."""
+
+    ensure_utf8(value, field=field)
+    if "\0" in value:
+        raise TakumiInputError(field, "must not contain NUL characters")
     return value
 
 
@@ -47,7 +57,7 @@ def _validate_native_strings(
         seen.add(identity)
         for index, (key, item) in enumerate(value.items()):
             if isinstance(key, str):
-                ensure_utf8(key, field=f"{field}.keys[{index}]")
+                ensure_native_identifier(key, field=f"{field}.keys[{index}]")
                 item_field = f"{field}[{key!r}]"
             else:
                 item_field = f"{field}.values[{index}]"
@@ -62,6 +72,21 @@ def _validate_native_strings(
         for index, item in enumerate(value):
             _validate_native_strings(item, field=f"{field}[{index}]", seen=seen)
         return
+
+    if isinstance(value, AbstractSet):
+        identity = id(value)
+        if identity in seen:
+            return
+        seen.add(identity)
+        for index, item in enumerate(value):
+            _validate_native_strings(item, field=f"{field}[{index}]", seen=seen)
+        return
+
+    if isinstance(value, Iterator):
+        raise TakumiInputError(
+            field,
+            "must not be a one-shot iterator; materialize it before native use",
+        )
 
     if is_dataclass(value) and not isinstance(value, type):
         identity = id(value)
@@ -84,4 +109,9 @@ def utf8_weight(*values: str) -> int:
     )
 
 
-__all__ = ["ensure_utf8", "utf8_weight", "validate_native_strings"]
+__all__ = [
+    "ensure_native_identifier",
+    "ensure_utf8",
+    "utf8_weight",
+    "validate_native_strings",
+]

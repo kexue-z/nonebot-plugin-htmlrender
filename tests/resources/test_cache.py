@@ -305,7 +305,7 @@ async def test_revalidation_inflight_cannot_publish_after_invalidate(
 
 
 @pytest.mark.anyio
-async def test_singleflight_owner_cancellation_wakes_waiter(
+async def test_singleflight_owner_cancellation_propagates_to_waiter(
     tmp_path: Path,
     mocker: MockerFixture,
 ) -> None:
@@ -316,7 +316,8 @@ async def test_singleflight_owner_cancellation_wakes_waiter(
     owner_started = anyio.Event()
     owner_scope: anyio.CancelScope | None = None
     calls = 0
-    waiter_results: list[bytes] = []
+    waiter_cancelled = False
+    cancelled_error = anyio.get_cancelled_exc_class()
 
     async def controlled_load(*args, **kwargs):
         nonlocal calls
@@ -335,7 +336,11 @@ async def test_singleflight_owner_cancellation_wakes_waiter(
             await cache.read_bytes(path)
 
     async def waiter() -> None:
-        waiter_results.append(await cache.read_bytes(path))
+        nonlocal waiter_cancelled
+        try:
+            await cache.read_bytes(path)
+        except cancelled_error:
+            waiter_cancelled = True
 
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(owner)
@@ -347,8 +352,8 @@ async def test_singleflight_owner_cancellation_wakes_waiter(
             raise RuntimeError("Owner cancellation scope was not initialized")
         owner_scope.cancel()
 
-    assert waiter_results == [b"payload"]
-    assert calls == 2
+    assert waiter_cancelled
+    assert calls == 1
 
 
 @pytest.mark.anyio

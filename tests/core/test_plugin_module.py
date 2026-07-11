@@ -21,9 +21,76 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def test_plugin_import_keeps_telemetry_provider_loading_lazy() -> None:
-    assert not hasattr(plugin, "_bootstrap_optional_plugins_on_import")
-    assert not hasattr(_bootstrap, "_bootstrap_optional_plugins_on_import")
+def test_plugin_exposes_optional_plugin_bootstrap() -> None:
+    assert hasattr(plugin, "_bootstrap_optional_plugins_on_import")
+    assert hasattr(_bootstrap, "_bootstrap_optional_plugins_on_import")
+
+
+def test_require_optional_plugin_skips_when_integration_disabled(
+    mocker: MockerFixture,
+) -> None:
+    require = mocker.patch.object(_bootstrap, "require")
+    find_spec = mocker.patch.object(_bootstrap, "find_spec")
+
+    _bootstrap._require_optional_plugin_on_import(
+        plugin_name="nonebot_plugin_prometheus",
+        integration_enabled=False,
+    )
+
+    find_spec.assert_not_called()
+    require.assert_not_called()
+
+
+def test_require_optional_plugin_skips_when_not_installed(
+    mocker: MockerFixture,
+) -> None:
+    require = mocker.patch.object(_bootstrap, "require")
+    mocker.patch.object(_bootstrap, "find_spec", return_value=None)
+
+    _bootstrap._require_optional_plugin_on_import(
+        plugin_name="nonebot_plugin_prometheus",
+        integration_enabled=True,
+    )
+
+    require.assert_not_called()
+
+
+def test_require_optional_plugin_loads_when_enabled_and_installed(
+    mocker: MockerFixture,
+) -> None:
+    require = mocker.patch.object(_bootstrap, "require")
+    mocker.patch.object(_bootstrap, "find_spec", return_value=SimpleNamespace())
+
+    _bootstrap._require_optional_plugin_on_import(
+        plugin_name="nonebot_plugin_prometheus",
+        integration_enabled=True,
+    )
+
+    require.assert_called_once_with("nonebot_plugin_prometheus")
+
+
+def test_bootstrap_optional_plugins_gates_each_on_its_config(
+    mocker: MockerFixture,
+) -> None:
+    fake_prometheus = SimpleNamespace(
+        is_prometheus_enabled=mocker.Mock(return_value=True)
+    )
+    fake_sentry = SimpleNamespace(is_sentry_enabled=mocker.Mock(return_value=False))
+
+    def _fake_import(name: str) -> object:
+        return fake_prometheus if name.endswith("prometheus") else fake_sentry
+
+    mocker.patch.object(_bootstrap, "import_module", side_effect=_fake_import)
+    require_one = mocker.patch.object(_bootstrap, "_require_optional_plugin_on_import")
+
+    _bootstrap._bootstrap_optional_plugins_on_import()
+
+    require_one.assert_any_call(
+        plugin_name="nonebot_plugin_prometheus", integration_enabled=True
+    )
+    require_one.assert_any_call(
+        plugin_name="nonebot_plugin_sentry", integration_enabled=False
+    )
 
 
 def test_patch_filehost_request_headers_validator_for_pydantic_v2_compat(

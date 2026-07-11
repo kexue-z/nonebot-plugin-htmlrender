@@ -12,9 +12,13 @@ from nonebot_plugin_htmlrender._bootstrap import (
     _bootstrap_filehost_guard_on_import as _bootstrap_filehost_guard_on_import,
 )
 from nonebot_plugin_htmlrender._bootstrap import (
+    _bootstrap_optional_plugins_on_import as _bootstrap_optional_plugins_on_import,
+)
+from nonebot_plugin_htmlrender._bootstrap import (
     _patch_filehost_request_headers_validator as _patch_filehost_request_headers_validator,
 )
 
+_bootstrap_optional_plugins_on_import()
 _bootstrap_filehost_guard_on_import()
 
 from nonebot_plugin_htmlrender._compat import (
