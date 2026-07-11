@@ -241,12 +241,17 @@ async def _filehost_url_from_path(path: Path, *, lease_id: str | None = None) ->
 
     try:
         url = await _filehost_upload(resolved)
-    except Exception as e:
-        async with _FILEHOST_RESOURCE_LOCK:
-            current = _FILEHOST_RESOURCE_INFLIGHT.pop(key, None)
-            if current is inflight:
-                inflight.error = e
-                inflight.event.set()
+    except BaseException as e:
+        with anyio.CancelScope(shield=True):
+            async with _FILEHOST_RESOURCE_LOCK:
+                current = _FILEHOST_RESOURCE_INFLIGHT.pop(key, None)
+                if current is inflight:
+                    inflight.error = (
+                        e
+                        if isinstance(e, Exception)
+                        else RuntimeError("Filehost resource upload was cancelled.")
+                    )
+                    inflight.event.set()
         raise
 
     async with _FILEHOST_RESOURCE_LOCK:

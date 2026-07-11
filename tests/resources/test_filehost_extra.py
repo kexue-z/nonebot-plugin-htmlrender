@@ -340,6 +340,68 @@ async def test_filehost_url_from_path_cache_and_inflight_branches(
 
 
 @pytest.mark.anyio
+async def test_filehost_owner_cancellation_releases_waiters(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    asset = tmp_path / "cancelled.css"
+    asset.write_text("x", encoding="utf-8")
+    started = anyio.Event()
+    never_finish = anyio.Event()
+    waiter_waiting = anyio.Event()
+    owner_scope: anyio.CancelScope | None = None
+    waiter_error: BaseException | None = None
+
+    real_event_factory = anyio.Event
+
+    class _InstrumentedEvent:
+        def __init__(self) -> None:
+            self._event = real_event_factory()
+
+        async def wait(self) -> None:
+            waiter_waiting.set()
+            await self._event.wait()
+
+        def set(self) -> None:
+            self._event.set()
+
+    mocker.patch.object(_cache_mod.anyio, "Event", _InstrumentedEvent)
+
+    async def blocked_upload(value: object) -> str:
+        del value
+        started.set()
+        await never_finish.wait()
+        return "http://unreachable"
+
+    mocker.patch.object(_cache_mod, "_filehost_upload", side_effect=blocked_upload)
+
+    async def owner() -> None:
+        nonlocal owner_scope
+        with anyio.CancelScope() as scope:
+            owner_scope = scope
+            await filehost_runtime._filehost_url_from_path(asset)
+
+    async def waiter() -> None:
+        nonlocal waiter_error
+        try:
+            await filehost_runtime._filehost_url_from_path(asset)
+        except BaseException as error:
+            waiter_error = error
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(owner)
+        await started.wait()
+        task_group.start_soon(waiter)
+        await waiter_waiting.wait()
+        assert owner_scope is not None
+        owner_scope.cancel()
+
+    assert isinstance(waiter_error, RuntimeError)
+    assert "cancelled" in str(waiter_error)
+    assert not filehost_runtime._FILEHOST_RESOURCE_INFLIGHT
+
+
+@pytest.mark.anyio
 async def test_prewarm_directories_and_runtime_ready_exception_paths(
     mocker: MockerFixture,
     tmp_path: Path,
