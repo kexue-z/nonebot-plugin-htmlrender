@@ -90,7 +90,7 @@ class _SimpleBackend:
         prepared: PreparedHtml,
         options: RasterOptions,
     ) -> bytes:
-        return f"{options.width}:{prepared.markup}".encode()
+        return f"{options.width}:{prepared.html}".encode()
 
     async def render_text(
         self,

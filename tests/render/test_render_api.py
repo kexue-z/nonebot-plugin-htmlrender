@@ -211,20 +211,20 @@ async def test_render_markdown_injects_math_assets(mocker: MockerFixture) -> Non
         render_markdown,
     )
 
-    render_html_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.render_html",
+    render_prepared_mock = mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.render_prepared_html",
         new=mocker.AsyncMock(return_value=b"rendered"),
     )
 
     result = await render_markdown("$$114514$$", session=object())  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
 
     assert result == b"rendered"
-    assert render_html_mock.await_args is not None
-    render_request = render_html_mock.await_args.args[0]
-    assert "math/tex; mode=display" in render_request.content.html
-    assert ".katex" in render_request.content.html
-    assert "document.body.getElementsByTagName" in render_request.content.html
-    assert "inline-equation" in render_request.content.html
+    assert render_prepared_mock.await_args is not None
+    prepared = render_prepared_mock.await_args.args[0]
+    assert "math/tex; mode=display" in prepared.html
+    assert ".katex" in prepared.html
+    assert "document.body.getElementsByTagName" in prepared.html
+    assert "inline-equation" in prepared.html
 
 
 @pytest.mark.anyio
