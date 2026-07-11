@@ -15,7 +15,7 @@ tags:
 开始前只需要先明确两件事：
 
 - 这是一个库型插件，你会在自己的代码里调用它
-- 新版需要显式指定渲染后端，默认推荐 `playwright`
+- 新版需要显式指定渲染后端：浏览器语义选 `playwright`，确定性静态排版可选 `takumi`
 
 ## 安装
 
@@ -31,15 +31,21 @@ tags:
     uv add "nonebot-plugin-htmlrender[filehost]"
     ```
 
+=== "使用 Takumi 后端"
+
+    ```bash
+    uv add "nonebot-plugin-htmlrender[takumi]"
+    ```
+
 === "包含全部可选能力"
 
     ```bash
-    uv add "nonebot-plugin-htmlrender[filehost,sentry,prometheus]"
+    uv add "nonebot-plugin-htmlrender[filehost,takumi,sentry,prometheus]"
     ```
 
 ## 最小配置
 
-对大多数本地接入场景，最小配置只需要指定后端：
+最小配置只需要指定后端：
 
 === "Dotenv"
 
@@ -55,7 +61,14 @@ tags:
     nonebot.init(render_backend="playwright")
     ```
 
+=== "Takumi"
+
+    ```dotenv
+    RENDER_BACKEND=takumi
+    ```
+
 完整配置说明见 [基础配置与加载](config/core.md)。
+选择 Takumi 前请先阅读其 [能力边界、字体与资源配置](config/takumi.md)。
 
 ## 加载插件
 
@@ -126,6 +139,7 @@ image = await render_template(
 
 - 想看公共接口：去 [API 与兼容层](api.md)
 - 想整理配置：去 [配置总览](config/index.md)
+- 想用无浏览器的原生渲染：去 [Takumi 配置与能力](config/takumi.md)
 - 想接远程浏览器或 filehost：去 [远程 Playwright 与 Filehost](remote-playwright.md)
 - 想从旧项目迁移：去 [旧版本迁移指南](migration.md)
 

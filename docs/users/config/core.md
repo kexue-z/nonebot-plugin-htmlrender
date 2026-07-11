@@ -12,7 +12,7 @@ tags:
 
 ## 先记住两个结论
 
-- 当前仓库的正式主路径 backend 是 `playwright`。
+- 当前仓库正式支持 `playwright` 与 `takumi` 两套 backend。
 - `render_backend` 默认不是 `playwright`，而是 `null`；不配置就不会自动选择后端。
 
 ## 为什么存在 `render_backend`
@@ -29,8 +29,7 @@ tags:
 - 让启动阶段、健康检查和错误信息都围绕同一个已选 backend 展开
 - 为后续扩展或实验性 backend 保留协议边界，同时不污染调用方 API
 
-对当前仓库而言，正式支持的值仍应视为 `playwright`。  
-也就是说，今天你配置 `RENDER_BACKEND=playwright`，本质上是在告诉插件：“请把统一渲染 API 绑定到 Playwright 这套运行时上，并按它的生命周期与配置模型工作。”
+`playwright` 提供完整浏览器、JavaScript、网络与元素截图语义；`takumi` 提供进程内 Rust 原生静态排版、SVG、测量和动画能力。两者复用同一套文本、Markdown、Jinja preparation 与资源缓存，但执行能力并不伪装成完全相同。
 
 ## 插件级配置
 
@@ -38,7 +37,7 @@ tags:
 
 | 配置项 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
-| `render_backend` | `Optional[RenderBackend]` | `null` | 未配置时插件不会自动选择渲染后端。建议生产环境显式设置为 `playwright`。 |
+| `render_backend` | `Optional[RenderBackend]` | `null` | 未配置时插件不会自动选择渲染后端。生产环境应显式设置为 `playwright` 或 `takumi`。 |
 | `render_startup_mode` | `RenderStartupMode` | `off` | 启动策略：`off` 仅加载插件；`warmup` 启动时拉起运行时；`probe` 在 warmup 后再执行一次最小可用性探测。 |
 | `render_storage_path` | `Path` | `nonebot_plugin_localstore.get_plugin_data_dir()` | 插件数据目录（运行时解析为实际绝对路径）。 |
 | `render_cache_path` | `Path` | `nonebot_plugin_localstore.get_plugin_cache_dir()` | 插件缓存目录。 |
@@ -47,20 +46,20 @@ tags:
 !!! info "关于 `render_backend` 的一个常见误区"
     `render_backend` 并不是默认 `playwright`，而是默认 `null`。  
     如果你希望插件在启动时自动完成渲染运行时初始化，还需要显式设置 `RENDER_STARTUP_MODE=warmup` 或 `probe`。
-    枚举值定义为：`playwright` / `skia` / `pillow` / `htmlkit`。其中当前仓库正式支持的实现是 `playwright`；其他值仅表示公开枚举与扩展接口，不应视为已落地后端。
+    枚举值定义为：`playwright` / `takumi` / `skia` / `pillow` / `htmlkit`。其中当前仓库正式支持 `playwright` 与 `takumi`；其余值仅表示公开枚举与扩展接口，不应视为已落地后端。
 
 ## 推荐阅读顺序
 
 1. 先在本页确定 `render_backend` 与 `render_startup_mode`
-2. 再看 [Playwright 配置](playwright.md) 处理浏览器、远程连接、资源解析
+2. 再按后端阅读 [Playwright 配置](playwright.md) 或 [Takumi 配置与能力](takumi.md)
 3. 最后按需看 [依赖扩展与观测](integrations.md)
 
 ## 配置方式
 
 本仓库文档默认主推两种写法：
 
-- `.env` 中使用 `RENDER_PLAYWRIGHT={...}` 的 JSON 风格
-- `nonebot.init(render_playwright={...})` 的 Python dict 风格
+- `.env` 中使用 `RENDER_PLAYWRIGHT={...}` / `RENDER_TAKUMI={...}` 的 JSON 风格
+- `nonebot.init(render_playwright={...})` / `nonebot.init(render_takumi={...})` 的 Python dict 风格
 
 双下划线展开环境变量写法（例如 `RENDER_PLAYWRIGHT__CONNECT_CDP__ENDPOINT=...`）仍可使用，但本仓库不把它作为主文档风格，仅在示例或部署系统必须逐项展开时提及。
 

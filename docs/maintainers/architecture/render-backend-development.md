@@ -20,7 +20,7 @@ tags:
 如果你还没看协议本身，先读 [自定义 Backend 指南](custom-backends.md)。
 
 !!! warning "当前状态"
-    当前仓库正式支持的 backend 仍然只有 `playwright`。`skia`、`pillow`、`htmlkit` 等枚举值代表公开扩展点，不代表已经存在可用实现。
+    当前仓库正式支持 `playwright` 与 `takumi`。`skia`、`pillow`、`htmlkit` 等枚举值代表公开扩展点，不代表已经存在可用实现。
 
 ## 先下结论
 
@@ -53,12 +53,13 @@ flowchart LR
 
 === "HTML engine backend"
 
-    典型是浏览器或 WebView 语义后端，能处理 HTML、Markdown、template、元素截图。
+    包括浏览器/WebView 与 Takumi 一类 native HTML/CSS executor。它们都可以执行 prepared HTML，但 context、JavaScript、网络和元素截图不是必然存在。
 
     适合声明：
 
     - `RENDER_CONTEXT`
     - `HTML_RENDER`
+    - `HTML_RASTERIZE`
     - `TEXT_RENDER`
     - `MARKDOWN_RENDER`
     - `TEMPLATE_RENDER`
@@ -77,6 +78,7 @@ flowchart LR
 
 - 如果没有页面上下文，就不要声明 `RENDER_CONTEXT`
 - 如果不能稳定支持 HTML/CSS 语义，就不要声明 `HTML_RENDER`
+- 如果可以执行 backend-neutral `PreparedHtml`，声明 `HTML_RASTERIZE`
 - 如果只做位图输出，应优先考虑 `RASTER_RENDER`
 
 不要为了让上层 API “看起来都能用”而虚报能力。`Render` 会按 capability 暴露入口，声明错了，错误就会延后到运行期。
@@ -148,9 +150,6 @@ class RenderBackend(StrEnum):
 最小骨架如下：
 
 ```python
-from contextlib import asynccontextmanager
-from collections.abc import AsyncIterator
-
 from nonebot_plugin_htmlrender.backend.base import (
     BackendCapability,
     RenderRuntime,
@@ -203,15 +202,6 @@ class MyBackend:
     def is_alive(self, session: RenderSession) -> bool:
         return session.handle is not None
 
-    @asynccontextmanager
-    async def get_render_context(
-        self,
-        session: RenderSession,
-        **kwargs: object,
-    ) -> AsyncIterator[object]:
-        del session, kwargs
-        yield object()
-
 def is_my_backend_available() -> BackendAvailability:
     return BackendAvailability(available=True)
 
@@ -231,7 +221,7 @@ register_backend(
 ??? note "为什么 runtime 和 session 要拆开"
     `RenderRuntime` 表达 backend 级资源，例如驱动进程、全局连接或共享上下文。`RenderSession` 表达可复用的渲染会话，例如浏览器实例、渲染 worker 或图形上下文。拆开之后，`Render` 层才能在 session 失效时重建会话，同时保留仍然可用的 runtime。
 
-### 3. 决定是否实现 HTML family
+### 3. 按 capability 实现细粒度操作
 
 如果 backend 要支持：
 
@@ -242,8 +232,19 @@ register_backend(
 - `render_template_html`
 - `capture_html_element`
 
-那么它还必须满足 `SupportsHtmlRenderBackend` 这组方法契约。  
-这通常意味着你不仅要能“出图”，还要定义：
+那么它应分别满足对应的 operation Protocol，而不是实现一个包含所有动作的“大 HTML backend”接口：
+
+| 用户 API | backend Protocol |
+| --- | --- |
+| `render_html` | `SupportsHtmlRenderBackend` |
+| `rasterize_html` | `SupportsHtmlRasterizer` |
+| `render_text` | `SupportsTextRenderBackend` |
+| `render_markdown` | `SupportsMarkdownRenderBackend` |
+| `render_template` | `SupportsTemplateRenderBackend` |
+| `render_template_html` | `SupportsTemplateHtmlRenderBackend` |
+| `capture_html_element` | `SupportsHtmlElementCaptureBackend` |
+
+`RENDER_CONTEXT` 另由 `SupportsRenderContextBackend` 承载；measure、SVG、animation 等后端特有能力应通过 `BackendExtension` token 暴露。实现前需要定义：
 
 - 单次渲染上下文是什么
 - 如何处理页面生命周期
@@ -252,14 +253,7 @@ register_backend(
 
 如果这些语义并不成立，就不要勉强套 `HTML_RENDER` 路线。
 
-| 用户 API | backend 需要提供的语义 |
-| --- | --- |
-| `render_html` | 解析 HTML/CSS 并输出截图 |
-| `render_text` | 把文本排版为可截图内容 |
-| `render_markdown` | Markdown -> HTML -> image 的完整链路 |
-| `render_template` | 模板变量、资源解析、页面渲染和截图 |
-| `render_template_html` | 只输出模板渲染后的 HTML |
-| `capture_html_element` | 打开页面并定位指定元素截图 |
+声明 `HTML_RASTERIZE` 时还必须完整消费 `PreparedHtml` 中的 `markup/html`、`stylesheets` 与 `assets`，或对无法支持的字段明确报错；不能静默丢弃 prepared content。
 
 ### 4. 提供 availability checker
 
@@ -289,9 +283,9 @@ register_backend(
 仅仅写完 `register_backend(...)` 还不够。  
 你必须确保对应模块会被导入，否则注册逻辑不会执行。
 
-当前仓库的正式实现通过包导入触发注册。接入 backend 时至少要检查：
+当前工厂通过 `_backend_loaders` 延迟导入正式 backend，backend 模块自身的注册函数仍需保持幂等。接入 backend 时至少要检查：
 
-- backend 模块是否会在插件导入链路中被 import
+- backend loader 是否映射到正确模块与注册函数
 - `registered_render_backends()` 是否能看到它
 - `list_render_backend_statuses()` 是否能报告它的状态
 
@@ -306,7 +300,8 @@ register_backend(
 | --- | --- | --- |
 | `__init__.py` | 启动时只为 `playwright` 预热 filehost | 目标 backend 是否也需要 startup bootstrap |
 | `_bootstrap.py` | 仅在 `playwright` 显式选择 filehost 策略时做导入期 filehost bootstrap | 目标 backend 是否需要额外 bootstrap |
-| `resources/` | 资源解析主要服务 HTML/template 渲染 | 目标 backend 是否需要复用资源解析 |
+| `preparation/` 与共用 cache | 生成 `PreparedHtml`、缓存模板/文件 | executor 是否完整消费 prepared content |
+| `resources/` | Playwright filehost 与通用资源工具并存 | 目标 backend 需要 filehost 还是内存资源 |
 | `_compat.py` / `browser.py` | 历史接口偏向 Playwright 语义 | 旧接口是否应支持目标 backend |
 
 ### 插件启动阶段的 `playwright` 特判
@@ -336,12 +331,11 @@ register_backend(
 - `nonebot_plugin_htmlrender/resources/`
 - `nonebot_plugin_htmlrender/backend/playwright/operations.py`
 
-现在的资源解析与 filehost 协作主要围绕 template / page render 展开。  
-如果目标 backend 不是页面语义后端，这一层可能完全不需要；如果是 HTML engine，则需要判断：
+文本、Markdown 与 Jinja 模板先经过共用 preparation；filehost 则是 Playwright 远程资源传输策略。目标 backend 需要分别判断：
 
-- 是否复用现有 `resources/` 解析规则
+- 是否复用 `PreparedHtml`、文件 cache 与 Jinja environment cache
 - 是否仍然使用 filehost 作为远程本地资源桥接
-- 是否要提供新的 resource config provider
+- 是否以内存 bytes、data URL 或自有 transport 消费 `PreparedAsset`
 
 不要把资源解析硬塞进 backend 基类。它目前仍然是具体实现选择。
 

@@ -18,6 +18,7 @@ tags:
 filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
+takumi = ["takumi-py==0.2.0"]
 ```
 
 ## 安装方式
@@ -28,12 +29,13 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
     uv add "nonebot-plugin-htmlrender[filehost]"
     uv add "nonebot-plugin-htmlrender[sentry]"
     uv add "nonebot-plugin-htmlrender[prometheus]"
+    uv add "nonebot-plugin-htmlrender[takumi]"
     ```
 
 === "一次安装多个"
 
     ```bash
-    uv add "nonebot-plugin-htmlrender[filehost,sentry,prometheus]"
+    uv add "nonebot-plugin-htmlrender[filehost,takumi,sentry,prometheus]"
     ```
 
 ## 组件说明
@@ -113,8 +115,8 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 
 说明：
 
-- `op` 对应 `track_render(op=...)` 中的操作名，例如 `render.get_render`、`render.startup`、`playwright.html_render.render_template`
-- `backend` 当前主路径通常为 `playwright`
+- `op` 对应 `track_render(op=...)` 中的操作名，例如 `render.get_render`、`render.startup`、`playwright.html_render.render_template`、`takumi.render_html`
+- `backend` 为稳定的低基数标签，正式后端取值为 `playwright` 或 `takumi`
 - `status` 由遥测层写为 `ok` 或 `error`
 
 ### Sentry
@@ -125,10 +127,11 @@ prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 | Duration metric | `nonebot.htmlrender.duration` | `op`, `backend`, `status` |
 
 Sentry trace/span 的操作名同样来自 `track_render(op=...)` 的 `op`。
+Takumi 的公共操作使用 `takumi.render_*` / `takumi.rasterize_html`，特有能力使用 `takumi.extension.*`；span 与 metric 不附带 HTML、Markdown、模板路径、URL 或资源内容。
 
 ### Page telemetry
 
-页面请求数、失败数、导航时序、资源类型分布目前主要以日志快照形式输出，不是 Prometheus / Sentry 中单独注册的一组稳定指标名。
+页面请求数、失败数、导航时序、资源类型分布仅适用于 Playwright，目前主要以日志快照形式输出，不是 Prometheus / Sentry 中单独注册的一组稳定指标名。Takumi 没有网络页面，因此不产生这组页面日志。
 
 ## 用这些字段怎么做聚合
 

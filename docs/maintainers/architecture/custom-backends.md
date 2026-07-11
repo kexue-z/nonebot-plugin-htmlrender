@@ -20,8 +20,9 @@ backend 分离的目标不是为了把 Playwright 搬目录，而是把“渲染
 ## 先记住的边界
 
 - `Render` 是上层门面，负责默认实例、会话复用、生命周期管理
-- `Backend` 是驱动实现，负责 runtime、session、context 的真实创建与关闭
-- backend 可以注册，但当前仓库正式主路径只有 Playwright
+- `Backend` 是驱动实现，负责 runtime 与 session 的真实创建和关闭
+- context、公共渲染动作与后端特有服务都通过独立的可选 Protocol 暴露
+- 当前仓库正式支持 Playwright 与 Takumi；两者共享生命周期和 preparation 契约，但能力集合不同
 
 ## `Backend` Protocol 的职责
 
@@ -31,9 +32,22 @@ backend 分离的目标不是为了把 Playwright 搬目录，而是把“渲染
 - `create_runtime()`：创建进程级或连接级资源
 - `create_session(runtime, **kwargs)`：基于 runtime 创建可复用会话
 - `is_alive(session)`：判断会话是否还能复用
-- `get_render_context(session, **kwargs)`：为单次渲染创建上下文
 
-如果 backend 还要支持 HTML / Markdown / template 渲染，就需要满足 `SupportsHtmlRenderBackend`。
+其余能力按动作拆分：
+
+| Protocol | 对应能力 |
+| --- | --- |
+| `SupportsRenderContextBackend` | 创建调用方可控制的单次渲染上下文 |
+| `SupportsHtmlRenderBackend` | 接受兼容的 HTML render request |
+| `SupportsHtmlRasterizer` | 执行 `PreparedHtml` + `RasterOptions` |
+| `SupportsTextRenderBackend` | 渲染纯文本 |
+| `SupportsMarkdownRenderBackend` | 渲染 Markdown |
+| `SupportsTemplateRenderBackend` | 把模板渲染为图片 |
+| `SupportsTemplateHtmlRenderBackend` | 把模板渲染为 HTML |
+| `SupportsHtmlElementCaptureBackend` | 捕获指定 HTML 元素 |
+| `SupportsBackendExtensions` | 通过类型化 token 暴露后端特有服务 |
+
+backend 只实现自己声明的动作。没有页面上下文的 native backend 不需要伪造 `get_render_context()`。
 
 ## Runtime 与 Session 的语义
 
@@ -59,7 +73,8 @@ backend 通过 `BackendCapability` 声明自己能提供什么：
 | `TEMPLATE_RENDER` | backend 可以把模板渲染为图片 |
 | `TEMPLATE_HTML_RENDER` | backend 可以把模板渲染为 HTML 字符串 |
 | `HTML_ELEMENT_CAPTURE` | backend 可以截取指定 HTML 元素 |
-| `RASTER_RENDER` | backend 可以直接绘制位图输出 |
+| `RASTER_RENDER` | backend 可以从后端特有输入直接绘制位图；为兼容既有 backend 保留 |
+| `HTML_RASTERIZE` | backend 可以执行共用 `PreparedHtml` 并生成位图 |
 
 这些是 backend-facing building blocks。  
 `Render` 层再把它们映射成用户可见的 `RenderCapability`。
@@ -112,13 +127,9 @@ backend 注册入口在 `backend/factory.py`：
 
 ## 当前仓库里的实现参考
 
-当前唯一正式实现是 `backend/playwright/`，它同时展示了：
+正式实现包括：
 
-- backend 注册
-- runtime / session 管理
-- context 创建
-- HTML family 渲染
-- 远程连接与资源解析协同
+- `backend/playwright/`：浏览器 runtime、页面 context、远程连接与资源解析
+- `backend/takumi/`：进程内 native runtime、静态 HTML rasterization 与 typed extension
 
-但这不是要求目标 backend 复制 Playwright 的目录数量。  
-真正必须保持的是协议、能力声明和依赖方向。
+目标 backend 不需要复制任一实现的目录数量。真正必须保持的是协议、能力声明、prepared content 契约和依赖方向。

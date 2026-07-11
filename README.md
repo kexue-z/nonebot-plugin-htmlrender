@@ -4,7 +4,7 @@
 
 # nonebot-plugin-htmlrender
 
-> NoneBot2 浏览器渲染库插件（Library Plugin）
+> NoneBot2 HTML 渲染库插件（Library Plugin）
 
 [![PyPI](https://img.shields.io/pypi/v/nonebot-plugin-htmlrender.svg)](https://pypi.org/project/nonebot-plugin-htmlrender/)
 [![Python](https://img.shields.io/pypi/pyversions/nonebot-plugin-htmlrender.svg)](https://pypi.org/project/nonebot-plugin-htmlrender/)
@@ -16,8 +16,10 @@
 ## 特性
 
 - 统一渲染 API：`render_text` / `render_markdown` / `render_html` / `render_template`
+- 两套正式后端：Playwright 浏览器渲染与 Takumi 原生渲染
 - 支持本地与远程渲染（Remote Playwright WS / Remote Browser CDP）
-- 支持模板变量资源解析（含 filehost 方案）
+- 共用有界资源缓存与 HTML / Markdown / Jinja preparation 管线
+- 支持模板变量资源解析（含 Playwright filehost 方案）
 - 支持渲染链路遥测（可选接入 sentry / prometheus）
 
 ## 快速导航
@@ -39,9 +41,10 @@ uv add nonebot-plugin-htmlrender
 
 ```bash
 uv add "nonebot-plugin-htmlrender[filehost]"
+uv add "nonebot-plugin-htmlrender[takumi]"
 uv add "nonebot-plugin-htmlrender[sentry]"
 uv add "nonebot-plugin-htmlrender[prometheus]"
-uv add "nonebot-plugin-htmlrender[filehost,sentry,prometheus]"
+uv add "nonebot-plugin-htmlrender[filehost,takumi,sentry,prometheus]"
 ```
 
 ## 快速开始
@@ -75,6 +78,7 @@ async def demo() -> None:
 - [API](docs/users/api.md)
 - [核心配置](docs/users/config/core.md)
 - [Playwright 配置](docs/users/config/playwright.md)
+- [Takumi 配置与能力](docs/users/config/takumi.md)
 - [集成配置](docs/users/config/integrations.md)
 - [远程渲染说明](docs/users/remote-playwright.md)
 
@@ -152,3 +156,4 @@ Debian 12, Debian 13, Ubuntu 22.04, Ubuntu 24.04, on x86-64 and arm64 architectu
 - [zhenxun-org/zhenxun_bot](https://github.com/zhenxun-org/zhenxun_bot) 与 [MountainDash/nonebot-bison](https://github.com/MountainDash/nonebot-bison)（感谢庞大用户群体提供的长期反馈）
 - [nonebot-plugin-filehost](https://github.com/nonebot/plugin-filehost)、[nonebot-plugin-sentry](https://github.com/nonebot/plugin-sentry)、[nonebot-plugin-prometheus](https://github.com/nonebot/plugin-prometheus)（提供 filehost / sentry / prometheus 能力载入支持）
 - [nonebot/plugin-htmlkit](https://github.com/nonebot/plugin-htmlkit)（提供测试思路参考）
+- [takumi-py](https://pypi.org/project/takumi-py/0.2.0/)（提供 Rust 原生 HTML / CSS 排版与图像编码能力）
