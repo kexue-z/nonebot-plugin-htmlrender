@@ -4,9 +4,6 @@ from pathlib import Path
 from typing import Any, Literal, cast
 from typing_extensions import Unpack
 
-import anyio
-import jinja2
-import markdown
 from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.backend.playwright.config import get_playwright_config
@@ -15,11 +12,21 @@ from nonebot_plugin_htmlrender.consts import (
     RenderBackend,
     ResourceResolveMode,
 )
+from nonebot_plugin_htmlrender.preparation import (
+    TEMPLATES_PATH,
+    prepare_markdown,
+    prepare_text,
+)
 from nonebot_plugin_htmlrender.resources import (
+    FileCachePolicy,
     ResourceResolver,
     is_remote_playwright_mode,
+    read_resource_text,
     resolve_html_resources,
     resolve_template_vars,
+)
+from nonebot_plugin_htmlrender.resources.templating import (
+    render_template_html as render_jinja_template_html,
 )
 from nonebot_plugin_htmlrender.utils import track_render
 
@@ -52,19 +59,6 @@ from .types import (
     LocatorScreenshotKwargs,
     PageContextKwargs,
     TemplatePageKwargs,
-)
-
-TEMPLATES_PATH = Path(__file__).resolve().parents[2] / "templates"
-TEXT_TEMPLATES_PATH = TEMPLATES_PATH / "text"
-MARKDOWN_TEMPLATES_PATH = TEMPLATES_PATH / "markdown"
-TEXT_TEMPLATE_FILE = TEXT_TEMPLATES_PATH / "text.html"
-MARKDOWN_TEMPLATE_FILE = MARKDOWN_TEMPLATES_PATH / "markdown.html"
-
-env = jinja2.Environment(
-    extensions=["jinja2.ext.loopcontrols"],
-    loader=jinja2.FileSystemLoader(TEMPLATES_PATH),
-    enable_async=True,
-    autoescape=jinja2.select_autoescape(),
 )
 
 EMPTY_PAGE_CONTEXT_KWARGS: PageContextKwargs = {}
@@ -100,11 +94,6 @@ def register_filehost_resource_root(path: str | Path) -> Path:
     return register_root(path)
 
 
-def _path_to_uri(path: str | Path) -> str:
-    """将文件路径转为 file:// URI。"""
-    return Path(path).resolve().as_uri()
-
-
 def _enum_value(raw: object) -> str:
     """获取枚举值的字符串表示。"""
     return str(getattr(raw, "value", raw))
@@ -112,35 +101,15 @@ def _enum_value(raw: object) -> str:
 
 async def read_file(path: str) -> str:
     """异步读取文件内容。"""
-    f = await anyio.open_file(path, mode="r", encoding="utf-8")
-    async with f:
-        return await f.read()
+    return await read_resource_text(path)
 
 
 async def read_tpl(path: str) -> str:
     """读取模板目录下的文件内容。"""
-    return await read_file(str(TEMPLATES_PATH / path))
-
-
-async def read_tpls(*paths: str) -> tuple[str, ...]:
-    """并发读取多个模板文件内容。
-
-    Args:
-        *paths: 相对于模板目录的文件路径列表。
-
-    Returns:
-        与输入路径顺序对应的文件内容元组。
-    """
-    contents = [""] * len(paths)
-
-    async def _read_one(index: int, path: str) -> None:
-        contents[index] = await read_tpl(path)
-
-    async with anyio.create_task_group() as tg:
-        for index, path in enumerate(paths):
-            tg.start_soon(_read_one, index, path)
-
-    return tuple(contents)
+    return await read_resource_text(
+        TEMPLATES_PATH / path,
+        policy=FileCachePolicy.IMMUTABLE,
+    )
 
 
 async def render_template_html(
@@ -173,19 +142,12 @@ async def render_template_html(
             raise ValueError("template_name is required when template is a path string")
         template_path = template
 
-    template_env = jinja2.Environment(
-        loader=jinja2.FileSystemLoader(template_path),
-        enable_async=True,
-        autoescape=jinja2.select_autoescape(),
+    return await render_jinja_template_html(
+        template_path,
+        template_name,
+        kwargs,
+        filters=filters,
     )
-
-    if filters:
-        for filter_name, filter_func in filters.items():
-            template_env.filters[filter_name] = filter_func
-            logger.debug(f"Custom filter loaded: {filter_name}")
-
-    jinja_template = template_env.get_template(template_name)
-    return await jinja_template.render_async(**kwargs)
 
 
 async def render_html(
@@ -329,24 +291,15 @@ async def render_text(
         "playwright.html_render.render_text",
         backend=RenderBackend.PLAYWRIGHT,
     ):
-        template = env.get_template("text/text.html")
+        prepared = await prepare_text(text, css_path=css_path)
 
         render_request = HtmlRenderRequest(
-            content=ContentConfig(
-                html=await template.render_async(
-                    text=text,
-                    css=await read_file(css_path)
-                    if css_path
-                    else await read_tpl("text/text.css"),
-                )
-            ),
+            content=ContentConfig(html=prepared.html),
             render=render
             or RenderConfig(
                 page=PageConfig(
                     viewport=ViewportConfig(width=width, height=10),
-                    base_url=_path_to_uri(css_path)
-                    if css_path
-                    else TEXT_TEMPLATE_FILE.as_uri(),
+                    base_url=prepared.base_url or "about:blank",
                 ),
                 screenshot=_build_screenshot_config(
                     image_type,
@@ -399,57 +352,17 @@ async def render_markdown(
         "playwright.html_render.render_markdown",
         backend=RenderBackend.PLAYWRIGHT,
     ):
-        template = env.get_template("markdown/markdown.html")
-        if not md:
-            if md_path:
-                md = await read_file(md_path)
-            else:
-                raise ValueError("md or md_path must be provided")
-        logger.debug(md)
-        md = markdown.markdown(
+        prepared = await prepare_markdown(
             md,
-            extensions=[
-                "pymdownx.tasklist",
-                "tables",
-                "fenced_code",
-                "codehilite",
-                "mdx_math",
-                "pymdownx.tilde",
-            ],
-            extension_configs={"mdx_math": {"enable_dollar_delimiter": True}},
+            markdown_path=md_path,
+            css_path=css_path,
         )
 
-        logger.debug(md)
-        extra = ""
-        if "math/tex" in md:
-            katex_css, katex_js, mhchem_js, mathtex_js = await read_tpls(
-                "markdown/katex/katex.min.b64_fonts.css",
-                "markdown/katex/katex.min.js",
-                "markdown/katex/mhchem.min.js",
-                "markdown/katex/mathtex-script-type.min.js",
-            )
-            extra = (
-                f'<style type="text/css">{katex_css}</style>'
-                f"<script defer>{katex_js}</script>"
-                f"<script defer>{mhchem_js}</script>"
-                f"<script defer>{mathtex_js}</script>"
-            )
-
-        if css_path:
-            css = await read_file(css_path)
-        else:
-            github_css, pygments_css = await read_tpls(
-                "markdown/github-markdown-light.css",
-                "markdown/pygments-default.css",
-            )
-            css = github_css + pygments_css
-
-        render_request = HtmlRenderRequest(
-            content=ContentConfig(
-                html=await template.render_async(md=md, css=css, extra=extra)
-            ),
-            render=render
-            or RenderConfig(
+        if render is None:
+            base_url = prepared.base_url or "about:blank"
+            if is_remote_playwright_mode():
+                base_url = "about:blank"
+            render = RenderConfig(
                 page=PageConfig(
                     viewport=ViewportConfig(width=width, height=10),
                     base_url=_path_to_uri(css_path)
@@ -464,7 +377,11 @@ async def render_markdown(
                     full_page=True,
                     wait_before_screenshot=0,
                 ),
-            ),
+            )
+
+        render_request = HtmlRenderRequest(
+            content=ContentConfig(html=prepared.html),
+            render=render,
         )
 
         return await render_html(render_request, session=session)
@@ -591,26 +508,11 @@ async def render_template(
                     strict=resource_strict,
                 )
 
-            template_env = jinja2.Environment(
-                loader=jinja2.FileSystemLoader(render_request.template.template_path),
-                enable_async=True,
-                autoescape=jinja2.select_autoescape(),
-            )
-
-            if render_request.template.custom_filters:
-                for (
-                    filter_name,
-                    filter_func,
-                ) in render_request.template.custom_filters.items():
-                    template_env.filters[filter_name] = filter_func
-                    logger.debug(f"Custom filter loaded: {filter_name}")
-
-            jinja_template = template_env.get_template(
-                render_request.template.template_name
-            )
-
-            rendered_html = await jinja_template.render_async(
-                **render_request.template.template_vars
+            rendered_html = await render_jinja_template_html(
+                render_request.template.template_path,
+                render_request.template.template_name,
+                render_request.template.template_vars,
+                filters=render_request.template.custom_filters,
             )
 
             if should_resolve_resources:

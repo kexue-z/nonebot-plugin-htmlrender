@@ -542,10 +542,8 @@ async def test_render_template_warns_remote_file_base_url(
     )
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.jinja2.Environment.get_template",
-        return_value=mocker.Mock(
-            render_async=mocker.AsyncMock(return_value="<p>ok</p>"),
-        ),
+        "nonebot_plugin_htmlrender.backend.playwright.operations.render_jinja_template_html",
+        new=mocker.AsyncMock(return_value="<p>ok</p>"),
     )
 
     result = await render_template(request, session=object())  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
@@ -933,14 +931,17 @@ async def test_render_template_html_accepts_template_config(
         template_vars={"name": "codex"},
         custom_filters={},
     )
-    env = mocker.Mock()
-    template = mocker.Mock(render_async=mocker.AsyncMock(return_value="ok"))
-    env.get_template.return_value = template
-    mocker.patch(
-        "nonebot_plugin_htmlrender.backend.playwright.operations.jinja2.Environment",
-        return_value=env,
+    render_jinja = mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.render_jinja_template_html",
+        new=mocker.AsyncMock(return_value="ok"),
     )
     assert await render_template_html(cfg) == "ok"
+    render_jinja.assert_awaited_once_with(
+        cfg.template_path,
+        cfg.template_name,
+        cfg.template_vars,
+        filters=None,
+    )
 
 
 @pytest.mark.anyio
