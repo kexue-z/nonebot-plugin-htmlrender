@@ -9,6 +9,10 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     LeasedBackendLifecycle,
     LeasedPreparedHtmlExecutor,
 )
+from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
+    TAKUMI_CAPABILITIES,
+    TakumiCapabilities,
+)
 from nonebot_plugin_htmlrender.backend.base import RenderRuntime, RenderSession
 from nonebot_plugin_htmlrender.backend.takumi.config import TakumiConfig
 from nonebot_plugin_htmlrender.backend.takumi.errors import (
@@ -33,6 +37,7 @@ from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
     ProviderDependencies,
 )
+from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
 from nonebot_plugin_htmlrender.rendering.errors import (
     InvalidRenderRequest,
     ProviderExecutionError,
@@ -220,9 +225,14 @@ class TakumiProvider:
             operation="takumi.rasterize_html",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
+        capabilities = CapabilityCatalog().with_capability(
+            TAKUMI_CAPABILITIES,
+            TakumiCapabilities(lifecycle),
+        )
         return EngineBindings(
             lifecycle=lifecycle,
             prepared_html_executor=executor,
+            provider_capabilities=capabilities,
             description="Takumi native HTML renderer",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )

@@ -11,6 +11,10 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     LeasedBackendLifecycle,
     LeasedPreparedHtmlExecutor,
 )
+from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
+    PLAYWRIGHT_CAPABILITIES,
+    PlaywrightCapabilities,
+)
 from nonebot_plugin_htmlrender.backend.playwright._page import open_page_context
 from nonebot_plugin_htmlrender.backend.playwright.config import (
     PlaywrightConfig,
@@ -41,6 +45,7 @@ from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
     ProviderDependencies,
 )
+from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderExecutionError,
     RenderingError,
@@ -200,9 +205,14 @@ class PlaywrightProvider:
             operation=None,
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
+        capabilities = CapabilityCatalog().with_capability(
+            PLAYWRIGHT_CAPABILITIES,
+            PlaywrightCapabilities(lifecycle),
+        )
         return EngineBindings(
             lifecycle=lifecycle,
             prepared_html_executor=executor,
+            provider_capabilities=capabilities,
             description="Playwright browser engine",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )

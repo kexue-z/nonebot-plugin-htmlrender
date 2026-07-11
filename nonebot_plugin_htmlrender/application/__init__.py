@@ -2,6 +2,8 @@
 
 from .app import Application as Application
 from .bindings import RendererBindings as RendererBindings
+from .composition import build_application as build_application
+from .composition import build_renderer_bindings as build_renderer_bindings
 from .renderer import Renderer as Renderer
 from .use_cases import RasterizeHtml as RasterizeHtml
 from .use_cases import RenderHtml as RenderHtml
@@ -20,4 +22,6 @@ __all__ = [
     "RenderText",
     "Renderer",
     "RendererBindings",
+    "build_application",
+    "build_renderer_bindings",
 ]
