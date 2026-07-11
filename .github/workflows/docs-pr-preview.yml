@@ -1,60 +1,117 @@
-name: Docs PR Preview
+name: Docs PR Preview Build
 
 on:
   pull_request:
-    types: [opened, synchronize, reopened, closed]
-    paths:
-      - docs/**
-      - mkdocs.yml
-      - README.md
-      - .github/workflows/docs-pr-preview.yml
+    types: [opened, synchronize, reopened]
+    branches: [master]
 
 concurrency:
-  group: docs-pr-preview-${{ github.event.pull_request.number }}
+  group: docs-preview-build-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  preview:
-    name: Deploy / cleanup PR docs preview
-    # Skip PRs from forks: GITHUB_TOKEN from forks lacks write access to gh-pages.
-    if: github.event.pull_request.head.repo.full_name == github.repository
+  changes:
+    name: Detect docs changes
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read # Enumerate all changed paths, including fork PRs.
+    outputs:
+      docs: ${{ steps.filter.outputs.docs }}
+    steps:
+      - name: Check changed paths
+        id: filter
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -euo pipefail
+          docs=false
+          changed_paths="${RUNNER_TEMP}/pull-request-files.txt"
+          gh api --paginate \
+            "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}/files" \
+            --jq '.[] | .filename, (.previous_filename // empty)' > "${changed_paths}"
+
+          while IFS= read -r path; do
+            case "${path}" in
+              docs/* | mkdocs.yml | README.md | pyproject.toml | uv.lock | .python-version | Makefile | .github/workflows/docs.yml | .github/workflows/docs-pr-preview.yml | .github/workflows/docs-pr-preview-deploy.yml | .github/workflows/docs-pr-preview-cleanup.yml)
+                docs=true
+                break
+                ;;
+            esac
+          done < "${changed_paths}"
+          echo "docs=${docs}" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Build docs preview
+    needs: changes
+    if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      contents: write
-      pull-requests: write
+      contents: read
+    env:
+      DOCS_SITE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}/pr-preview/pr-${{ github.event.pull_request.number }}/
+      DOCS_SCOPE: /${{ github.event.repository.name }}/pr-preview/pr-${{ github.event.pull_request.number }}/
+      DOCS_VERSION_PROVIDER: preview
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Checkout pull request
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up uv
-        if: github.event.action != 'closed'
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
+          version: "0.11.28"
           enable-cache: true
-          cache-suffix: docs-${{ github.event_name }}
+          cache-suffix: docs-pr-${{ github.event.pull_request.number }}
 
-      - name: Show Runner Context
-        if: github.event.action != 'closed'
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          python --version
-          uv --version
+      - name: Sync docs dependencies
+        run: uv sync --locked --group docs --no-default-groups
 
-      - name: Sync docs deps
-        if: github.event.action != 'closed'
-        run: uv sync --locked --group docs
-
-      - name: Build docs
-        if: github.event.action != 'closed'
+      - name: Build docs strictly
         run: uv run zensical build --strict
 
-      - name: Deploy / cleanup preview
-        uses: rossjrw/pr-preview-action@2fb559e4766555e23d07b73d313fe97c4f8c3cfe
+      - name: Upload preview site
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          source-dir: site/
-          preview-branch: gh-pages
-          umbrella-dir: pr-preview
-          action: auto
+          name: docs-preview-site
+          path: site/
+          if-no-files-found: error
+          retention-days: 3
+
+  result:
+    name: Docs Preview
+    if: always()
+    needs: [changes, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require applicable preview checks
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          DOCS_CHANGED: ${{ needs.changes.outputs.docs }}
+        run: |
+          if [[ "${CHANGES_RESULT}" != "success" ]]; then
+            echo "::error::Documentation path detection did not succeed."
+            exit 1
+          fi
+          if [[ "${DOCS_CHANGED}" == "true" && "${BUILD_RESULT}" != "success" ]]; then
+            echo "::error::Documentation changed but the strict preview build did not succeed."
+            exit 1
+          fi
+          if [[ "${DOCS_CHANGED}" == "true" ]]; then
+            echo "Documentation preview artifact is ready."
+          else
+            echo "No documentation inputs changed; preview build is not applicable."
+          fi

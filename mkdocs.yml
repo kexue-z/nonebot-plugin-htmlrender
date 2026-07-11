@@ -1,5 +1,6 @@
 site_name: nonebot-plugin-htmlrender Documentation
-site_url: https://kexue-z.github.io/nonebot-plugin-htmlrender/
+site_url:
+  !ENV [DOCS_SITE_URL, "https://kexue-z.github.io/nonebot-plugin-htmlrender/"]
 site_description: >-
   nonebot-plugin-htmlrender 文档
 
@@ -68,9 +69,9 @@ plugins:
 # Additional configuration
 extra:
   homepage: https://github.com/kexue-z/nonebot-plugin-htmlrender
-  scope: /
+  scope: !ENV [DOCS_SCOPE, "/"]
   version:
-    provider: mike
+    provider: !ENV [DOCS_VERSION_PROVIDER, "mike"]
     default: latest
     alias: true
   annotate:
