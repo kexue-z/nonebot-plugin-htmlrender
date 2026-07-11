@@ -1,7 +1,8 @@
-from pathlib import Path
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any, Literal, cast
+import warnings
 
-from nonebot.compat import field_validator
+from nonebot.compat import field_validator, model_validator
 from pydantic import BaseModel, ConfigDict, Field
 
 from .types import PageContextKwargs, TemplatePageKwargs
@@ -89,7 +90,18 @@ class PageConfig(BaseModel):
         default_factory=ViewportConfig, description="Viewport configuration"
     )
 
-    base_url: str = Field(default="about:blank", description="Page base URL")
+    document_url: str | None = Field(
+        default=None,
+        description="Optional URL to navigate before injecting HTML.",
+    )
+
+    deprecated_base_url: str | None = Field(
+        default=None,
+        alias="base_url",
+        exclude=True,
+        repr=False,
+        description="Deprecated input-only compatibility alias for document_url.",
+    )
 
     user_agent: str | None = Field(
         default=None, description="User agent string, None for default"
@@ -99,13 +111,38 @@ class PageConfig(BaseModel):
         default_factory=dict, description="Additional HTTP headers"
     )
 
-    @field_validator("base_url")
+    @model_validator(mode="before")
     @classmethod
-    def validate_base_url(cls, v: str) -> str:
-        """校验 ``base_url`` 必须以受支持的协议前缀开头。
+    def migrate_deprecated_base_url(cls, data: object) -> object:
+        """Migrate the v0.7.1 navigation alias without making it a resource base."""
+        if not isinstance(data, Mapping):
+            return data
+        values = dict(data)
+        base_url = values.pop("base_url", None)
+        document_url = values.get("document_url")
+        if base_url is None:
+            return values
+        if document_url is not None:
+            raise ValueError(
+                "base_url is a deprecated alias for document_url; provide only "
+                "document_url when both would otherwise be set"
+            )
+        warnings.warn(
+            "PageConfig.base_url is deprecated; use document_url. Resource bases "
+            "belong to PreparedHtml.base_url.",
+            DeprecationWarning,
+            stacklevel=3,
+        )
+        values["document_url"] = base_url
+        return values
+
+    @field_validator("document_url")
+    @classmethod
+    def validate_page_url(cls, v: str | None) -> str | None:
+        """校验页面 URL 必须以受支持的协议前缀开头。
 
         Args:
-            v: 待校验的 ``base_url`` 字符串。
+            v: 待校验的 URL 字符串。
 
         Returns:
             去除前后空白后的合法 ``base_url``。
@@ -113,12 +150,29 @@ class PageConfig(BaseModel):
         Raises:
             ValueError: 当协议前缀不在允许列表中时抛出。
         """
+        if v is None:
+            return None
         v = v.strip()
         if not v.startswith(("file://", "http://", "https://", "about:")):
             raise ValueError(
-                "base_url must start with 'file://', 'http://', 'https://', or 'about:'"
+                "page URL must start with 'file://', 'http://', 'https://', or 'about:'"
             )
         return v
+
+    @property
+    def base_url(self) -> str:
+        """Deprecated readable alias retained for v0.7.1 callers."""
+        return self.document_url or "about:blank"
+
+    @base_url.setter
+    def base_url(self, value: str | None) -> None:
+        warnings.warn(
+            "PageConfig.base_url is deprecated; use document_url. Resource bases "
+            "belong to PreparedHtml.base_url.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+        self.document_url = self.validate_page_url(value)
 
     model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
@@ -357,9 +411,11 @@ def _build_html_render_request(
     extra_http_headers: dict[str, str] | None = None,
 ) -> HtmlRenderRequest:
     """从散列参数构建 HtmlRenderRequest。"""
+    # Kept in this legacy builder signature; operations applies it to
+    # PreparedHtml.base_url rather than turning it into browser navigation.
+    del template_path
     page = PageConfig(
         viewport=ViewportConfig(**(viewport or {"width": 800, "height": 600})),
-        base_url=template_path or "about:blank",
         user_agent=user_agent,
         extra_http_headers=extra_http_headers or {},
     )
@@ -399,7 +455,8 @@ def _build_template_render_request(
         "ViewportSize",
         page_kwargs.pop("viewport", {"width": 500, "height": 10}),
     )
-    base_url = cast("str", page_kwargs.pop("base_url", f"file://{Path.cwd()}"))
+    base_url = cast("str | None", page_kwargs.pop("base_url", None))
+    document_url = cast("str | None", page_kwargs.pop("document_url", None))
     user_agent = cast("str | None", page_kwargs.pop("user_agent", None))
     extra_http_headers = cast(
         "dict[str, str]",
@@ -417,6 +474,7 @@ def _build_template_render_request(
             page=PageConfig(
                 viewport=ViewportConfig(**viewport),
                 base_url=base_url,
+                document_url=document_url,
                 user_agent=user_agent,
                 extra_http_headers=extra_http_headers,
             ),

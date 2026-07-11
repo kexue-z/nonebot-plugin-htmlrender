@@ -7,6 +7,7 @@ from typing import AsyncContextManager, Protocol, runtime_checkable
 from typing_extensions import Unpack
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
+import anyio
 from nonebot.log import logger
 from playwright.async_api import Browser, Page, Route
 
@@ -79,9 +80,14 @@ async def open_page_context(
     browser = _get_session_browser(session)
     page = await browser.new_page(**kwargs)
     instrument_page(page, page_name="render_context")
-    async with page:
+    try:
         yield page
-    detach_page(page)
+    finally:
+        try:
+            with anyio.CancelScope(shield=True):
+                await page.close()
+        finally:
+            detach_page(page)
 
 
 def _is_local_or_private_target(url: str) -> bool:
@@ -209,7 +215,7 @@ def check_remote_pna_context(
         f"resource URL {redacted_sample!r} under base_url {redacted_base!r}. "
         "This often gets blocked "
         "by Chromium as Private Network Access (PNA). Use a same-origin HTTP(S) "
-        "`pages.base_url` (for example the resource origin) before rendering."
+        "`pages.document_url` (for example the resource origin) before rendering."
     )
     if strict:
         raise RuntimeError(message)

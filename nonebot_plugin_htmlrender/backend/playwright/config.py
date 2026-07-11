@@ -59,9 +59,9 @@ class PlaywrightConfig(BaseModel):
     skip_browser_install: bool = Field(default=False)
     cleanup_legacy_cache: bool = Field(default=False)
     close_on_exit: bool = Field(default=True)
-    resource_resolve_mode: ResourceResolveMode = Field(default=ResourceResolveMode.OFF)
+    resource_resolve_mode: ResourceResolveMode = Field(default=ResourceResolveMode.AUTO)
     remote_local_resource_policy: RemoteLocalResourcePolicy = Field(
-        default=RemoteLocalResourcePolicy.PASSTHROUGH
+        default=RemoteLocalResourcePolicy.MEMORY
     )
     local_local_resource_policy: LocalLocalResourcePolicy = Field(
         default=LocalLocalResourcePolicy.FILE

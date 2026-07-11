@@ -1,6 +1,41 @@
 import pytest
 
 
+def test_playwright_config_uses_safe_remote_resource_defaults() -> None:
+    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+        PlaywrightConfig,
+    )
+    from nonebot_plugin_htmlrender.consts import (  # noqa: PLC0415
+        RemoteLocalResourcePolicy,
+        ResourceResolveMode,
+    )
+
+    cfg = PlaywrightConfig()
+
+    assert cfg.resource_resolve_mode is ResourceResolveMode.AUTO
+    assert cfg.remote_local_resource_policy is RemoteLocalResourcePolicy.MEMORY
+
+
+def test_playwright_config_preserves_explicit_v071_resource_policy() -> None:
+    from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
+        PlaywrightConfig,
+    )
+    from nonebot_plugin_htmlrender.consts import (  # noqa: PLC0415
+        RemoteLocalResourcePolicy,
+        ResourceResolveMode,
+    )
+
+    cfg = PlaywrightConfig.model_validate(
+        {
+            "resource_resolve_mode": "off",
+            "remote_local_resource_policy": "passthrough",
+        }
+    )
+
+    assert cfg.resource_resolve_mode is ResourceResolveMode.OFF
+    assert cfg.remote_local_resource_policy is RemoteLocalResourcePolicy.PASSTHROUGH
+
+
 def test_playwright_config_normalizes_empty_executable_path() -> None:
     from nonebot_plugin_htmlrender.backend.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,

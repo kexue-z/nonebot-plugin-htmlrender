@@ -202,6 +202,7 @@ class RenderMarkdownKwargs(RenderTextKwargs, total=False):
 
     md: str
     md_path: str
+    resource_strict: bool
 
 
 class RenderTemplateKwargs(TypedDict, total=False):
@@ -268,6 +269,7 @@ class TemplatePageKwargs(TypedDict, total=False):
 
     viewport: ViewportSize
     base_url: str
+    document_url: str | None
     user_agent: str | None
     extra_http_headers: dict[str, str]
 

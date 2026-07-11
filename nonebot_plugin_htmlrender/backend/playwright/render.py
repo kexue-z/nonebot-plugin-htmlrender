@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
 from enum import Enum
 from functools import partial
 from importlib.metadata import PackageNotFoundError
@@ -56,7 +57,13 @@ from ..factory import BackendAvailability, register_backend
 from . import operations as playwright_operations
 from .config import get_playwright_config
 from .install import install_browser
-from .prepared import materialize_prepared_html
+from .models import (
+    ContentConfig,
+    PageConfig,
+    RenderConfig,
+    ViewportConfig,
+    _build_screenshot_config,
+)
 from .runtime import (
     clear_playwright_env_vars,
     has_installed_browser,
@@ -74,6 +81,13 @@ class PlaywrightMode(StrEnum):
     REMOTE_CDP = "remote_cdp"
     REMOTE_WS = "remote_ws"
     LOCAL = "local_pw"
+
+
+@dataclass(slots=True)
+class PlaywrightRenderSession(RenderSession):
+    """Render session carrying the mode actually selected at connection time."""
+
+    mode: PlaywrightMode
 
 
 class WsVersionRiskLevel(StrEnum):
@@ -154,7 +168,7 @@ class PlaywrightBackend:
         self,
         runtime: RenderRuntime,
         **kwargs: Unpack[BrowserSessionKwargs],
-    ) -> RenderSession:
+    ) -> PlaywrightRenderSession:
         """启动或连接一个绑定到给定运行时的浏览器会话。
 
         Args:
@@ -186,7 +200,12 @@ class PlaywrightBackend:
                         await browser.close()
                         logger.info("Browser closed.")
 
-            return RenderSession(runtime=runtime, handle=browser, _aclose=_aclose)
+            return PlaywrightRenderSession(
+                runtime=runtime,
+                handle=browser,
+                _aclose=_aclose,
+                mode=mode,
+            )
 
     def is_alive(self, session: RenderSession) -> bool:
         """检查浏览器会话是否仍处于连接状态。
@@ -243,15 +262,29 @@ class PlaywrightBackend:
     ) -> bytes:
         """Execute a backend-neutral prepared document in Playwright."""
         viewport_height = options.height if options.height is not None else 10
-        return await playwright_operations.render_html(
-            materialize_prepared_html(prepared),
-            template_path=prepared.base_url or "about:blank",
-            image_type=options.format,
-            quality=options.quality,
-            device_scale_factor=options.device_pixel_ratio,
-            full_page=options.height is None,
-            viewport={"width": options.width, "height": viewport_height},
+        render = RenderConfig(
+            page=PageConfig(
+                viewport=ViewportConfig(
+                    width=options.width,
+                    height=viewport_height,
+                ),
+            ),
+            screenshot=_build_screenshot_config(
+                options.format,
+                quality=options.quality,
+                device_scale_factor=options.device_pixel_ratio,
+                screenshot_timeout=30_000,
+                full_page=options.height is None,
+                wait_before_screenshot=0,
+            ),
+        )
+        return await playwright_operations.render_prepared_html(
+            prepared,
+            content=ContentConfig(html=prepared.html),
+            render=render,
             session=session,
+            strict_assets=True,
+            telemetry_op="playwright.html_render.rasterize_html",
         )
 
     async def render_text(
