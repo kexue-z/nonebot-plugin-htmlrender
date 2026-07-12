@@ -23,18 +23,15 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Verify source & build distributions
+  release-guard:
+    name: Gate release source
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 10
     permissions:
       contents: read
     outputs:
-      release_tag: ${{ steps.verify.outputs.release_tag }}
-      source_sha: ${{ steps.verify.outputs.source_sha }}
-      version: ${{ steps.verify.outputs.version }}
-    env:
-      BUILD_LOG: publish-build.log
+      release_tag: ${{ steps.release-ref.outputs.tag }}
+      publishable: ${{ steps.guard.outputs.publishable }}
     steps:
       - name: Resolve the release tag
         id: release-ref
@@ -85,14 +82,8 @@ jobs:
           fetch-tags: true
           persist-credentials: false
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          version: "0.11.28"
-          enable-cache: false
-
-      - name: Verify tag, source commit, version, and lockfile
-        id: verify
+      - name: Gate on master ancestry
+        id: guard
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -115,8 +106,57 @@ jobs:
               exit 1
             fi
           fi
+          # Tags that are not on master (release-branch tags, replayed pushes
+          # of historical tags) are not errors: skip the whole publish chain
+          # quietly so the run never shows up red on unrelated pull requests.
           if ! git merge-base --is-ancestor "${TAG_SHA}" origin/master; then
-            echo "::error::Tag ${RELEASE_TAG} (${TAG_SHA}) is not on master."
+            echo "::notice::Tag ${RELEASE_TAG} (${TAG_SHA}) is not on master; skipping publish."
+            echo "publishable=false" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          echo "Tag ${RELEASE_TAG} (${TAG_SHA}) is on master."
+          echo "publishable=true" >> "${GITHUB_OUTPUT}"
+
+  build:
+    name: Verify source & build distributions
+    needs: release-guard
+    if: needs.release-guard.outputs.publishable == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.verify.outputs.release_tag }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+      version: ${{ steps.verify.outputs.version }}
+    env:
+      BUILD_LOG: publish-build.log
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ needs.release-guard.outputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
+          enable-cache: false
+
+      - name: Verify tag, source commit, version, and lockfile
+        id: verify
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.release-guard.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          TAG_SHA=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "${HEAD_SHA}" != "${TAG_SHA}" ]]; then
+            echo "::error::Checkout ${HEAD_SHA} does not match ${RELEASE_TAG} at ${TAG_SHA}."
             exit 1
           fi
           VERSION=$(uv version --short)
