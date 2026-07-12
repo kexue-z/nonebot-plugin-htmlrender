@@ -13,8 +13,8 @@ Demonstrates using `render_template` and `render_text` to render local HTML/CSS 
 
 ```bash
 nb create  # Create a NoneBot project, select OneBot V11 adapter
-nb plugin install nonebot-plugin-htmlrender
-nb plugin install nonebot-plugin-alconna
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add nonebot-plugin-alconna
 ```
 
 Copy the `plugins/template_render` directory (including `templates/`) into your project's plugin directory.
@@ -22,7 +22,7 @@ Copy the `plugins/template_render` directory (including `templates/`) into your 
 Add the following to your `.env` file:
 
 ```dotenv
-RENDER_BACKEND=playwright
+RENDER={"provider":"playwright","startup":"probe","resources":{"local_access":{"allowed_paths":["plugins/template_render/templates"]}}}
 ```
 
 ## Template Structure
@@ -35,4 +35,6 @@ plugins/template_render/
     style.css       # Stylesheet loaded by the template
 ```
 
-The template uses Jinja2 syntax. Variables are passed via the `templates` parameter of `render_template`.
+The template uses Jinja2 syntax. Variables are passed via the `variables`
+parameter of `render_template`; the returned `RenderedImage` is converted with
+`bytes(artifact)` before it is handed to the message adapter.

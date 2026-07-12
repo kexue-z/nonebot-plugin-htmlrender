@@ -1,6 +1,7 @@
 # Web Screenshot Example
 
-Demonstrates using `get_render_context` and `capture_html_element` to take web page screenshots.
+Demonstrates resolving the typed Playwright capability and using `page()` and
+`capture_element()` to take web page screenshots.
 
 ## Commands
 
@@ -13,8 +14,8 @@ Demonstrates using `get_render_context` and `capture_html_element` to take web p
 
 ```bash
 nb create  # Create a NoneBot project, select OneBot V11 adapter
-nb plugin install nonebot-plugin-htmlrender
-nb plugin install nonebot-plugin-alconna
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add nonebot-plugin-alconna
 ```
 
 Copy the `plugins/screenshot` directory into your project's plugin directory.
@@ -22,5 +23,5 @@ Copy the `plugins/screenshot` directory into your project's plugin directory.
 Add the following to your `.env` file:
 
 ```dotenv
-RENDER_BACKEND=playwright
+RENDER={"provider":"playwright","startup":"probe"}
 ```
