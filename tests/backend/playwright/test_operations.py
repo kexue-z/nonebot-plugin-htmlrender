@@ -200,6 +200,60 @@ async def test_render_html_opens_page_with_render_config(mocker: MockerFixture) 
 
 
 @pytest.mark.anyio
+async def test_render_markdown_skips_file_navigation_for_remote_browser(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+        render_markdown,
+    )
+
+    page = mocker.AsyncMock()
+    page.on = mocker.MagicMock()
+    page.screenshot = mocker.AsyncMock(return_value=b"markdown-image")
+
+    context_manager = mocker.MagicMock()
+    context_manager.__aenter__ = mocker.AsyncMock(return_value=page)
+    context_manager.__aexit__ = mocker.AsyncMock(return_value=None)
+
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.open_page_context",
+        return_value=context_manager,
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.is_remote_playwright_mode",
+        return_value=True,
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.get_playwright_config",
+        return_value=mocker.Mock(remote_local_resource_policy="passthrough"),
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.backend.playwright.operations.log_page_telemetry",
+        new=mocker.AsyncMock(),
+    )
+
+    result = await render_markdown(
+        "# Remote Markdown",
+        session=object(),  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+    )
+
+    assert result == b"markdown-image"
+    page.goto.assert_not_awaited()
+    page.set_content.assert_awaited_once()
+    assert "Remote Markdown" in page.set_content.await_args.args[0]
+
+
+def test_render_html_only_skips_about_blank_navigation() -> None:
+    from nonebot_plugin_htmlrender.backend.playwright.operations import (  # noqa: PLC0415
+        _should_navigate_to_base_url,
+    )
+
+    assert _should_navigate_to_base_url("https://render/assets/")
+    assert _should_navigate_to_base_url("file:///shared/templates/")
+    assert not _should_navigate_to_base_url("about:blank")
+
+
+@pytest.mark.anyio
 async def test_render_text_uses_custom_css_file(
     mocker: MockerFixture, tmp_path: Path
 ) -> None:
