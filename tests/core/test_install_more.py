@@ -1,11 +1,11 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
 import pytest
 
+from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
 from nonebot_plugin_htmlrender.consts import MirrorSource
 
 if TYPE_CHECKING:
@@ -18,18 +18,14 @@ async def test_install_check_mirror_connectivity_appends_custom_mirror(
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
-    mocker.patch.object(
-        install,
-        "get_playwright_config",
-        return_value=SimpleNamespace(install_mirror="https://custom.mirror"),
-    )
+    config = PlaywrightConfig(install_mirror="https://custom.mirror")
     checker = mocker.patch.object(
         install,
         "_check_mirror_connectivity",
         new=mocker.AsyncMock(return_value=None),
     )
 
-    await install.check_mirror_connectivity(timeout_seconds=2)
+    await install.check_mirror_connectivity(config, timeout_seconds=2)
 
     assert checker.await_args is not None
     called_mirrors = checker.await_args.args[0]
@@ -41,11 +37,7 @@ async def test_install_check_mirror_connectivity_appends_custom_mirror(
 async def test_download_context_proxy_and_host_restore(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
-    mocker.patch.object(
-        install,
-        "get_playwright_config",
-        return_value=SimpleNamespace(install_proxy="http://u:p@proxy.local:8080"),
-    )
+    config = PlaywrightConfig(install_proxy="http://u:p@proxy.local:8080")
     mocker.patch.object(
         install,
         "check_mirror_connectivity",
@@ -59,7 +51,7 @@ async def test_download_context_proxy_and_host_restore(mocker: MockerFixture) ->
         clear=False,
     )
 
-    async with install.download_context():
+    async with install.download_context(config):
         assert install.os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://best.mirror"
         assert install.os.environ["HTTP_PROXY"] == "http://u:p@proxy.local:8080"
 
@@ -77,7 +69,8 @@ async def test_execute_install_command_uses_direct_stdio(mocker: MockerFixture) 
         new=mocker.AsyncMock(return_value=(True, "ok")),
     )
 
-    ok, _ = await install.execute_install_command(timeout_seconds=5)
+    config = PlaywrightConfig()
+    ok, _ = await install.execute_install_command(config, timeout_seconds=5)
     assert ok is True
 
     assert helper.await_args is not None
@@ -90,31 +83,28 @@ async def test_execute_install_command_uses_direct_stdio(mocker: MockerFixture) 
 async def test_install_browser_retry_paths(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
+    config = PlaywrightConfig()
+
     @asynccontextmanager
-    async def _ctx():
+    async def _ctx(_config: PlaywrightConfig):
         yield
 
     mocker.patch.object(install, "download_context", _ctx)
-    mocker.patch.object(
-        install,
-        "get_playwright_config",
-        return_value=SimpleNamespace(engine="chromium"),
-    )
 
     first_try = mocker.patch.object(
         install,
         "execute_install_command",
         new=mocker.AsyncMock(side_effect=[(True, "ok")]),
     )
-    assert await install.install_browser(timeout_seconds=3) is True
-    first_try.assert_awaited_once_with(3)
+    assert await install.install_browser(config, timeout_seconds=3) is True
+    first_try.assert_awaited_once_with(config, 3)
 
     second_try = mocker.patch.object(
         install,
         "execute_install_command",
         new=mocker.AsyncMock(side_effect=[(False, "x"), (True, "ok")]),
     )
-    assert await install.install_browser(timeout_seconds=3) is True
+    assert await install.install_browser(config, timeout_seconds=3) is True
     assert second_try.await_count == 2
 
     third_try = mocker.patch.object(
@@ -122,7 +112,7 @@ async def test_install_browser_retry_paths(mocker: MockerFixture) -> None:
         "execute_install_command",
         new=mocker.AsyncMock(side_effect=[(False, "x"), (False, "final")]),
     )
-    assert await install.install_browser(timeout_seconds=3) is False
+    assert await install.install_browser(config, timeout_seconds=3) is False
     assert third_try.await_count == 2
 
     interrupted = mocker.patch.object(
@@ -131,5 +121,5 @@ async def test_install_browser_retry_paths(mocker: MockerFixture) -> None:
         new=mocker.AsyncMock(side_effect=[(False, "Interrupted by signal SIGINT")]),
     )
     with pytest.raises(KeyboardInterrupt):
-        await install.install_browser(timeout_seconds=3)
+        await install.install_browser(config, timeout_seconds=3)
     assert interrupted.await_count == 1

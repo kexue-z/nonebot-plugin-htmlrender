@@ -4,6 +4,8 @@ import sys
 import pytest
 from pytest_mock import MockerFixture
 
+from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
+
 
 @pytest.mark.anyio
 async def test_check_mirror_connectivity(mocker: MockerFixture):
@@ -18,7 +20,10 @@ async def test_check_mirror_connectivity(mocker: MockerFixture):
         new=mocker.AsyncMock(return_value=None),
     )
 
-    result = await check_mirror_connectivity(timeout_seconds=1)
+    result = await check_mirror_connectivity(
+        PlaywrightConfig(),
+        timeout_seconds=1,
+    )
     assert isinstance(result, (MirrorSource, type(None)))
 
 
@@ -34,7 +39,7 @@ async def test_download_context(mocker: MockerFixture):
         return_value=MirrorSource("test", "http://test.com", 1),
     )
 
-    async with download_context():
+    async with download_context(PlaywrightConfig()):
         assert "PLAYWRIGHT_DOWNLOAD_HOST" in os.environ
 
     assert "PLAYWRIGHT_DOWNLOAD_HOST" not in os.environ
@@ -51,7 +56,10 @@ async def test_execute_install_command(mocker: MockerFixture):
         new=mocker.AsyncMock(return_value=(True, "Installation completed")),
     )
 
-    success, message = await execute_install_command(timeout_seconds=5)
+    success, message = await execute_install_command(
+        PlaywrightConfig(),
+        timeout_seconds=5,
+    )
 
     assert success
     assert "Installation completed" in message
@@ -79,7 +87,10 @@ async def test_execute_install_command_timeout(mocker: MockerFixture):
         new=mocker.AsyncMock(return_value=(False, "Timed out (1s)")),
     )
 
-    success, message = await execute_install_command(timeout_seconds=1)
+    success, message = await execute_install_command(
+        PlaywrightConfig(),
+        timeout_seconds=1,
+    )
 
     assert not success
     assert message == "Timed out (1s)"
@@ -100,7 +111,7 @@ async def test_install_browser(mocker: MockerFixture):
         new=mocker.AsyncMock(return_value=(True, "安装完成")),
     )
 
-    result = await install_browser(timeout_seconds=5)
+    result = await install_browser(PlaywrightConfig(), timeout_seconds=5)
     assert result is True
 
 
@@ -115,7 +126,7 @@ def test_redact_url_masks_credentials_in_playwright_install_module() -> None:
     )
 
 
-def test_redact_url_masks_credentials_in_backend_install_module() -> None:
+def test_redact_url_masks_loopback_credentials() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         _redact_url,
     )

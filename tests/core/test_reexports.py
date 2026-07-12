@@ -1,5 +1,4 @@
 from nonebot_plugin_htmlrender.utils import signal as html_signal
-from nonebot_plugin_htmlrender.utils import telemetry as html_telemetry
 from nonebot_plugin_htmlrender.utils.signal import (
     HANDLED_SIGNALS,
     install_signal_handler,
@@ -7,7 +6,6 @@ from nonebot_plugin_htmlrender.utils.signal import (
     remove_signal_handler,
     shield_signals,
 )
-from nonebot_plugin_htmlrender.utils.telemetry import track_render
 
 
 def test_signal_module_reexports_utils_symbols() -> None:
@@ -23,7 +21,3 @@ def test_signal_module_reexports_utils_symbols() -> None:
         "remove_signal_handler",
         "shield_signals",
     }
-
-
-def test_telemetry_module_reexports_track_render() -> None:
-    assert html_telemetry.track_render is track_render

@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import anyio
 import pytest
 
 from nonebot_plugin_htmlrender.application import (
@@ -15,9 +16,11 @@ from nonebot_plugin_htmlrender.application import (
     RenderTemplateHtml,
     RenderText,
 )
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityUnavailable,
+    ProviderExecutionError,
     RasterizeHtmlRequest,
     RenderHtmlRequest,
     RenderMarkdownRequest,
@@ -71,6 +74,7 @@ class _FakePreparer:
     prepared: PreparedHtml = PREPARED
     html_content: str = "<p>template html</p>"
     prepare_calls: list[tuple[str, dict[str, object]]] = field(default_factory=list)
+    prepare_delay: float = 0
 
     async def prepare_html(
         self,
@@ -78,6 +82,8 @@ class _FakePreparer:
         *,
         base_url: str | None = None,
     ) -> PreparedHtml:
+        if self.prepare_delay:
+            await anyio.sleep(self.prepare_delay)
         self.prepare_calls.append(("html", {"html": html, "base_url": base_url}))
         return self.prepared
 
@@ -119,6 +125,7 @@ class _FakePreparer:
         *,
         filters: Mapping[str, FilterCallable] | None = None,
         extensions: Sequence[ExtensionSpec] = (),
+        resource_mode: ResourceResolveMode | None = None,
     ) -> PreparedHtml:
         self.prepare_calls.append(
             (
@@ -129,6 +136,7 @@ class _FakePreparer:
                     "variables": dict(variables),
                     "filters": filters,
                     "extensions": tuple(extensions),
+                    "resource_mode": resource_mode,
                 },
             )
         )
@@ -198,11 +206,27 @@ async def test_render_html_returns_typed_artifact() -> None:
     assert call.timeout_seconds == 2.5
 
 
+async def test_render_timeout_includes_preparation() -> None:
+    renderer, preparer, executor = _full_renderer()
+    preparer.prepare_delay = 0.1
+
+    with pytest.raises(ProviderExecutionError, match="timed out"):
+        await renderer.render_html(
+            RenderHtmlRequest(html="<p>slow</p>", timeout_seconds=0.01)
+        )
+
+    assert executor.calls == []
+
+
 async def test_render_text_flows_through_executor() -> None:
     renderer, preparer, executor = _full_renderer()
 
     artifact = await renderer.render_text(
-        RenderTextRequest(text="hello", css_path="style.css")
+        RenderTextRequest(
+            text="hello",
+            css_path="style.css",
+            resource_policy=ResourcePolicy.STRICT,
+        )
     )
 
     assert artifact.format == "png"
@@ -211,7 +235,7 @@ async def test_render_text_flows_through_executor() -> None:
     assert preparer.prepare_calls == [
         ("text", {"text": "hello", "css_path": "style.css"})
     ]
-    assert executor.calls[0].resource_policy is None
+    assert executor.calls[0].resource_policy is ResourcePolicy.STRICT
 
 
 @pytest.mark.parametrize(
@@ -236,6 +260,36 @@ async def test_render_markdown_maps_policy_to_preparation_strictness(
     kind, arguments = preparer.prepare_calls[0]
     assert kind == "markdown"
     assert arguments["resource_strict"] == expected_strict
+    assert executor.calls[0].resource_policy is policy
+
+
+@pytest.mark.parametrize(
+    ("policy", "expected_mode"),
+    [
+        (None, None),
+        (ResourcePolicy.OFF, ResourceResolveMode.OFF),
+        (ResourcePolicy.AUTO, ResourceResolveMode.AUTO),
+        (ResourcePolicy.STRICT, ResourceResolveMode.STRICT),
+    ],
+)
+async def test_render_template_maps_policy_to_preparation_mode(
+    policy: ResourcePolicy | None,
+    expected_mode: ResourceResolveMode | None,
+) -> None:
+    renderer, preparer, executor = _full_renderer()
+
+    await renderer.render_template(
+        RenderTemplateRequest(
+            template_path="templates",
+            template_name="page.html",
+            variables={"title": "hi"},
+            resource_policy=policy,
+        )
+    )
+
+    kind, arguments = preparer.prepare_calls[0]
+    assert kind == "template"
+    assert arguments["resource_mode"] is expected_mode
     assert executor.calls[0].resource_policy is policy
 
 

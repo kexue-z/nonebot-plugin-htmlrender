@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
-
 from .app import Application
 from .bindings import RendererBindings
 from .renderer import Renderer
@@ -22,6 +20,7 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.preparation.service import HtmlPreparer
     from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
     from nonebot_plugin_htmlrender.rendering.ports import PreparedHtmlExecutor
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 
 def build_renderer_bindings(
@@ -50,16 +49,18 @@ def build_renderer_bindings(
 def build_application(
     *,
     engine: EngineBindings,
-    preparer: HtmlPreparer | None = None,
+    preparer: HtmlPreparer,
+    resources: ResourceService,
 ) -> Application:
     """Assemble an Application around one composed engine."""
-    resolved_preparer = preparer if preparer is not None else DefaultHtmlPreparer()
     bindings = build_renderer_bindings(
         executor=engine.prepared_html_executor,
-        preparer=resolved_preparer,
+        preparer=preparer,
     )
     return Application(
         renderer=Renderer(bindings),
+        preparation=preparer,
+        resources=resources,
         lifecycle=engine.lifecycle,
         capabilities=engine.provider_capabilities,
     )

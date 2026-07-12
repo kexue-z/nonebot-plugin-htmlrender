@@ -1,57 +1,59 @@
-"""Process-level object graph composed from ``RenderSettings``.
-
-This is the only place that resolves providers, selects observers, and
-installs the process-level service seams. Business paths receive their
-dependencies through constructors; nothing here is consulted at render time.
-"""
+"""NoneBot composition root for the complete process object graph."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, final
 
-from nonebot_plugin_htmlrender.application import Application, build_application
-from nonebot_plugin_htmlrender.providers.discovery import resolve_provider
-from nonebot_plugin_htmlrender.providers.sdk import (
-    EngineBindings,
-    ProviderDependencies,
+import anyio
+from exceptiongroup import BaseExceptionGroup
+
+from nonebot_plugin_htmlrender.adapters.observability import (
+    TelemetryCacheObserver,
+    TelemetryOperationObserver,
 )
+from nonebot_plugin_htmlrender.adapters.resources import (
+    AnyioWorkerExecutor,
+    ConfiguredLocalAccessPolicy,
+    FilehostAssetPublisher,
+    build_resource_reader,
+)
+from nonebot_plugin_htmlrender.adapters.templates import JinjaTemplateCompiler
+from nonebot_plugin_htmlrender.application import Application, build_application
+from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
+from nonebot_plugin_htmlrender.providers.discovery import resolve_provider
+from nonebot_plugin_htmlrender.providers.sdk import EngineBindings, ProviderDependencies
 from nonebot_plugin_htmlrender.rendering.errors import ProviderUnavailable
 from nonebot_plugin_htmlrender.rendering.observers import (
     NoopCacheObserver,
     NoopOperationObserver,
 )
 from nonebot_plugin_htmlrender.resources.config import (
+    AssetPublisherSettings,
     ResourceCacheSettings,
-    ResourceConfig,
-    register_resource_cache_settings_provider,
-    register_resource_config_provider,
+    ResourceStrategy,
 )
-from nonebot_plugin_htmlrender.resources.observation import (
-    register_cache_observer_provider,
-)
-from nonebot_plugin_htmlrender.utils.telemetry import (
-    TelemetryCacheObserver,
-    TelemetryOperationObserver,
-)
+from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from nonebot_plugin_htmlrender.providers.sdk import (
         EngineProvider,
         PluginRequirement,
     )
-    from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
+    from nonebot_plugin_htmlrender.rendering.ports import (
+        ApplicationLifecycle,
+        OperationObserver,
+    )
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
+    from nonebot_plugin_htmlrender.resources.ports import AssetPublisher
 
     from .settings import RenderSettings
 
 
 @final
 class _IdleLifecycle:
-    """Lifecycle for compositions without a configured engine."""
-
     async def startup(self) -> None:
         return None
 
@@ -64,22 +66,20 @@ class _IdleLifecycle:
 
 @final
 class _UnavailableLifecycle:
-    """Lifecycle that surfaces the provider availability failure."""
-
     def __init__(self, provider_id: str, reason: str) -> None:
         self._provider_id = provider_id
         self._reason = reason
 
-    def _raise(self) -> ProviderUnavailable:
+    def _error(self) -> ProviderUnavailable:
         return ProviderUnavailable(
             f"Provider `{self._provider_id}` is unavailable: {self._reason}"
         )
 
     async def startup(self) -> None:
-        raise self._raise()
+        raise self._error()
 
     async def probe(self) -> None:
-        raise self._raise()
+        raise self._error()
 
     async def aclose(self) -> None:
         return None
@@ -87,8 +87,6 @@ class _UnavailableLifecycle:
 
 @final
 class _UnavailableExecutor:
-    """Executor that surfaces the provider availability failure."""
-
     def __init__(self, provider_id: str, reason: str) -> None:
         self._provider_id = provider_id
         self._reason = reason
@@ -107,123 +105,248 @@ class _UnavailableExecutor:
         )
 
 
+@final
+class _ComposedLifecycle:
+    def __init__(
+        self,
+        *,
+        engine: ApplicationLifecycle,
+        resources: ResourceService,
+        templates: JinjaTemplateCompiler,
+        publisher: AssetPublisher | None,
+    ) -> None:
+        self._engine = engine
+        self._resources = resources
+        self._templates = templates
+        self._publisher = publisher
+
+    @staticmethod
+    async def _cleanup(
+        *operations: Callable[[], Awaitable[None]],
+    ) -> list[BaseException]:
+        errors: list[BaseException] = []
+        with anyio.CancelScope(shield=True):
+            for operation in operations:
+                try:
+                    await operation()
+                except BaseException as error:  # noqa: PERF203
+                    errors.append(error)
+        return errors
+
+    @staticmethod
+    def _raise_errors(message: str, errors: list[BaseException]) -> None:
+        if not errors:
+            return
+        if len(errors) == 1:
+            raise errors[0]
+        raise BaseExceptionGroup(message, errors)
+
+    async def startup(self) -> None:
+        try:
+            if self._publisher is not None:
+                await self._publisher.startup()
+            await self._engine.startup()
+        except BaseException as error:
+            operations: list[Callable[[], Awaitable[None]]] = [
+                self._templates.clear,
+                self._resources.clear,
+            ]
+            if self._publisher is not None:
+                operations.append(self._publisher.clear)
+            cleanup_errors = await self._cleanup(*operations)
+            self._raise_errors(
+                "Application startup and rollback both failed.",
+                [error, *cleanup_errors],
+            )
+
+    async def probe(self) -> None:
+        await self._engine.probe()
+
+    async def aclose(self) -> None:
+        operations: list[Callable[[], Awaitable[None]]] = [
+            self._engine.aclose,
+            self._templates.clear,
+            self._resources.clear,
+        ]
+        if self._publisher is not None:
+            operations.extend((self._publisher.clear, self._publisher.aclose))
+        errors = await self._cleanup(*operations)
+        self._raise_errors("Application shutdown failed.", errors)
+
+
 @dataclass(frozen=True)
 class ComposedRuntime:
-    """Everything the NoneBot host needs after composition."""
-
     settings: RenderSettings
-    provider: EngineProvider | None
+    provider: EngineProvider[object] | None
     provider_settings: object | None
     plugin_requirements: tuple[PluginRequirement, ...]
+    resource_strategy: ResourceStrategy
 
     def build_application(self) -> Application:
         return _build_application_for(self)
+
+    @property
+    def asset_publisher_settings(self) -> AssetPublisherSettings | None:
+        if not _uses_publisher(self.resource_strategy):
+            return None
+        return _publisher_settings(self.settings)
 
 
 def select_observers(
     settings: RenderSettings,
 ) -> tuple[OperationObserver, CacheObserver]:
-    """Telemetry observers when any integration is on; no-ops otherwise."""
     observability = settings.observability
     if observability.sentry or observability.prometheus:
-        return TelemetryOperationObserver(), TelemetryCacheObserver()
+        return (
+            TelemetryOperationObserver(
+                sentry=observability.sentry,
+                prometheus=observability.prometheus,
+            ),
+            TelemetryCacheObserver(
+                sentry=observability.sentry,
+                prometheus=observability.prometheus,
+            ),
+        )
     return NoopOperationObserver(), NoopCacheObserver()
 
 
-def build_core_resource_config(settings: RenderSettings) -> ResourceConfig:
-    """Core-owned security and resource policy baseline."""
-    local_access = settings.resources.local_access
-    return ResourceConfig(
-        filehost_allow_any_path=local_access.allow_any_path,
-        filehost_allowed_paths=tuple(local_access.allowed_paths),
-    )
-
-
-def _resource_cache_settings(settings: RenderSettings) -> ResourceCacheSettings:
+def _cache_settings(settings: RenderSettings) -> ResourceCacheSettings:
+    cache = settings.resources.cache
     return ResourceCacheSettings(
-        max_entries=settings.resources.cache.max_entries,
-        max_bytes=settings.resources.cache.max_bytes,
-        revalidate_seconds=settings.resources.cache.revalidate_seconds,
+        max_entries=cache.max_entries,
+        max_bytes=cache.max_bytes,
+        max_resource_bytes=cache.max_resource_bytes,
+        revalidate_seconds=cache.revalidate_seconds,
         template_environment_max_entries=(
             settings.resources.templates.environment_cache_max_entries
         ),
     )
 
 
+def _publisher_settings(settings: RenderSettings) -> AssetPublisherSettings:
+    filehost = settings.resources.filehost
+    return AssetPublisherSettings(
+        cache_ttl_seconds=filehost.cache_ttl_seconds,
+        request_header_name=filehost.request_header_name,
+        request_header_value=filehost.request_header_value,
+        request_header_salt=filehost.request_header_salt,
+        prewarm_enabled=filehost.prewarm_enabled,
+        prewarm_max_files=filehost.prewarm_max_files,
+        prewarm_paths=tuple(filehost.prewarm_paths),
+        prewarm_extensions=tuple(filehost.prewarm_extensions),
+        max_resource_bytes=settings.resources.cache.max_resource_bytes,
+    )
+
+
+def _uses_publisher(strategy: ResourceStrategy) -> bool:
+    policy = (
+        strategy.remote_local_policy
+        if strategy.is_remote
+        else strategy.local_local_policy
+    )
+    return policy.value == "filehost"
+
+
 def prepare_runtime(
     settings: RenderSettings,
     *,
-    explicit_providers: Sequence[EngineProvider] = (),
+    explicit_providers: Sequence[EngineProvider[object]] = (),
 ) -> ComposedRuntime:
-    """Resolve the provider, parse its settings, and install process seams.
-
-    Kept deliberately light: no engine runtime is created here, so it is safe
-    to run at plugin import time even for ``startup: off`` deployments.
-    """
-    _, cache_observer = select_observers(settings)
-    register_cache_observer_provider(lambda: cache_observer)
-    cache_settings = _resource_cache_settings(settings)
-    register_resource_cache_settings_provider(lambda: cache_settings)
-
-    core_resource_config = build_core_resource_config(settings)
+    """Resolve and validate only the selected provider at import time."""
     if settings.provider is None:
-        register_resource_config_provider(lambda: core_resource_config)
-        return ComposedRuntime(
-            settings=settings,
-            provider=None,
-            provider_settings=None,
-            plugin_requirements=(),
-        )
-
+        return ComposedRuntime(settings, None, None, (), ResourceStrategy())
     provider = resolve_provider(settings.provider, explicit=explicit_providers)
     provider_settings = provider.parse_settings(settings.provider_config)
-    resource_config = provider.resource_configuration(
-        provider_settings,
-        core_resource_config,
-    )
-    register_resource_config_provider(lambda: resource_config)
+    strategy = provider.resource_strategy(provider_settings)
     return ComposedRuntime(
-        settings=settings,
-        provider=provider,
-        provider_settings=provider_settings,
-        plugin_requirements=provider.bootstrap_requirements(provider_settings),
+        settings,
+        provider,
+        provider_settings,
+        provider.bootstrap_requirements(provider_settings),
+        strategy,
     )
 
 
 def _build_application_for(runtime: ComposedRuntime) -> Application:
-    """Compose the engine and assemble the application (heavier path)."""
     operation_observer, cache_observer = select_observers(runtime.settings)
-    if runtime.provider is None:
-        return build_application(engine=EngineBindings(lifecycle=_IdleLifecycle()))
+    cache_settings = _cache_settings(runtime.settings)
+    worker = AnyioWorkerExecutor()
+    reader = build_resource_reader(cache_settings, cache_observer, worker)
+    local = runtime.settings.resources.local_access
+    local_access = ConfiguredLocalAccessPolicy(
+        allowed_roots=local.allowed_paths,
+        allow_any=local.allow_any_path,
+    )
 
     provider = runtime.provider
     provider_settings = runtime.provider_settings
-    if provider_settings is None:
-        raise ProviderUnavailable(
-            f"Provider `{provider.id}` has no parsed settings; "
-            "composition was not prepared."
+    strategy = runtime.resource_strategy
+    publisher: AssetPublisher | None = None
+    if _uses_publisher(strategy):
+        publisher = FilehostAssetPublisher(
+            settings=_publisher_settings(runtime.settings),
+            observer=cache_observer,
+            worker=worker,
+            local_access=local_access,
         )
-
-    availability = provider.availability(provider_settings)
-    if not availability.available:
-        reason = availability.reason or "no availability reason was provided"
-        engine = EngineBindings(
-            lifecycle=_UnavailableLifecycle(provider.id, reason),
-            prepared_html_executor=_UnavailableExecutor(provider.id, reason),
-        )
-        return build_application(engine=engine)
-
-    dependencies = ProviderDependencies(
-        operation_observer=operation_observer,
-        cache_observer=cache_observer,
+    resources = ResourceService(
+        reader=reader,
+        local_access=local_access,
+        strategy=strategy,
+        publisher=publisher,
     )
-    engine = provider.compose(provider_settings, dependencies)
-    return build_application(engine=engine)
+    templates = JinjaTemplateCompiler(
+        max_entries=cache_settings.template_environment_max_entries,
+        observer=cache_observer,
+        worker=worker,
+        local_access=local_access,
+    )
+    preparer = DefaultHtmlPreparer(
+        resources=resources,
+        templates=templates,
+        worker=worker,
+    )
+
+    if provider is None:
+        engine = EngineBindings(
+            lifecycle=_IdleLifecycle(),
+        )
+    else:
+        if provider_settings is None:
+            raise ProviderUnavailable(
+                f"Provider `{provider.id}` has no parsed settings; composition was not prepared."
+            )
+        availability = provider.availability(provider_settings)
+        if not availability.available:
+            reason = availability.reason or "no availability reason was provided"
+            engine = EngineBindings(
+                lifecycle=_UnavailableLifecycle(provider.id, reason),
+                prepared_html_executor=_UnavailableExecutor(provider.id, reason),
+            )
+        else:
+            engine = provider.compose(
+                provider_settings,
+                ProviderDependencies(
+                    operation_observer=operation_observer,
+                    cache_observer=cache_observer,
+                    worker_executor=worker,
+                    resource_reader=reader,
+                    local_access_policy=local_access,
+                    resource_service=resources,
+                    asset_publisher=publisher,
+                ),
+            )
+    lifecycle = _ComposedLifecycle(
+        engine=engine.lifecycle,
+        resources=resources,
+        templates=templates,
+        publisher=publisher,
+    )
+    return build_application(
+        engine=replace(engine, lifecycle=lifecycle),
+        preparer=preparer,
+        resources=resources,
+    )
 
 
-__all__ = [
-    "ComposedRuntime",
-    "build_core_resource_config",
-    "prepare_runtime",
-    "select_observers",
-]
+__all__ = ["ComposedRuntime", "prepare_runtime", "select_observers"]

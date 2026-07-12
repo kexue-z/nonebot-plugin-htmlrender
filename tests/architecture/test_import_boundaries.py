@@ -1,13 +1,9 @@
-"""Architecture guardrails for the 0.8 layering.
+"""Target-state architecture guardrails for the 0.8 layering.
 
-Static AST scan of every module in the package. The rules describe the
-*target* architecture; edges that still exist in the legacy code base are
-tracked in ``LEGACY_EDGES`` and must shrink phase by phase. The test fails
-both on new violations and on stale allowlist entries, so the allowlist can
-only ratchet down.
-
-Known limitation: string-based lazy imports (``import_module("...")``) are
-not covered here; the final acceptance sweep handles those separately.
+The scan is deliberately independent from importing the package: importing the
+top-level plugin executes the NoneBot composition root, while these checks must
+also work in a bare test process.  Both ordinary imports and literal lazy
+imports participate in the same dependency rules.
 """
 
 from __future__ import annotations
@@ -15,6 +11,7 @@ from __future__ import annotations
 import ast
 from dataclasses import dataclass, field
 from pathlib import Path
+import re
 
 PACKAGE = "nonebot_plugin_htmlrender"
 PACKAGE_ROOT = Path(__file__).resolve().parents[2] / PACKAGE
@@ -27,8 +24,6 @@ class LayerRule:
     name: str
     scopes: tuple[str, ...]
     banned: tuple[str, ...]
-    excluded_scopes: tuple[str, ...] = ()
-    allowed: tuple[str, ...] = ()
 
 
 def _absolute(scope: str) -> str:
@@ -39,30 +34,29 @@ def _matches(module: str, prefix: str) -> bool:
     return module == prefix or module.startswith(f"{prefix}.")
 
 
-DOMAIN_SCOPES = ("rendering", "application", "preparation", "resources")
+CORE_SCOPES = ("rendering", "application", "preparation", "resources")
 
-DOMAIN_BANNED = (
+CORE_BANNED = (
     _absolute("adapters"),
     _absolute("api"),
     _absolute("bootstrap"),
+    _absolute("telemetry"),
     _absolute("utils.telemetry"),
     "nonebot",
+    "opentelemetry",
+    "prometheus_client",
+    "sentry_sdk",
 )
 
 RULES: tuple[LayerRule, ...] = (
     LayerRule(
-        name="domain packages must not import adapters/bootstrap/telemetry/legacy",
-        scopes=DOMAIN_SCOPES,
-        # resources.filehost is an AssetPublisher adapter by design; it moves
-        # to adapters/ in the physical-migration phase and is scanned then.
-        excluded_scopes=("resources.filehost",),
-        banned=DOMAIN_BANNED,
-        allowed=("nonebot.log",),
+        name="core packages must not depend on hosts or adapters",
+        scopes=CORE_SCOPES,
+        banned=CORE_BANNED,
     ),
     LayerRule(
         name="resources must not import higher layers",
         scopes=("resources",),
-        excluded_scopes=("resources.filehost",),
         banned=(
             _absolute("preparation"),
             _absolute("application"),
@@ -82,8 +76,6 @@ RULES: tuple[LayerRule, ...] = (
         ),
     ),
     LayerRule(
-        # The provider SDK is composition-facing; only application's assembly
-        # helpers may reference its DTO types.
         name="rendering must not import the provider SDK",
         scopes=("rendering",),
         banned=(_absolute("providers"),),
@@ -100,19 +92,13 @@ RULES: tuple[LayerRule, ...] = (
     ),
 )
 
-# (module, imported target) -> planned removal note. Shrinks per phase;
-# stale entries fail the test so the ratchet only moves one way.
-LEGACY_EDGES: dict[tuple[str, str], str] = {}
-
 
 @dataclass(frozen=True)
 class ImportEdge:
     module: str
     target: str
     lineno: int = field(compare=False)
-
-    def key(self) -> tuple[str, str]:
-        return (self.module, self.target)
+    kind: str = field(compare=False, default="import")
 
 
 def _module_name(path: Path) -> str:
@@ -142,6 +128,74 @@ def _resolve_import_base(
     return ".".join(parts)
 
 
+def _resolve_lazy_target(raw: str, *, module: str, is_package: bool) -> str:
+    if not raw.startswith("."):
+        return raw
+    relative = raw.lstrip(".")
+    return _resolve_import_base(
+        module,
+        is_package=is_package,
+        level=len(raw) - len(relative),
+        target=relative or None,
+    )
+
+
+def _lazy_import_aliases(tree: ast.AST) -> tuple[set[str], set[str]]:
+    direct = {"__import__"}
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name == "importlib":
+                    modules.add(alias.asname or "importlib")
+        elif isinstance(node, ast.ImportFrom) and node.module == "importlib":
+            for alias in node.names:
+                if alias.name == "import_module":
+                    direct.add(alias.asname or alias.name)
+    return direct, modules
+
+
+def _literal_lazy_imports(
+    tree: ast.AST,
+    *,
+    module: str,
+    is_package: bool,
+) -> list[ImportEdge]:
+    direct, modules = _lazy_import_aliases(tree)
+    edges: list[ImportEdge] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call) or not node.args:
+            continue
+        function = node.func
+        is_loader = isinstance(function, ast.Name) and function.id in direct
+        is_loader = is_loader or (
+            isinstance(function, ast.Attribute)
+            and function.attr == "import_module"
+            and isinstance(function.value, ast.Name)
+            and function.value.id in modules
+        )
+        if not is_loader:
+            continue
+        target_node = node.args[0]
+        if not (
+            isinstance(target_node, ast.Constant) and isinstance(target_node.value, str)
+        ):
+            continue
+        edges.append(
+            ImportEdge(
+                module=module,
+                target=_resolve_lazy_target(
+                    target_node.value,
+                    module=module,
+                    is_package=is_package,
+                ),
+                lineno=node.lineno,
+                kind="literal lazy import",
+            )
+        )
+    return edges
+
+
 def _collect_edges() -> list[ImportEdge]:
     edges: list[ImportEdge] = []
     for path in sorted(PACKAGE_ROOT.rglob("*.py")):
@@ -168,55 +222,146 @@ def _collect_edges() -> list[ImportEdge]:
                     )
                     for alias in node.names
                 )
+        edges.extend(
+            _literal_lazy_imports(
+                tree,
+                module=module,
+                is_package=is_package,
+            )
+        )
     return edges
 
 
 def _in_scope(module: str, rule: LayerRule) -> bool:
-    if not any(_matches(module, _absolute(scope)) for scope in rule.scopes):
-        return False
-    return not any(_matches(module, _absolute(scope)) for scope in rule.excluded_scopes)
+    return any(_matches(module, _absolute(scope)) for scope in rule.scopes)
 
 
 def _is_banned(target: str, rule: LayerRule) -> bool:
-    if any(_matches(target, prefix) for prefix in rule.allowed):
-        return False
     return any(_matches(target, prefix) for prefix in rule.banned)
 
 
-def _find_violations() -> dict[tuple[str, str], str]:
-    violations: dict[tuple[str, str], str] = {}
+def _find_violations() -> list[str]:
+    violations: set[str] = set()
     for edge in _collect_edges():
         for rule in RULES:
             if _in_scope(edge.module, rule) and _is_banned(edge.target, rule):
-                violations[edge.key()] = (
-                    f"{edge.module}:{edge.lineno} imports {edge.target}"
+                violations.add(
+                    f"{edge.module}:{edge.lineno} {edge.kind} {edge.target}"
                     f" (rule: {rule.name})"
                 )
-    return violations
+    return sorted(violations)
 
 
-def test_layer_rules_hold_outside_legacy_allowlist() -> None:
+def test_layer_rules_hold_for_static_and_literal_lazy_imports() -> None:
     violations = _find_violations()
+    assert not violations, "Forbidden dependency edges:\n  " + "\n  ".join(violations)
 
-    new_violations = [
-        description
-        for key, description in sorted(violations.items())
-        if key not in LEGACY_EDGES
-    ]
-    assert not new_violations, (
-        "New forbidden import edges introduced:\n  " + "\n  ".join(new_violations)
+
+def test_filehost_adapter_is_not_nested_under_the_resource_core() -> None:
+    legacy_adapter = PACKAGE_ROOT / "resources" / "filehost"
+    assert not legacy_adapter.exists(), (
+        "resources.filehost is a host adapter and must live under adapters/resources"
     )
 
 
-def test_legacy_allowlist_has_no_stale_entries() -> None:
-    violations = _find_violations()
+def test_observability_adapter_is_not_nested_under_utils() -> None:
+    legacy_adapter = PACKAGE_ROOT / "utils" / "telemetry"
+    assert not legacy_adapter.exists(), (
+        "telemetry integrates host SDKs and must live under adapters/observability"
+    )
 
-    stale = [
-        f"{module} -> {target} ({note})"
-        for (module, target), note in sorted(LEGACY_EDGES.items())
-        if (module, target) not in violations
-    ]
-    assert not stale, (
-        "LEGACY_EDGES entries no longer occur; remove them to keep the "
-        "ratchet honest:\n  " + "\n  ".join(stale)
+
+def test_transitional_implementation_modules_are_physically_removed() -> None:
+    legacy_modules = (
+        "adapters/_backend.py",
+        "preparation/content.py",
+        "preparation/resolve.py",
+        "resources/budget.py",
+        "resources/cache.py",
+        "resources/resolve.py",
+        "resources/template.py",
+        "resources/weighted_cache.py",
+    )
+    present = [module for module in legacy_modules if (PACKAGE_ROOT / module).exists()]
+    assert not present, f"Transitional implementation modules remain: {present!r}"
+
+
+def test_literal_lazy_import_collector_handles_supported_loader_forms() -> None:
+    tree = ast.parse(
+        """
+from importlib import import_module as load
+import importlib as imports
+
+load("nonebot_plugin_htmlrender.adapters.resources")
+imports.import_module("nonebot")
+__import__("sentry_sdk")
+"""
+    )
+
+    edges = _literal_lazy_imports(
+        tree,
+        module="nonebot_plugin_htmlrender.resources.synthetic",
+        is_package=False,
+    )
+
+    assert {(edge.target, edge.kind) for edge in edges} == {
+        ("nonebot", "literal lazy import"),
+        ("nonebot_plugin_htmlrender.adapters.resources", "literal lazy import"),
+        ("sentry_sdk", "literal lazy import"),
+    }
+
+
+_LOCATOR_NAME = re.compile(
+    r"^(?:"
+    r"(?:register|set)_[a-z0-9_]*(?:provider|registry|resolver|observer|service)"
+    r"|get_[a-z0-9_]*(?:config|settings|provider|registry|resolver|observer|cache|service)"
+    r")$"
+)
+
+
+@dataclass(frozen=True)
+class LocatorUse:
+    module: str
+    symbol: str
+    lineno: int
+    kind: str
+
+
+def _called_symbol(node: ast.Call) -> str | None:
+    if isinstance(node.func, ast.Name):
+        return node.func.id
+    if isinstance(node.func, ast.Attribute):
+        return node.func.attr
+    return None
+
+
+def _collect_service_locator_uses() -> list[LocatorUse]:
+    uses: set[LocatorUse] = set()
+    for path in sorted(PACKAGE_ROOT.rglob("*.py")):
+        module = _module_name(path)
+        if not any(_matches(module, _absolute(scope)) for scope in CORE_SCOPES):
+            continue
+        tree = ast.parse(path.read_text("utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                if _LOCATOR_NAME.fullmatch(node.name):
+                    uses.add(LocatorUse(module, node.name, node.lineno, "definition"))
+            elif isinstance(node, ast.Call):
+                symbol = _called_symbol(node)
+                if symbol is not None and _LOCATOR_NAME.fullmatch(symbol):
+                    uses.add(LocatorUse(module, symbol, node.lineno, "call"))
+            elif isinstance(node, (ast.Import, ast.ImportFrom)):
+                for alias in node.names:
+                    symbol = alias.asname or alias.name.rsplit(".", 1)[-1]
+                    if _LOCATOR_NAME.fullmatch(symbol):
+                        uses.add(LocatorUse(module, symbol, node.lineno, "import"))
+    return sorted(uses, key=lambda use: (use.module, use.lineno, use.symbol, use.kind))
+
+
+def test_core_has_no_global_config_or_service_locator_seams() -> None:
+    uses = _collect_service_locator_uses()
+    details = [f"{use.module}:{use.lineno} {use.kind} {use.symbol}" for use in uses]
+    assert not details, (
+        "Core layers must receive configuration, observers, caches, and services "
+        "through constructor injection:\n  " + "\n  ".join(details)
     )

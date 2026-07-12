@@ -5,26 +5,33 @@ from __future__ import annotations
 from pathlib import Path
 
 from nonebot import get_plugin_config
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from nonebot_plugin_htmlrender.consts import RenderStartupMode
 
 
-class CacheSettings(BaseModel):
+class _StrictRenderModel(BaseModel):
+    """Reject misspelled keys inside the plugin-owned ``render`` tree."""
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class CacheSettings(_StrictRenderModel):
     """Sizing of the shared resource cache budget."""
 
     max_entries: int = Field(default=256, ge=0)
     max_bytes: int = Field(default=64 * 1024 * 1024, ge=0)
+    max_resource_bytes: int = Field(default=64 * 1024 * 1024, ge=0)
     revalidate_seconds: float = Field(default=1.0, ge=0.0)
 
 
-class TemplateSettings(BaseModel):
+class TemplateSettings(_StrictRenderModel):
     """Sizing of the template environment cache."""
 
     environment_cache_max_entries: int = Field(default=64, ge=0)
 
 
-class LocalAccessSettings(BaseModel):
+class LocalAccessSettings(_StrictRenderModel):
     """Security policy for local filesystem resource access."""
 
     allow_any_path: bool = Field(default=False)
@@ -40,22 +47,38 @@ class LocalAccessSettings(BaseModel):
         return v
 
 
-class ObservabilitySettings(BaseModel):
+class FilehostSettings(_StrictRenderModel):
+    """Core-owned settings for the optional asset publisher adapter."""
+
+    cache_ttl_seconds: float = Field(default=300.0, ge=0.0)
+    request_header_name: str = Field(default="X-HTMLRender-Filehost-Request")
+    request_header_value: str | None = Field(default=None)
+    request_header_salt: str = Field(
+        default="nonebot-plugin-htmlrender:filehost:guard:v1"
+    )
+    prewarm_enabled: bool = Field(default=True)
+    prewarm_max_files: int = Field(default=256, ge=0)
+    prewarm_paths: list[Path] = Field(default_factory=list)
+    prewarm_extensions: list[str] = Field(default_factory=list)
+
+
+class ObservabilitySettings(_StrictRenderModel):
     """Which observability integrations this plugin exports to."""
 
     sentry: bool = Field(default=False)
     prometheus: bool = Field(default=False)
 
 
-class ResourceSettings(BaseModel):
+class ResourceSettings(_StrictRenderModel):
     """Core-validated resource, cache, and security configuration."""
 
     cache: CacheSettings = Field(default_factory=CacheSettings)
     templates: TemplateSettings = Field(default_factory=TemplateSettings)
     local_access: LocalAccessSettings = Field(default_factory=LocalAccessSettings)
+    filehost: FilehostSettings = Field(default_factory=FilehostSettings)
 
 
-class RenderSettings(BaseModel):
+class RenderSettings(_StrictRenderModel):
     """The whole ``render`` configuration namespace."""
 
     provider: str | None = Field(default=None)
@@ -67,6 +90,10 @@ class RenderSettings(BaseModel):
 
 class RenderPluginConfig(BaseModel):
     """NoneBot plugin configuration entry point."""
+
+    # ``get_plugin_config`` validates this wrapper against the complete NoneBot
+    # configuration, so unrelated top-level plugin keys must remain accepted.
+    model_config = ConfigDict(extra="ignore")
 
     render: RenderSettings = Field(default_factory=RenderSettings)
 
@@ -118,6 +145,7 @@ def load_render_settings() -> RenderSettings:
 __all__ = [
     "LEGACY_CONFIG_KEYS",
     "CacheSettings",
+    "FilehostSettings",
     "LocalAccessSettings",
     "ObservabilitySettings",
     "RenderPluginConfig",

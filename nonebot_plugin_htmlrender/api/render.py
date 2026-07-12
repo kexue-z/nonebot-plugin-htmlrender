@@ -92,6 +92,7 @@ async def render_text(
     device_pixel_ratio: float = 2.0,
     image_format: Literal["png", "jpeg"] = "png",
     quality: int | None = None,
+    resource_policy: ResourcePolicy | None = None,
     timeout_seconds: float | None = None,
 ) -> RenderedImage:
     """Render plain text into a raster image."""
@@ -105,6 +106,7 @@ async def render_text(
             image_format=image_format,
             quality=quality,
         ),
+        resource_policy=resource_policy,
         timeout_seconds=timeout_seconds,
     )
     return await get_default_renderer().render_text(request)

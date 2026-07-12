@@ -8,12 +8,19 @@ registries, or process-global configuration.
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from typing import TYPE_CHECKING, final
 
+import anyio
+
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.rendering.artifacts import RenderedHtml, RenderedImage
+from nonebot_plugin_htmlrender.rendering.errors import ProviderExecutionError
 from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from nonebot_plugin_htmlrender.preparation.models import RasterOptions
     from nonebot_plugin_htmlrender.preparation.service import HtmlPreparer
     from nonebot_plugin_htmlrender.rendering.ports import PreparedHtmlExecutor
@@ -49,6 +56,28 @@ def _preparation_strictness(policy: ResourcePolicy | None) -> bool | None:
     return None
 
 
+def _preparation_resolve_mode(
+    policy: ResourcePolicy | None,
+) -> ResourceResolveMode | None:
+    if policy is None:
+        return None
+    return ResourceResolveMode(policy.value)
+
+
+@contextmanager
+def _operation_timeout(timeout_seconds: float | None) -> Iterator[None]:
+    if timeout_seconds is None:
+        yield
+        return
+    try:
+        with anyio.fail_after(timeout_seconds):
+            yield
+    except TimeoutError as error:
+        raise ProviderExecutionError(
+            f"Render operation timed out after {timeout_seconds} seconds."
+        ) from error
+
+
 @final
 class RenderHtml:
     def __init__(
@@ -61,17 +90,18 @@ class RenderHtml:
         self._executor = executor
 
     async def execute(self, request: RenderHtmlRequest) -> RenderedImage:
-        prepared = await self._preparer.prepare_html(
-            request.html,
-            base_url=request.base_url,
-        )
-        data = await self._executor.execute(
-            prepared,
-            request.raster,
-            resource_policy=request.resource_policy,
-            timeout_seconds=request.timeout_seconds,
-        )
-        return _rendered_image(request.raster, data)
+        with _operation_timeout(request.timeout_seconds):
+            prepared = await self._preparer.prepare_html(
+                request.html,
+                base_url=request.base_url,
+            )
+            data = await self._executor.execute(
+                prepared,
+                request.raster,
+                resource_policy=request.resource_policy,
+                timeout_seconds=request.timeout_seconds,
+            )
+            return _rendered_image(request.raster, data)
 
 
 @final
@@ -86,16 +116,18 @@ class RenderText:
         self._executor = executor
 
     async def execute(self, request: RenderTextRequest) -> RenderedImage:
-        prepared = await self._preparer.prepare_text(
-            request.text,
-            css_path=request.css_path,
-        )
-        data = await self._executor.execute(
-            prepared,
-            request.raster,
-            timeout_seconds=request.timeout_seconds,
-        )
-        return _rendered_image(request.raster, data)
+        with _operation_timeout(request.timeout_seconds):
+            prepared = await self._preparer.prepare_text(
+                request.text,
+                css_path=request.css_path,
+            )
+            data = await self._executor.execute(
+                prepared,
+                request.raster,
+                resource_policy=request.resource_policy,
+                timeout_seconds=request.timeout_seconds,
+            )
+            return _rendered_image(request.raster, data)
 
 
 @final
@@ -110,19 +142,20 @@ class RenderMarkdown:
         self._executor = executor
 
     async def execute(self, request: RenderMarkdownRequest) -> RenderedImage:
-        prepared = await self._preparer.prepare_markdown(
-            request.markdown,
-            markdown_path=request.markdown_path,
-            css_path=request.css_path,
-            resource_strict=_preparation_strictness(request.resource_policy),
-        )
-        data = await self._executor.execute(
-            prepared,
-            request.raster,
-            resource_policy=request.resource_policy,
-            timeout_seconds=request.timeout_seconds,
-        )
-        return _rendered_image(request.raster, data)
+        with _operation_timeout(request.timeout_seconds):
+            prepared = await self._preparer.prepare_markdown(
+                request.markdown,
+                markdown_path=request.markdown_path,
+                css_path=request.css_path,
+                resource_strict=_preparation_strictness(request.resource_policy),
+            )
+            data = await self._executor.execute(
+                prepared,
+                request.raster,
+                resource_policy=request.resource_policy,
+                timeout_seconds=request.timeout_seconds,
+            )
+            return _rendered_image(request.raster, data)
 
 
 @final
@@ -137,20 +170,22 @@ class RenderTemplate:
         self._executor = executor
 
     async def execute(self, request: RenderTemplateRequest) -> RenderedImage:
-        prepared = await self._preparer.prepare_template(
-            request.template_path,
-            request.template_name,
-            request.variables,
-            filters=request.filters,
-            extensions=request.extensions,
-        )
-        data = await self._executor.execute(
-            prepared,
-            request.raster,
-            resource_policy=request.resource_policy,
-            timeout_seconds=request.timeout_seconds,
-        )
-        return _rendered_image(request.raster, data)
+        with _operation_timeout(request.timeout_seconds):
+            prepared = await self._preparer.prepare_template(
+                request.template_path,
+                request.template_name,
+                request.variables,
+                filters=request.filters,
+                extensions=request.extensions,
+                resource_mode=_preparation_resolve_mode(request.resource_policy),
+            )
+            data = await self._executor.execute(
+                prepared,
+                request.raster,
+                resource_policy=request.resource_policy,
+                timeout_seconds=request.timeout_seconds,
+            )
+            return _rendered_image(request.raster, data)
 
 
 @final
@@ -175,10 +210,11 @@ class RasterizeHtml:
         self._executor = executor
 
     async def execute(self, request: RasterizeHtmlRequest) -> RenderedImage:
-        data = await self._executor.execute(
-            request.prepared,
-            request.options,
-            resource_policy=request.resource_policy,
-            timeout_seconds=request.timeout_seconds,
-        )
-        return _rendered_image(request.options, data)
+        with _operation_timeout(request.timeout_seconds):
+            data = await self._executor.execute(
+                request.prepared,
+                request.options,
+                resource_policy=request.resource_policy,
+                timeout_seconds=request.timeout_seconds,
+            )
+            return _rendered_image(request.options, data)

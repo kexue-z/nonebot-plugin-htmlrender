@@ -1,9 +1,8 @@
 """Process-default Application holder.
 
-The NoneBot bootstrap composes the object graph once and installs it here;
-the convenience functions resolve through these accessors. This is one of
-the two sanctioned process-level singletons (the other being the provider
-discovery cache).
+The NoneBot bootstrap installs a lazy application factory here; the first
+convenience call builds and retains the process-default object graph. This
+holder is the only process-level state in the render object graph.
 """
 
 from __future__ import annotations

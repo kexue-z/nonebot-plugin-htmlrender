@@ -9,6 +9,10 @@ from nonebot_plugin_htmlrender.api import (
 from nonebot_plugin_htmlrender.api import (
     get_default_renderer as get_default_renderer,
 )
+from nonebot_plugin_htmlrender.api import prepare_html as prepare_html
+from nonebot_plugin_htmlrender.api import prepare_markdown as prepare_markdown
+from nonebot_plugin_htmlrender.api import prepare_template as prepare_template
+from nonebot_plugin_htmlrender.api import prepare_text as prepare_text
 from nonebot_plugin_htmlrender.api import (
     rasterize_html as rasterize_html,
 )
@@ -28,8 +32,12 @@ from nonebot_plugin_htmlrender.api import (
     render_text as render_text,
 )
 from nonebot_plugin_htmlrender.api import (
+    resolve_template_vars as resolve_template_vars,
+)
+from nonebot_plugin_htmlrender.api import (
     set_default_application as set_default_application,
 )
+from nonebot_plugin_htmlrender.api import to_resource_url as to_resource_url
 from nonebot_plugin_htmlrender.application import (
     Application as Application,
 )
@@ -58,18 +66,6 @@ from nonebot_plugin_htmlrender.preparation import (
 from nonebot_plugin_htmlrender.preparation import (
     RenderRequirement as RenderRequirement,
 )
-from nonebot_plugin_htmlrender.preparation import (
-    prepare_html as prepare_html,
-)
-from nonebot_plugin_htmlrender.preparation import (
-    prepare_markdown as prepare_markdown,
-)
-from nonebot_plugin_htmlrender.preparation import (
-    prepare_template as prepare_template,
-)
-from nonebot_plugin_htmlrender.preparation import (
-    prepare_text as prepare_text,
-)
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityCatalog as CapabilityCatalog,
 )
@@ -81,6 +77,9 @@ from nonebot_plugin_htmlrender.rendering import (
 )
 from nonebot_plugin_htmlrender.rendering import (
     InvalidRenderRequest as InvalidRenderRequest,
+)
+from nonebot_plugin_htmlrender.rendering import (
+    PreparationError as PreparationError,
 )
 from nonebot_plugin_htmlrender.rendering import (
     ProviderExecutionError as ProviderExecutionError,
@@ -133,12 +132,6 @@ from nonebot_plugin_htmlrender.rendering import (
 from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRequirement as UnsupportedRequirement,
 )
-from nonebot_plugin_htmlrender.resources import (
-    resolve_template_vars as resolve_template_vars,
-)
-from nonebot_plugin_htmlrender.resources import (
-    to_resource_url as to_resource_url,
-)
 
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-htmlrender",
@@ -161,6 +154,7 @@ __all__ = [
     "CapabilityKey",
     "CapabilityUnavailable",
     "InvalidRenderRequest",
+    "PreparationError",
     "PreparedAsset",
     "PreparedHtml",
     "PreparedStylesheet",

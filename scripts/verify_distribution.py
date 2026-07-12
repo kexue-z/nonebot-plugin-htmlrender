@@ -63,7 +63,7 @@ plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
 check(plugin is not None, "NoneBot could not load nonebot_plugin_htmlrender")
 
 import nonebot_plugin_htmlrender
-from nonebot_plugin_htmlrender.preparation import prepare_markdown, prepare_text
+from nonebot_plugin_htmlrender import prepare_markdown, prepare_text
 
 module_path = Path(nonebot_plugin_htmlrender.__file__).resolve()
 check(
@@ -130,10 +130,8 @@ nonebot.init(driver="~none", render={"provider": "takumi", "startup": "off"})
 plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
 check(plugin is not None, "NoneBot could not load nonebot_plugin_htmlrender")
 
-from nonebot_plugin_htmlrender.adapters.takumi import TakumiConfig, TakumiExtension
-from nonebot_plugin_htmlrender.adapters.takumi.operations import rasterize_html
-from nonebot_plugin_htmlrender.adapters.takumi.runtime import create_runtime_state
-from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_text
+from nonebot_plugin_htmlrender import get_default_application, render_text
+from nonebot_plugin_htmlrender.adapters.takumi.capabilities import TAKUMI_CAPABILITIES
 
 installed_version = version("nonebot-plugin-htmlrender")
 expected_version = os.environ["HTMLRENDER_EXPECTED_VERSION"]
@@ -151,8 +149,10 @@ check(
 
 
 async def main() -> None:
-    state = await create_runtime_state(TakumiConfig())
+    application = get_default_application()
+    await application.startup()
     try:
+        capability = application.capabilities.require(TAKUMI_CAPABILITIES)
         node = {
             "type": "container",
             "style": {
@@ -161,7 +161,8 @@ async def main() -> None:
                 "backgroundColor": "#ff0000",
             },
         }
-        rendered = await TakumiExtension(state).render_node(node, width=8, height=4)
+        async with capability.extension() as extension:
+            rendered = await extension.render_node(node, width=8, height=4)
         check(
             rendered.startswith(b"\x89PNG\r\n\x1a\n"),
             "Takumi node smoke did not produce a PNG",
@@ -172,18 +173,18 @@ async def main() -> None:
             f"Takumi node smoke produced unexpected dimensions: {dimensions!r}",
         )
 
-        prepared_text = await prepare_text("installed Takumi smoke")
-        prepared = await rasterize_html(
-            state,
-            prepared_text,
-            RasterOptions(width=180, device_pixel_ratio=1.0),
+        artifact = await render_text(
+            "installed Takumi smoke",
+            width=180,
+            device_pixel_ratio=1.0,
         )
+        prepared = bytes(artifact)
         check(
             prepared.startswith(b"\x89PNG\r\n\x1a\n"),
             "Takumi installed text smoke did not produce a PNG",
         )
     finally:
-        await state.aclose()
+        await application.aclose()
 
 
 asyncio.run(main())

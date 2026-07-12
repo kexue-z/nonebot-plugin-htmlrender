@@ -8,10 +8,17 @@ from typing import TYPE_CHECKING, final
 import anyio
 
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
-from nonebot_plugin_htmlrender.rendering.errors import ProviderLifecycleError
+from nonebot_plugin_htmlrender.rendering.errors import (
+    ProviderLifecycleError,
+    RenderingError,
+)
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
+    from nonebot_plugin_htmlrender.preparation.service import HtmlPreparer
     from nonebot_plugin_htmlrender.rendering.ports import ApplicationLifecycle
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
     from .renderer import Renderer
 
@@ -19,6 +26,7 @@ if TYPE_CHECKING:
 class _AppState(Enum):
     NEW = auto()
     STARTED = auto()
+    CLOSING = auto()
     CLOSED = auto()
 
 
@@ -30,10 +38,14 @@ class Application:
         self,
         *,
         renderer: Renderer,
+        preparation: HtmlPreparer,
+        resources: ResourceService,
         lifecycle: ApplicationLifecycle,
         capabilities: CapabilityCatalog | None = None,
     ) -> None:
         self._renderer = renderer
+        self._preparation = preparation
+        self._resources = resources
         self._lifecycle = lifecycle
         self._capabilities = (
             capabilities if capabilities is not None else CapabilityCatalog()
@@ -46,29 +58,62 @@ class Application:
         return self._renderer
 
     @property
+    def preparation(self) -> HtmlPreparer:
+        return self._preparation
+
+    @property
+    def resources(self) -> ResourceService:
+        return self._resources
+
+    @property
     def capabilities(self) -> CapabilityCatalog:
         return self._capabilities
+
+    async def _run_lifecycle(
+        self,
+        operation: str,
+        callback: Callable[[], Awaitable[None]],
+    ) -> None:
+        try:
+            await callback()
+        except RenderingError:
+            raise
+        except Exception as error:
+            raise ProviderLifecycleError(
+                f"Application lifecycle {operation} failed: {error}"
+            ) from error
 
     async def startup(self) -> None:
         """Start the provider runtime; idempotent and concurrency-safe."""
         async with self._lock:
-            if self._state is _AppState.CLOSED:
+            if self._state in {_AppState.CLOSING, _AppState.CLOSED}:
                 raise ProviderLifecycleError(
-                    "Application is closed; build a new composition to render again."
+                    "Application is closing or closed; build a new composition "
+                    "to render again."
                 )
             if self._state is _AppState.STARTED:
                 return
-            await self._lifecycle.startup()
+            await self._run_lifecycle("startup", self._lifecycle.startup)
             self._state = _AppState.STARTED
 
     async def probe(self) -> None:
         """Run the provider-defined minimal probe."""
-        await self._lifecycle.probe()
+        await self.startup()
+        async with self._lock:
+            if self._state is not _AppState.STARTED:
+                raise ProviderLifecycleError(
+                    "Application is closing or closed; build a new composition "
+                    "to probe again."
+                )
+            await self._run_lifecycle("probe", self._lifecycle.probe)
 
     async def aclose(self) -> None:
         """Close the provider runtime; idempotent for multiple callers."""
         async with self._lock:
             if self._state is _AppState.CLOSED:
                 return
+            # A failed teardown remains retryable, but startup is permanently
+            # rejected once closing has begun.
+            self._state = _AppState.CLOSING
+            await self._run_lifecycle("aclose", self._lifecycle.aclose)
             self._state = _AppState.CLOSED
-            await self._lifecycle.aclose()

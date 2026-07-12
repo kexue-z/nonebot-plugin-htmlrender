@@ -3,6 +3,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import pytest
+
+from nonebot_plugin_htmlrender.adapters.resources import (
+    AnyioWorkerExecutor,
+    ConfiguredLocalAccessPolicy,
+    build_resource_reader,
+)
 from nonebot_plugin_htmlrender.application import build_application
 from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
@@ -12,8 +19,18 @@ from nonebot_plugin_htmlrender.rendering import (
     RenderHtmlRequest,
     ResourcePolicy,
 )
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceCacheSettings,
+    ResourceStrategy,
+)
+from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
+from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping, Sequence
+    from pathlib import Path
+    from typing import Any
+
     from nonebot_plugin_htmlrender.preparation.models import (
         PreparedHtml,
         RasterOptions,
@@ -51,11 +68,56 @@ class _FakeExecutor:
         return b"image-bytes"
 
 
+class _FakeTemplateCompiler:
+    async def render(
+        self,
+        template_path: object,
+        template_name: str,
+        variables: Mapping[str, Any],
+        *,
+        filters: Mapping[str, Callable[..., Any]] | None = None,
+        immutable: bool = False,
+        extensions: Sequence[object] = (),
+    ) -> str:
+        del template_path, template_name, variables, filters, immutable, extensions
+        return ""
+
+    async def clear(self) -> None:
+        return None
+
+
 class _Marker:
     pass
 
 
-def test_build_application_with_executor_binds_all_use_cases() -> None:
+@pytest.fixture
+def resources(tmp_path: Path) -> ResourceService:
+    observer = NoopCacheObserver()
+    worker = AnyioWorkerExecutor()
+    return ResourceService(
+        reader=build_resource_reader(ResourceCacheSettings(), observer, worker),
+        local_access=ConfiguredLocalAccessPolicy(
+            allowed_roots=(tmp_path,),
+            allow_any=False,
+        ),
+        strategy=ResourceStrategy(),
+    )
+
+
+@pytest.fixture
+def preparer(resources: ResourceService) -> DefaultHtmlPreparer:
+    worker = AnyioWorkerExecutor()
+    return DefaultHtmlPreparer(
+        resources=resources,
+        templates=_FakeTemplateCompiler(),
+        worker=worker,
+    )
+
+
+def test_build_application_with_executor_binds_all_use_cases(
+    preparer: DefaultHtmlPreparer,
+    resources: ResourceService,
+) -> None:
     marker = _Marker()
     key = CapabilityKey("test.marker", _Marker)
     engine = EngineBindings(
@@ -64,7 +126,11 @@ def test_build_application_with_executor_binds_all_use_cases() -> None:
         provider_capabilities=CapabilityCatalog().with_capability(key, marker),
     )
 
-    application = build_application(engine=engine)
+    application = build_application(
+        engine=engine,
+        preparer=preparer,
+        resources=resources,
+    )
 
     assert application.renderer.capabilities == frozenset(
         {
@@ -77,17 +143,29 @@ def test_build_application_with_executor_binds_all_use_cases() -> None:
         }
     )
     assert application.capabilities.require(key) is marker
+    assert application.preparation is preparer
+    assert application.resources is resources
 
 
-def test_build_application_without_executor_only_renders_html() -> None:
+def test_build_application_without_executor_only_renders_html(
+    preparer: DefaultHtmlPreparer,
+    resources: ResourceService,
+) -> None:
     engine = EngineBindings(lifecycle=_FakeLifecycle())
 
-    application = build_application(engine=engine)
+    application = build_application(
+        engine=engine,
+        preparer=preparer,
+        resources=resources,
+    )
 
     assert application.renderer.capabilities == frozenset({"render_template_html"})
 
 
-async def test_built_application_renders_through_real_preparer() -> None:
+async def test_built_application_renders_through_real_preparer(
+    preparer: DefaultHtmlPreparer,
+    resources: ResourceService,
+) -> None:
     executor = _FakeExecutor()
     engine = EngineBindings(
         lifecycle=_FakeLifecycle(),
@@ -95,7 +173,8 @@ async def test_built_application_renders_through_real_preparer() -> None:
     )
     application = build_application(
         engine=engine,
-        preparer=DefaultHtmlPreparer(),
+        preparer=preparer,
+        resources=resources,
     )
 
     artifact = await application.renderer.render_html(
