@@ -7,8 +7,6 @@ from typing_extensions import ParamSpec
 import anyio
 from nonebot.log import logger
 
-from nonebot_plugin_htmlrender.utils.telemetry import track_render as track_render
-
 P = ParamSpec("P")
 R = TypeVar("R")
 
@@ -43,6 +41,5 @@ def with_lock(func: Callable[P, Awaitable[R]]) -> Callable[P, Awaitable[R]]:
 
 __all__ = [
     "suppress_and_log",
-    "track_render",
     "with_lock",
 ]

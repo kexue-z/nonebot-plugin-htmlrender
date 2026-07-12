@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from nonebot_plugin_htmlrender.utils.telemetry import sentry
+from nonebot_plugin_htmlrender.adapters.observability import sentry
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -16,20 +16,11 @@ def _reset_sentry_state() -> None:
     sentry._state.sdk = None
 
 
-def test_sentry_enablement_flags(mocker: MockerFixture) -> None:
-    values = {
-        "sentry_dsn": "dsn",
-        "sentry_traces_sample_rate": 1.0,
-        "sentry_traces_sampler": None,
-        "sentry_profiles_sample_rate": None,
-        "sentry_profiles_sampler": "sampler",
-        "sentry_profile_session_sample_rate": None,
-    }
-    mocker.patch.object(sentry, "get_config_value", side_effect=values.get)
-
+def test_sentry_exporter_does_not_read_nonebot_global_config() -> None:
+    assert not hasattr(sentry, "get_config_value")
     assert sentry.is_sentry_enabled() is True
     assert sentry.is_sentry_tracing_enabled() is True
-    assert sentry.is_sentry_profiling_enabled() is True
+    assert sentry.is_sentry_profiling_enabled() is False
 
 
 def test_load_sentry_returns_cached_state(mocker: MockerFixture) -> None:
@@ -45,7 +36,8 @@ def test_load_sentry_handles_disabled_and_missing_plugin(mocker: MockerFixture) 
     _reset_sentry_state()
     enabled = mocker.patch.object(sentry, "is_sentry_enabled", return_value=False)
     find_spec = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.sentry.find_spec", return_value=None
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
+        return_value=None,
     )
     assert sentry.load_sentry() is None
     find_spec.assert_not_called()
@@ -56,11 +48,11 @@ def test_load_sentry_handles_disabled_and_missing_plugin(mocker: MockerFixture) 
 
     _reset_sentry_state()
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.sentry.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
         return_value=object(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.sentry.require",
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.require",
         side_effect=RuntimeError("missing"),
     )
     assert sentry.load_sentry() is None
@@ -72,7 +64,7 @@ def test_load_sentry_isolates_plugin_discovery_failure(
     _reset_sentry_state()
     mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.sentry.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
         side_effect=RuntimeError("discovery failed"),
     )
 
@@ -87,12 +79,14 @@ def test_load_sentry_requires_plugin_and_reads_sdk_module(
     mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.sentry.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
         return_value=object(),
     )
-    require = mocker.patch("nonebot_plugin_htmlrender.utils.telemetry.sentry.require")
+    require = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.require"
+    )
     sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.sentry.sys.modules"
+        "nonebot_plugin_htmlrender.adapters.observability.sentry.sys.modules"
     )
     sys_modules.get.return_value = fake_sdk
 

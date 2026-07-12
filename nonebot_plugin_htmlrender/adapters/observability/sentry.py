@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Mapping, cast
 from nonebot import require
 from nonebot.log import logger
 
-from .common import call_metric, get_config_value, set_span_attribute
+from .common import call_metric, set_span_attribute
 
 if TYPE_CHECKING:
     from contextlib import AbstractContextManager
@@ -41,41 +41,30 @@ _state_lock = threading.RLock()
 
 
 def is_sentry_enabled() -> bool:
-    """判断 Sentry 集成是否启用。
+    """Return whether this explicitly selected exporter may be invoked.
 
-    Returns:
-        当配置中存在非空的 ``sentry_dsn`` 时返回 ``True``。
+    Composition owns integration enablement.  This low-level adapter therefore
+    never consults the process-wide NoneBot configuration.
     """
-    return bool(get_config_value("sentry_dsn"))
+    return True
 
 
 def is_sentry_tracing_enabled() -> bool:
-    """判断 Sentry 性能追踪是否启用。
+    """Return whether an explicitly selected Sentry exporter may trace.
 
-    Returns:
-        Sentry 已启用且配置了任意采样配置项时返回 ``True``。
+    Sampling remains owned by the Sentry SDK; unsampled spans are handled by
+    the SDK itself.
     """
-    if not is_sentry_enabled():
-        return False
-    return (
-        get_config_value("sentry_traces_sample_rate") is not None
-        or get_config_value("sentry_traces_sampler") is not None
-    )
+    return is_sentry_enabled()
 
 
 def is_sentry_profiling_enabled() -> bool:
-    """判断 Sentry 性能分析（profiling）是否启用。
+    """Return profiling state without reading process-global plugin config.
 
-    Returns:
-        Sentry 已启用且配置了任意 profiling 采样项时返回 ``True``。
+    The generic observer cannot infer SDK sampling options safely, so it does
+    not advertise profiling as an operation attribute.
     """
-    if not is_sentry_enabled():
-        return False
-    return (
-        get_config_value("sentry_profiles_sample_rate") is not None
-        or get_config_value("sentry_profiles_sampler") is not None
-        or get_config_value("sentry_profile_session_sample_rate") is not None
-    )
+    return False
 
 
 def _ensure_sentry_plugin_loaded(*, reason: str) -> bool:

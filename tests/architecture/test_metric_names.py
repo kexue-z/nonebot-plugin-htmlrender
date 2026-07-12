@@ -12,7 +12,7 @@ from pathlib import Path
 import types
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.utils.telemetry import prometheus, sentry
+from nonebot_plugin_htmlrender.adapters.observability import prometheus, sentry
 
 if TYPE_CHECKING:
     from collections.abc import Mapping

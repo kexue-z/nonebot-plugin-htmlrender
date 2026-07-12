@@ -4,23 +4,7 @@ from contextlib import suppress
 import inspect
 from typing import Callable, Mapping
 
-from nonebot import get_driver
-
 from nonebot_plugin_htmlrender.consts import RenderBackend
-
-_metric_param_cache: dict[int, set[str]] = {}
-
-
-def get_config_value(name: str) -> object | None:
-    """从 NoneBot 驱动配置中获取指定值。
-
-    Args:
-        name: 配置项名称。
-
-    Returns:
-        配置项的值，不存在时返回 None。
-    """
-    return getattr(get_driver().config, name, None)
 
 
 def normalize_backend(backend: RenderBackend | str | None) -> str:
@@ -40,9 +24,10 @@ def normalize_backend(backend: RenderBackend | str | None) -> str:
 
 
 def metric_params(fn: Callable[..., object]) -> set[str]:
-    """获取并缓存函数的参数名集合。
+    """获取函数的参数名集合。
 
-    通过 inspect.signature 提取函数参数名，结果按函数 id 缓存以避免重复解析。
+    通过 inspect.signature 提取函数参数名。这里不缓存结果，避免为观测适配器
+    引入额外的进程级可变状态，也避免对象销毁后 ``id`` 复用造成错误命中。
 
     Args:
         fn: 要检查的函数。
@@ -50,16 +35,10 @@ def metric_params(fn: Callable[..., object]) -> set[str]:
     Returns:
         函数参数名的集合。
     """
-    key = id(fn)
-    cached = _metric_param_cache.get(key)
-    if cached is not None:
-        return cached
     try:
-        params = set(inspect.signature(fn).parameters)
+        return set(inspect.signature(fn).parameters)
     except (TypeError, ValueError):
-        params = set()
-    _metric_param_cache[key] = params
-    return params
+        return set()
 
 
 def call_metric(

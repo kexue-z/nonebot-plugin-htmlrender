@@ -133,7 +133,7 @@ class PageTelemetryCollector:
         )
 
 
-_collectors: dict[int, PageTelemetryCollector] = {}
+_COLLECTOR_ATTRIBUTE = "_htmlrender_page_telemetry_collector"
 
 
 def instrument_page(page: object, *, page_name: str) -> PageTelemetryCollector:
@@ -147,7 +147,7 @@ def instrument_page(page: object, *, page_name: str) -> PageTelemetryCollector:
         关联到该页面的遥测收集器。
     """
     collector = PageTelemetryCollector(page_name=page_name)
-    _collectors[id(page)] = collector
+    setattr(page, _COLLECTOR_ATTRIBUTE, collector)
     on = getattr(page, "on", None)
     if callable(on):
         on("request", collector.on_request)
@@ -160,12 +160,16 @@ def instrument_page(page: object, *, page_name: str) -> PageTelemetryCollector:
 
 def detach_page(page: object) -> None:
     """移除页面关联的遥测收集器。"""
-    _collectors.pop(id(page), None)
+    try:
+        delattr(page, _COLLECTOR_ATTRIBUTE)
+    except AttributeError:
+        return
 
 
 def get_page_collector(page: object) -> PageTelemetryCollector | None:
     """获取页面关联的遥测收集器。"""
-    return _collectors.get(id(page))
+    collector = getattr(page, _COLLECTOR_ATTRIBUTE, None)
+    return collector if isinstance(collector, PageTelemetryCollector) else None
 
 
 async def collect_navigation_timings(page: object) -> dict[str, float]:

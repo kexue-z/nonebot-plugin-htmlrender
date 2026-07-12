@@ -4,7 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 import types
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.utils.telemetry import prometheus
+from nonebot_plugin_htmlrender.adapters.observability import prometheus
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -25,14 +25,8 @@ def _reset_prometheus_state() -> None:
     prometheus._state.cache_resident_bytes = None
 
 
-def test_is_prometheus_enabled_defaults_to_false(mocker: MockerFixture) -> None:
-    mocker.patch.object(prometheus, "get_config_value", return_value=None)
-    assert prometheus.is_prometheus_enabled() is False
-
-    mocker.patch.object(prometheus, "get_config_value", return_value=False)
-    assert prometheus.is_prometheus_enabled() is False
-
-    mocker.patch.object(prometheus, "get_config_value", return_value=True)
+def test_prometheus_exporter_does_not_read_nonebot_global_config() -> None:
+    assert not hasattr(prometheus, "get_config_value")
     assert prometheus.is_prometheus_enabled() is True
 
 
@@ -44,7 +38,7 @@ def test_load_prometheus_guard_paths(mocker: MockerFixture) -> None:
     _reset_prometheus_state()
     mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
         return_value=None,
     )
     assert prometheus.load_prometheus() is None
@@ -52,12 +46,12 @@ def test_load_prometheus_guard_paths(mocker: MockerFixture) -> None:
     _reset_prometheus_state()
     mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
         return_value=object(),
     )
-    mocker.patch("nonebot_plugin_htmlrender.utils.telemetry.prometheus.require")
+    mocker.patch("nonebot_plugin_htmlrender.adapters.observability.prometheus.require")
     sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.sys.modules"
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.sys.modules"
     )
     sys_modules.get.return_value = None
     assert prometheus.load_prometheus() is None
@@ -69,7 +63,7 @@ def test_load_prometheus_isolates_plugin_discovery_failure(
     _reset_prometheus_state()
     mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
         side_effect=RuntimeError("discovery failed"),
     )
 
@@ -86,14 +80,14 @@ def test_load_prometheus_success_and_cache(mocker: MockerFixture) -> None:
 
     mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
         return_value=object(),
     )
     require = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.require"
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.require"
     )
     sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.sys.modules"
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.sys.modules"
     )
     sys_modules.get.return_value = fake_module
 
@@ -118,12 +112,12 @@ def test_load_prometheus_init_exception_returns_none(mocker: MockerFixture) -> N
     fake_module = types.SimpleNamespace(Counter=_raise, Histogram=_raise)
     mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
         return_value=object(),
     )
-    mocker.patch("nonebot_plugin_htmlrender.utils.telemetry.prometheus.require")
+    mocker.patch("nonebot_plugin_htmlrender.adapters.observability.prometheus.require")
     sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.prometheus.sys.modules"
+        "nonebot_plugin_htmlrender.adapters.observability.prometheus.sys.modules"
     )
     sys_modules.get.return_value = fake_module
 

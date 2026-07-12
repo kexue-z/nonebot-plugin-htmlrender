@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 from contextlib import contextmanager, nullcontext
+import logging
 from typing import TYPE_CHECKING, final
-
-from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.resources.observation import (
     NoopCacheObserver as NoopCacheObserver,
@@ -16,6 +15,8 @@ if TYPE_CHECKING:
     from contextlib import AbstractContextManager
 
     from .ports import OperationObserver
+
+logger = logging.getLogger(__name__)
 
 
 @final
@@ -31,12 +32,7 @@ class NoopOperationObserver:
 
 
 def _log_observer_failure(operation: str, error: Exception) -> None:
-    logger.opt(colors=True).warning(
-        "<d>[htmlrender.rendering]</d> Operation observer failed for "
-        "<c>{operation}</c>: <r>{error}</r>.",
-        operation=operation,
-        error=error,
-    )
+    logger.warning("Operation observer failed for %s: %s", operation, error)
 
 
 @contextmanager

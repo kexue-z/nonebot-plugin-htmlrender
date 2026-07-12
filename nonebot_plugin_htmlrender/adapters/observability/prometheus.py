@@ -8,8 +8,6 @@ from typing import TYPE_CHECKING, Mapping, cast
 from nonebot import require
 from nonebot.log import logger
 
-from .common import get_config_value
-
 if TYPE_CHECKING:
     from prometheus_client import Counter, Gauge, Histogram
 
@@ -54,12 +52,12 @@ _state_lock = threading.RLock()
 
 
 def is_prometheus_enabled() -> bool:
-    """判断 Prometheus 集成是否启用。
+    """Return whether this explicitly selected exporter may be invoked.
 
-    Returns:
-        仅当配置显式设置为 ``True`` 时返回 ``True``；默认关闭。
+    Composition owns integration enablement.  This low-level adapter therefore
+    never consults the process-wide NoneBot configuration.
     """
-    return get_config_value("prometheus_enable") is True
+    return True
 
 
 def _ensure_prometheus_plugin_loaded(*, reason: str) -> bool:

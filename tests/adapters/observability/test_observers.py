@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from nonebot_plugin_htmlrender.utils import telemetry
+from nonebot_plugin_htmlrender.adapters import observability as telemetry
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -25,7 +25,11 @@ async def test_track_render_without_span_uses_console_fallback(
     logger = mocker.patch.object(telemetry, "logger")
 
     async with telemetry.track_render(
-        "render.html", backend="playwright", attrs={"k": "v"}
+        "render.html",
+        backend="playwright",
+        attrs={"k": "v"},
+        sentry=True,
+        prometheus=True,
     ):
         pass
 
@@ -70,6 +74,8 @@ async def test_track_render_with_span_records_attrs_and_error_status(
             backend="playwright",
             name="custom-name",
             attrs={"x": "1"},
+            sentry=True,
+            prometheus=True,
         ):
             raise ValueError("boom")
 
@@ -116,7 +122,12 @@ async def test_track_render_isolates_trace_and_exporter_failures(
         side_effect=RuntimeError("prometheus export failed"),
     )
 
-    async with telemetry.track_render("render.safe", backend="takumi"):
+    async with telemetry.track_render(
+        "render.safe",
+        backend="takumi",
+        sentry=True,
+        prometheus=True,
+    ):
         result = "rendered"
 
     assert result == "rendered"
@@ -148,7 +159,12 @@ async def test_track_render_preserves_original_error_when_trace_exit_fails(
     mocker.patch.object(telemetry, "record_prometheus_metrics")
 
     with pytest.raises(ValueError, match="render failed"):
-        async with telemetry.track_render("render.error", backend="takumi"):
+        async with telemetry.track_render(
+            "render.error",
+            backend="takumi",
+            sentry=True,
+            prometheus=True,
+        ):
             raise ValueError("render failed")
 
 
@@ -172,7 +188,12 @@ async def test_track_render_isolates_trace_enter_failure(
     mocker.patch.object(telemetry, "record_sentry_metrics")
     mocker.patch.object(telemetry, "record_prometheus_metrics")
 
-    async with telemetry.track_render("render.safe", backend="takumi"):
+    async with telemetry.track_render(
+        "render.safe",
+        backend="takumi",
+        sentry=True,
+        prometheus=True,
+    ):
         result = b"image"
 
     assert result == b"image"
@@ -191,7 +212,49 @@ def test_record_cache_metrics_isolates_each_exporter(
         "record_prometheus_cache_metrics",
     )
 
-    telemetry.record_cache_metrics("resource", {"hit": 1}, 2, 64)
+    telemetry.record_cache_metrics(
+        "resource",
+        {"hit": 1},
+        2,
+        64,
+        sentry=True,
+        prometheus=True,
+    )
 
     sentry_recorder.assert_called_once_with("resource", {"hit": 1}, 2, 64)
     prometheus_recorder.assert_called_once_with("resource", {"hit": 1}, 2, 64)
+
+
+def test_operation_observer_exports_only_to_its_selected_integrations(
+    mocker: MockerFixture,
+) -> None:
+    start_trace = mocker.patch.object(telemetry, "start_trace", return_value=None)
+    sentry_recorder = mocker.patch.object(telemetry, "record_sentry_metrics")
+    prometheus_recorder = mocker.patch.object(telemetry, "record_prometheus_metrics")
+
+    observer = telemetry.TelemetryOperationObserver(
+        sentry=False,
+        prometheus=True,
+    )
+    with observer.observe("render.one", {"render.backend": "playwright"}):
+        pass
+
+    start_trace.assert_not_called()
+    sentry_recorder.assert_not_called()
+    prometheus_recorder.assert_called_once()
+
+
+def test_cache_observer_exports_only_to_its_selected_integrations(
+    mocker: MockerFixture,
+) -> None:
+    sentry_recorder = mocker.patch.object(telemetry, "record_sentry_cache_metrics")
+    prometheus_recorder = mocker.patch.object(
+        telemetry,
+        "record_prometheus_cache_metrics",
+    )
+
+    observer = telemetry.TelemetryCacheObserver(sentry=True, prometheus=False)
+    observer.record("resource", {"hit": 1}, 2, 64)
+
+    sentry_recorder.assert_called_once_with("resource", {"hit": 1}, 2, 64)
+    prometheus_recorder.assert_not_called()

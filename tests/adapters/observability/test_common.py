@@ -1,37 +1,29 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.consts import RenderBackend
-from nonebot_plugin_htmlrender.utils.telemetry import common
+from nonebot_plugin_htmlrender.adapters.observability import common
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
-def test_get_config_value_and_normalize_backend(mocker: MockerFixture) -> None:
-    mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.common.get_driver",
-        return_value=SimpleNamespace(config=SimpleNamespace(sentry_dsn="dsn-value")),
-    )
-
-    assert common.get_config_value("sentry_dsn") == "dsn-value"
+def test_normalize_backend_does_not_depend_on_nonebot_config() -> None:
+    assert not hasattr(common, "get_config_value")
     assert common.normalize_backend(None) == "unknown"
-    assert common.normalize_backend(RenderBackend.PLAYWRIGHT) == "playwright"
+    assert common.normalize_backend("playwright") == "playwright"
     assert common.normalize_backend("custom") == "custom"
 
 
-def test_metric_params_cache_and_signature_failure(mocker: MockerFixture) -> None:
+def test_metric_params_and_signature_failure(mocker: MockerFixture) -> None:
     def fn_ok(name: str, value: int) -> None:
         del name, value
 
-    common._metric_param_cache.clear()
     params = common.metric_params(fn_ok)
     assert params == {"name", "value"}
 
     signature = mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.common.inspect.signature"
+        "nonebot_plugin_htmlrender.adapters.observability.common.inspect.signature"
     )
     signature.side_effect = ValueError("bad signature")
 
@@ -42,7 +34,6 @@ def test_metric_params_cache_and_signature_failure(mocker: MockerFixture) -> Non
             return None
 
     fn_bad = UninspectableCallable()
-    common._metric_param_cache.pop(id(fn_bad), None)
     assert common.metric_params(fn_bad) == set()
 
 
@@ -54,7 +45,7 @@ def test_call_metric_handles_value_amount_and_positional(
     positional_fn = mocker.Mock()
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.utils.telemetry.common.metric_params",
+        "nonebot_plugin_htmlrender.adapters.observability.common.metric_params",
         side_effect=[
             {"value", "unit", "tags"},
             {"amount", "attributes"},

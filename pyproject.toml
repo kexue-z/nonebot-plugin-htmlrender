@@ -74,7 +74,7 @@ markers = [
 [tool.coverage.run]
 omit = [
     # Telemetry / observability
-    "nonebot_plugin_htmlrender/utils/telemetry/*",
+    "nonebot_plugin_htmlrender/adapters/observability/*",
     "nonebot_plugin_htmlrender/adapters/playwright/telemetry.py",
     # Signal & process management
     "nonebot_plugin_htmlrender/utils/signal.py",
