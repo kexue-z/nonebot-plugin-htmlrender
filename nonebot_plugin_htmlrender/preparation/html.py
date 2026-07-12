@@ -5,6 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from urllib.parse import urljoin, urlsplit
 
+from nonebot_plugin_htmlrender.errors import PreparationError
+
 from .models import (
     PreparedAsset,
     PreparedHtml,
@@ -44,7 +46,7 @@ def _normalize_stylesheet(
     return PreparedStylesheet(css=stylesheet, base_url=base_url)
 
 
-def prepare_html(
+def _prepare_html(
     html: str,
     *,
     base_url: str | None = None,
@@ -53,6 +55,8 @@ def prepare_html(
 ) -> PreparedHtml:
     """Build a canonical payload without performing backend-specific transport."""
 
+    if base_url is not None:
+        urlsplit(base_url)
     inspected = inspect_html_references(html, base_url=base_url)
     document_base = (
         urljoin(base_url, inspected.base_href)
@@ -97,6 +101,27 @@ def prepare_html(
         assets=tuple(assets),
         requirements=frozenset(requirements),
     )
+
+
+def prepare_html(
+    html: str,
+    *,
+    base_url: str | None = None,
+    stylesheets: Iterable[str | PreparedStylesheet] = (),
+    assets: Iterable[PreparedAsset] = (),
+) -> PreparedHtml:
+    """Build a canonical payload without performing backend-specific transport."""
+    try:
+        return _prepare_html(
+            html,
+            base_url=base_url,
+            stylesheets=stylesheets,
+            assets=assets,
+        )
+    except PreparationError:
+        raise
+    except ValueError as error:
+        raise PreparationError(f"Invalid HTML preparation input: {error}") from error
 
 
 __all__ = ("prepare_html",)

@@ -1,0 +1,96 @@
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path, PurePosixPath
+from typing import TypeAlias
+from urllib.parse import urlsplit
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceRevision:
+    """Opaque source revision used by caching readers."""
+
+    token: str
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceContent:
+    """One immutable resource snapshot."""
+
+    data: bytes
+    media_type: str | None = None
+    revision: ResourceRevision | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class FileResourceRef:
+    path: Path
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "path", self.path.expanduser().resolve())
+
+    @property
+    def cache_key(self) -> tuple[str, str]:
+        return ("file", str(self.path))
+
+
+@dataclass(frozen=True, slots=True)
+class PackageResourceRef:
+    package: str
+    name: str
+
+    def __post_init__(self) -> None:
+        logical = PurePosixPath(self.name)
+        if (
+            not logical.parts
+            or logical.is_absolute()
+            or any(part in {"", ".", ".."} for part in logical.parts)
+        ):
+            raise ValueError(f"Invalid logical resource name: {self.name!r}")
+        object.__setattr__(self, "name", logical.as_posix())
+
+    @property
+    def cache_key(self) -> tuple[str, str, str]:
+        return ("package", self.package, self.name)
+
+
+@dataclass(frozen=True, slots=True)
+class RemoteResourceRef:
+    url: str
+
+    def __post_init__(self) -> None:
+        parsed = urlsplit(self.url)
+        if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+            raise ValueError(
+                "Remote resources must use an absolute http:// or https:// URL."
+            )
+
+    @property
+    def cache_key(self) -> tuple[str, str]:
+        return ("remote", self.url)
+
+
+@dataclass(frozen=True, slots=True)
+class InlineResourceRef:
+    data: bytes
+    media_type: str | None = None
+
+    @property
+    def cache_key(self) -> tuple[str, bytes, str | None]:
+        return ("inline", self.data, self.media_type)
+
+
+ResourceRef: TypeAlias = (
+    FileResourceRef | PackageResourceRef | RemoteResourceRef | InlineResourceRef
+)
+
+
+__all__ = [
+    "FileResourceRef",
+    "InlineResourceRef",
+    "PackageResourceRef",
+    "RemoteResourceRef",
+    "ResourceContent",
+    "ResourceRef",
+    "ResourceRevision",
+]

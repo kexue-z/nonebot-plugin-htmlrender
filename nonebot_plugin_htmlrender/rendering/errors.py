@@ -1,18 +1,28 @@
-"""Stable error model exposed at the rendering application boundary.
+"""Stable errors for neutral requests, lifecycles, and executor boundaries.
 
-Every native or provider-specific exception is translated into one of these
-types at the adapter boundary; callers never see engine exceptions.
+Provider-specific typed capabilities may intentionally expose their engine's
+native exceptions; the neutral executor boundary translates those failures.
 """
 
 from __future__ import annotations
 
-
-class RenderingError(Exception):
-    """Base class for every error raised by the rendering application."""
-
-
-class InvalidRenderRequest(RenderingError):
-    """A render request carries values that can never execute successfully."""
+from nonebot_plugin_htmlrender.errors import (
+    InvalidRenderRequest as InvalidRenderRequest,
+)
+from nonebot_plugin_htmlrender.errors import PreparationError as PreparationError
+from nonebot_plugin_htmlrender.errors import RenderingError as RenderingError
+from nonebot_plugin_htmlrender.resources.errors import (
+    ResourceAccessDenied as ResourceAccessDenied,
+)
+from nonebot_plugin_htmlrender.resources.errors import (
+    ResourceNotFound as ResourceNotFound,
+)
+from nonebot_plugin_htmlrender.resources.errors import (
+    ResourceResolutionError as ResourceResolutionError,
+)
+from nonebot_plugin_htmlrender.resources.errors import (
+    ResourceSizeExceeded as ResourceSizeExceeded,
+)
 
 
 class CapabilityUnavailable(RenderingError):
@@ -31,7 +41,7 @@ class UnsupportedRequirement(RenderingError):
 
 
 class ProviderNotConfigured(RenderingError):
-    """No provider is selected in the runtime configuration."""
+    """The default Application has not been installed by a host or caller."""
 
 
 class ProviderNotFound(RenderingError):
@@ -48,19 +58,3 @@ class ProviderExecutionError(RenderingError):
 
 class ProviderLifecycleError(RenderingError):
     """The provider runtime failed to start, probe, or shut down."""
-
-
-class ResourceResolutionError(RenderingError):
-    """A referenced resource could not be resolved for rendering."""
-
-
-class ResourceAccessDenied(ResourceResolutionError):
-    """The referenced resource is outside the allowed local access policy."""
-
-
-class ResourceNotFound(ResourceResolutionError):
-    """The referenced resource does not exist."""
-
-
-class ResourceSizeExceeded(ResourceResolutionError):
-    """The referenced resource exceeds the configured size budget."""

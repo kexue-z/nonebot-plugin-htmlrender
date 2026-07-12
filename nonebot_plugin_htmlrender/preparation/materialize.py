@@ -4,23 +4,26 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import replace
+import logging
 import mimetypes
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
 
-from nonebot.log import logger
-
-from nonebot_plugin_htmlrender.resources import read_resource_bytes
-from nonebot_plugin_htmlrender.resources.config import get_resource_config
-from nonebot_plugin_htmlrender.resources.path_guard import validate_local_access
+from nonebot_plugin_htmlrender.resources.errors import ResourceResolutionError
 
 from .assets import PreparedAssetIndex, resolve_document_reference
 from .models import PreparedAsset, PreparedHtml
 from .references import css_resource_references, inspect_html_references
 
+if TYPE_CHECKING:
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
-class AssetMaterializationError(RuntimeError):
+logger = logging.getLogger(__name__)
+
+
+class AssetMaterializationError(ResourceResolutionError):
     """Raised when a local document resource cannot be materialized safely."""
 
 
@@ -35,37 +38,18 @@ def _file_url_path(url: str) -> Path:
     return Path(url2pathname(unquote(parsed.path))).expanduser()
 
 
-def _base_root(base_url: str | None) -> Path | None:
-    if not base_url or urlsplit(base_url).scheme != "file":
-        return None
-    path = _file_url_path(base_url)
-    return path if base_url.endswith("/") else path.parent
-
-
-def _validate_local_path(path: Path, *, base_url: str | None) -> Path:
-    cfg = get_resource_config()
-    roots: list[Path] = []
-    base_root = _base_root(base_url)
-    if base_root is not None:
-        roots.append(base_root)
-    roots.extend(cfg.filehost_allowed_paths)
-    normalized_path = validate_local_access(
-        path,
-        allowed_roots=roots,
-        allow_any=cfg.filehost_allow_any_path,
-        on_deny=AssetMaterializationError,
-    )
-    if cfg.filehost_allow_any_path:
-        logger.warning(
-            f"Reading unrestricted local asset {normalized_path!s} because "
-            "filehost_allow_any_path is enabled"
-        )
-    return normalized_path
+def _validate_local_path(
+    path: Path,
+    *,
+    resources: ResourceService,
+) -> Path:
+    return resources.authorize_local(path)
 
 
 async def materialize_local_assets(
     prepared: PreparedHtml,
     *,
+    resources: ResourceService,
     strict: bool = True,
     fallback_base_url: str | None = None,
 ) -> PreparedHtml:
@@ -86,8 +70,8 @@ async def materialize_local_assets(
         else root_base
     )
     index = PreparedAssetIndex(assets, base_url=document_base)
-    references: list[tuple[str, str | None, str | None]] = [
-        (reference, document_base, root_base) for reference in inspected.references
+    references: list[tuple[str, str | None]] = [
+        (reference, document_base) for reference in inspected.references
     ]
     for stylesheet in prepared.stylesheets:
         if stylesheet.embedded:
@@ -96,7 +80,6 @@ async def materialize_local_assets(
             (
                 reference,
                 stylesheet.base_url or document_base,
-                stylesheet.base_url or root_base,
             )
             for reference in css_resource_references(stylesheet.css)
         )
@@ -105,7 +88,7 @@ async def materialize_local_assets(
     seen_sources = {asset.source for asset in assets}
     expanded_stylesheets: set[str] = set()
     while pending:
-        reference, base_url, authorization_base = pending.popleft()
+        reference, base_url = pending.popleft()
         canonical = resolve_document_reference(base_url, reference)
         existing = index.match(reference, base_url=base_url)
         if existing is not None:
@@ -122,8 +105,7 @@ async def materialize_local_assets(
                     )
                 else:
                     pending.extend(
-                        (child, canonical, authorization_base)
-                        for child in css_resource_references(css)
+                        (child, canonical) for child in css_resource_references(css)
                     )
             continue
         parsed = urlsplit(canonical)
@@ -142,12 +124,15 @@ async def materialize_local_assets(
 
         try:
             path = _file_url_path(canonical)
-            path = _validate_local_path(path, base_url=authorization_base)
-            payload = await read_resource_bytes(path)
+            path = _validate_local_path(
+                path,
+                resources=resources,
+            )
+            payload = await resources.read_bytes(path)
         except Exception as error:
             if strict:
                 raise AssetMaterializationError(str(error)) from error
-            logger.warning(f"Failed to materialize local asset {reference!r}: {error}")
+            logger.warning("Failed to materialize local asset %r: %s", reference, error)
             continue
 
         if canonical in seen_sources:
@@ -170,8 +155,7 @@ async def materialize_local_assets(
                 )
             else:
                 pending.extend(
-                    (child, canonical, authorization_base)
-                    for child in css_resource_references(css)
+                    (child, canonical) for child in css_resource_references(css)
                 )
 
     return replace(prepared, assets=tuple(assets))

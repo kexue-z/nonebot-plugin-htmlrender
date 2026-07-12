@@ -9,12 +9,12 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 
-from nonebot_plugin_htmlrender.resources.template import resolve_template_vars
-
 from .models import PreparedAsset
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
+
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 
 def _media_type(payload: bytes) -> str:
@@ -79,14 +79,16 @@ async def stage_template_variables(
     variables: Mapping[str, Any],
     *,
     template_base: str | Path,
+    resources: ResourceService,
+    strict: bool,
 ) -> tuple[dict[str, Any], tuple[PreparedAsset, ...]]:
     """Replace Path/binary variables with stable URL identifiers and assets."""
 
     resolver = _PreparedAssetResolver()
-    resolved = await resolve_template_vars(
+    resolved = await resources.resolve_template_vars(
         dict(variables),
         template_base=template_base,
-        strict=True,
+        strict=strict,
         resolver=resolver,
     )
     return resolved, resolver.assets()

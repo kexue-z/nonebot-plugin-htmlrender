@@ -1,6 +1,5 @@
-"""Backend-neutral content preparation facade."""
+"""Backend-neutral preparation domain and pure HTML canonicalization."""
 
-from .content import prepare_markdown, prepare_template, prepare_text
 from .html import prepare_html
 from .models import (
     PreparedAsset,
@@ -9,19 +8,16 @@ from .models import (
     RasterOptions,
     RenderRequirement,
 )
-from .resolve import resolve_html_resources
-from .template_assets import stage_template_variables
+from .service import DefaultHtmlPreparer, HtmlPreparer, PreparationService
 
 __all__ = (
+    "DefaultHtmlPreparer",
+    "HtmlPreparer",
+    "PreparationService",
     "PreparedAsset",
     "PreparedHtml",
     "PreparedStylesheet",
     "RasterOptions",
     "RenderRequirement",
     "prepare_html",
-    "prepare_markdown",
-    "prepare_template",
-    "prepare_text",
-    "resolve_html_resources",
-    "stage_template_variables",
 )

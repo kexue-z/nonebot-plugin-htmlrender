@@ -1,776 +1,573 @@
-import asyncio
-import hashlib
-from importlib import import_module
+from __future__ import annotations
+
+from io import BytesIO
 from pathlib import Path
+from typing import TYPE_CHECKING
 
+import anyio
 import pytest
-from pytest_mock import MockerFixture
 
+from nonebot_plugin_htmlrender.adapters.resources import (
+    AnyioWorkerExecutor,
+    ConfiguredLocalAccessPolicy,
+    build_resource_reader,
+)
 from nonebot_plugin_htmlrender.consts import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
     ResourceResolveMode,
 )
-from nonebot_plugin_htmlrender.resources.config import ResourceConfig
+from nonebot_plugin_htmlrender.rendering.errors import (
+    InvalidRenderRequest,
+    ResourceResolutionError,
+)
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceCacheSettings,
+    ResourceStrategy,
+)
+from nonebot_plugin_htmlrender.resources.models import (
+    FileResourceRef,
+    InlineResourceRef,
+    PackageResourceRef,
+    ResourceContent,
+    ResourceRef,
+    ResourceRevision,
+)
+from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
+from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
-def _make_cfg(
+def _published_label(value: str | Path | bytes) -> str:
+    if isinstance(value, bytes):
+        return value.decode()
+    return str(value).rsplit("/", maxsplit=1)[-1]
+
+
+class RecordingPublisher:
+    def __init__(self, *, prefix: str = "https://assets.example/") -> None:
+        self.prefix = prefix
+        self.published: list[tuple[str | Path | bytes, str | None, str | None]] = []
+        self.released: list[str] = []
+        self.started = 0
+        self.closed = 0
+        self._next_lease = 0
+
+    def create_lease(self) -> str:
+        self._next_lease += 1
+        return f"lease:{self._next_lease}"
+
+    async def release(self, lease_id: str) -> None:
+        self.released.append(lease_id)
+
+    def request_headers(self) -> Mapping[str, str]:
+        return {"X-Test-Asset": "token"}
+
+    async def publish(
+        self,
+        value: str | Path | bytes,
+        *,
+        lease_id: str | None = None,
+        suffix: str | None = None,
+    ) -> str:
+        self.published.append((value, lease_id, suffix))
+        return f"{self.prefix}{_published_label(value)}"
+
+    async def startup(self) -> None:
+        self.started += 1
+
+    async def clear(self) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        self.closed += 1
+
+
+class RecordingReader:
+    def __init__(self, content: ResourceContent) -> None:
+        self.content = content
+        self.invalidated: list[object] = []
+        self.clears = 0
+        self.reads = 0
+
+    async def read(self, reference: ResourceRef) -> ResourceContent:
+        del reference
+        self.reads += 1
+        return self.content
+
+    async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
+        del reference
+        return self.content.revision
+
+    async def invalidate(self, reference: ResourceRef) -> None:
+        self.invalidated.append(reference.cache_key)
+
+    async def clear(self) -> None:
+        self.clears += 1
+
+
+class ConcurrentResolver:
+    def __init__(self) -> None:
+        self.active = 0
+        self.max_active = 0
+        self.lock = anyio.Lock()
+
+    async def resolve(
+        self,
+        value: object,
+        *,
+        template_base: Path | None = None,
+    ) -> str:
+        async with self.lock:
+            self.active += 1
+            self.max_active = max(self.max_active, self.active)
+        await anyio.sleep(0.01)
+        async with self.lock:
+            self.active -= 1
+        name = value.name if isinstance(value, Path) else str(value)
+        base = template_base.name if template_base is not None else "none"
+        return f"resolved:{base}:{name}"
+
+
+class FailingResolver:
+    async def resolve(
+        self,
+        value: object,
+        *,
+        template_base: Path | None = None,
+    ) -> object:
+        del value, template_base
+        raise RuntimeError("resolver unavailable")
+
+
+class UnhashableResolver:
+    def resolve(
+        self,
+        value: object,
+        *,
+        template_base: Path | None = None,
+    ) -> object:
+        del value, template_base
+        return []
+
+
+def _resources(
+    tmp_path: Path,
     *,
-    mode: str,
-    remote_policy: str = "passthrough",
-    local_policy: str = "file",
-    is_remote_mode: bool = False,
-    filehost_allow_any_path: bool = False,
-    filehost_allowed_paths: list[Path] | None = None,
-    filehost_request_header_name: str = "X-HTMLRender-Filehost-Request",
-    filehost_request_header_value: str | None = None,
-    filehost_request_header_salt: str = "nonebot-plugin-htmlrender:filehost:guard:v1",
-    filehost_prewarm_enabled: bool = True,
-    filehost_prewarm_max_files: int = 256,
-    filehost_cache_ttl_seconds: float = 300.0,
-    filehost_prewarm_extensions: list[str] | None = None,
-    filehost_prewarm_paths: list[Path] | None = None,
-) -> ResourceConfig:
-    return ResourceConfig(
-        is_remote_mode=is_remote_mode,
-        resource_resolve_mode=ResourceResolveMode(mode),
-        remote_local_resource_policy=RemoteLocalResourcePolicy(remote_policy),
-        local_local_resource_policy=LocalLocalResourcePolicy(local_policy),
-        filehost_allow_any_path=filehost_allow_any_path,
-        filehost_allowed_paths=tuple(filehost_allowed_paths or []),
-        filehost_request_header_name=filehost_request_header_name,
-        filehost_request_header_value=filehost_request_header_value,
-        filehost_request_header_salt=filehost_request_header_salt,
-        filehost_prewarm_enabled=filehost_prewarm_enabled,
-        filehost_prewarm_max_files=filehost_prewarm_max_files,
-        filehost_cache_ttl_seconds=filehost_cache_ttl_seconds,
-        filehost_prewarm_extensions=tuple(
-            filehost_prewarm_extensions
-            or [
-                ".css",
-                ".js",
-                ".png",
-                ".jpg",
-                ".jpeg",
-                ".svg",
-                ".woff",
-                ".woff2",
-            ]
+    strategy: ResourceStrategy | None = None,
+    publisher: RecordingPublisher | None = None,
+) -> ResourceService:
+    return ResourceService(
+        reader=build_resource_reader(
+            ResourceCacheSettings(revalidate_seconds=60),
+            NoopCacheObserver(),
+            AnyioWorkerExecutor(),
         ),
-        filehost_prewarm_paths=tuple(filehost_prewarm_paths or []),
+        local_access=ConfiguredLocalAccessPolicy(
+            allowed_roots=(tmp_path,),
+            allow_any=False,
+        ),
+        strategy=strategy or ResourceStrategy(),
+        publisher=publisher,
     )
-
-
-@pytest.fixture(autouse=True)
-def reset_filehost_prewarm_state() -> None:
-    import nonebot_plugin_htmlrender.resources.filehost as filehost_runtime  # noqa: PLC0415
-
-    filehost_runtime._FILEHOST_PREWARM_STATE["url"] = None
-    filehost_runtime._FILEHOST_PREWARM_STATE["last_error"] = None
-    filehost_runtime._FILEHOST_GUARD_STATE["installed"] = False
-    filehost_runtime._FILEHOST_GUARD_STATE["token"] = None
 
 
 @pytest.mark.anyio
-async def test_resolve_template_vars_local_path_to_file_url(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
-        resolve_template_vars,
+async def test_read_api_accepts_concrete_resource_references(tmp_path: Path) -> None:
+    path = tmp_path / "resource.txt"
+    path.write_text("filesystem", encoding="utf-8")
+    resources = _resources(tmp_path)
+
+    assert await resources.read_text(path) == "filesystem"
+    assert await resources.read_bytes(FileResourceRef(path)) == b"filesystem"
+    assert await resources.read_text(InlineResourceRef("内联".encode())) == "内联"
+    assert "{{ text" in await resources.read_text(
+        PackageResourceRef(
+            "nonebot_plugin_htmlrender",
+            "templates/text/text.html",
+        )
     )
-
-    asset_dir = tmp_path / "assets"
-    asset_dir.mkdir()
-    asset = asset_dir / "avatar.png"
-    asset.write_bytes(b"test")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(mode="auto", local_policy="file"),
-    )
-
-    resolved = await resolve_template_vars(
-        {"avatar": "assets/avatar.png"},
-        template_base=tmp_path,
-    )
-
-    assert resolved["avatar"] == asset.resolve().as_uri()
 
 
 @pytest.mark.anyio
-async def test_resolve_template_vars_remote_uses_filehost(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
-        resolve_template_vars,
-    )
+async def test_reader_translates_package_and_decode_failures(tmp_path: Path) -> None:
+    resources = _resources(tmp_path)
 
-    asset = tmp_path / "avatar.png"
-    asset.write_bytes(b"test")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(
-            mode="auto",
-            remote_policy="filehost",
-            is_remote_mode=True,
-        ),
-    )
-    filehost_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.filehost_url",
-        new=mocker.AsyncMock(return_value="https://example.com/avatar.png"),
-    )
-
-    resolved = await resolve_template_vars({"avatar": asset}, template_base=tmp_path)
-
-    assert resolved["avatar"] == "https://example.com/avatar.png"
-    filehost_mock.assert_awaited_once_with(asset.resolve(), lease_id=None)
+    with pytest.raises(ResourceResolutionError, match="Could not read resource"):
+        await resources.read_bytes(
+            PackageResourceRef("missing_package_xyz", "file.txt")
+        )
+    with pytest.raises(ResourceResolutionError, match="Could not decode resource"):
+        await resources.read_text(InlineResourceRef(b"\xff"))
 
 
 @pytest.mark.anyio
-async def test_resolve_template_vars_strict_raises_on_filehost_failure(
-    mocker: MockerFixture,
+async def test_read_refresh_invalidates_only_the_injected_reader(
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
-        ResourceResolveError,
-        resolve_template_vars,
+    reference = InlineResourceRef(b"key")
+    reader = RecordingReader(
+        ResourceContent(b"value", "text/plain", ResourceRevision("one"))
+    )
+    other = RecordingReader(
+        ResourceContent(b"other", "text/plain", ResourceRevision("two"))
+    )
+    local_access = ConfiguredLocalAccessPolicy(
+        allowed_roots=(tmp_path,),
+        allow_any=False,
+    )
+    resources = ResourceService(
+        reader=reader,
+        local_access=local_access,
+        strategy=ResourceStrategy(),
+    )
+    other_resources = ResourceService(
+        reader=other,
+        local_access=local_access,
+        strategy=ResourceStrategy(),
     )
 
-    asset = tmp_path / "avatar.png"
-    asset.write_bytes(b"test")
+    assert await resources.read_bytes(reference, refresh=True) == b"value"
+    await resources.clear()
 
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(
-            mode="strict",
-            remote_policy="filehost",
-            is_remote_mode=True,
+    assert reader.invalidated == [reference.cache_key]
+    assert reader.clears == 1
+    assert other.invalidated == []
+    assert other.clears == 0
+    assert await other_resources.read_bytes(reference) == b"other"
+
+
+@pytest.mark.anyio
+async def test_local_file_strategy_resolves_nested_values(tmp_path: Path) -> None:
+    template_root = tmp_path / "templates"
+    template_root.mkdir()
+    image = template_root / "logo.png"
+    image.write_bytes(b"image")
+    resources = _resources(tmp_path)
+
+    result = await resources.resolve_template_vars(
+        {
+            "path": image,
+            "relative": "logo.png",
+            "nested": [image, (image,), {image}],
+            "plain": "hello world",
+        },
+        template_base=template_root,
+    )
+
+    expected = image.resolve().as_uri()
+    assert result == {
+        "path": expected,
+        "relative": expected,
+        "nested": [expected, (expected,), {expected}],
+        "plain": "hello world",
+    }
+    assert await resources.to_resource_url(image) == expected
+
+
+@pytest.mark.anyio
+async def test_resolve_mode_off_requires_an_explicit_override(tmp_path: Path) -> None:
+    asset = tmp_path / "asset.bin"
+    asset.write_bytes(b"asset")
+    resources = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.OFF),
+    )
+
+    values = {"asset": asset}
+    assert await resources.resolve_template_vars(values) == values
+    assert await resources.resolve_template_vars(values, resolver="file") == {
+        "asset": asset.as_uri()
+    }
+
+
+@pytest.mark.anyio
+async def test_remote_memory_and_error_strategies_are_explicit(tmp_path: Path) -> None:
+    asset = tmp_path / "asset.bin"
+    asset.write_bytes(b"asset")
+    memory = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.MEMORY,
         ),
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.filehost_url",
-        new=mocker.AsyncMock(side_effect=RuntimeError("filehost unavailable")),
+    denied = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.ERROR,
+        ),
     )
 
-    with pytest.raises(ResourceResolveError, match="filehost unavailable"):
-        await resolve_template_vars(
-            {"avatar": asset},
-            template_base=tmp_path,
+    values = {"path": asset, "bytes": b"asset"}
+    assert await memory.resolve_template_vars(values) == values
+    with pytest.raises(ResourceResolutionError, match="disabled"):
+        await denied.resolve_template_vars(values)
+
+
+@pytest.mark.anyio
+async def test_filehost_policy_uses_injected_publisher_and_access_policy(
+    tmp_path: Path,
+) -> None:
+    template_root = tmp_path / "templates"
+    template_root.mkdir()
+    asset = template_root / "asset.bin"
+    asset.write_bytes(b"asset")
+    publisher = RecordingPublisher()
+    resources = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+        publisher=publisher,
+    )
+
+    lease = publisher.create_lease()
+    result = await resources.resolve_template_vars(
+        {
+            "absolute": asset,
+            "relative": "asset.bin",
+            "bytes": b"raw",
+            "buffer": BytesIO(b"buffer"),
+            "mutable": bytearray(b"mutable"),
+        },
+        template_base=template_root,
+        lease_id=lease,
+    )
+
+    assert result == {
+        "absolute": "https://assets.example/asset.bin",
+        "relative": "https://assets.example/asset.bin",
+        "bytes": "https://assets.example/raw",
+        "buffer": "https://assets.example/buffer",
+        "mutable": "https://assets.example/mutable",
+    }
+    assert len(publisher.published) == 5
+    assert publisher.published.count((asset.resolve(), lease, None)) == 2
+    assert (b"raw", lease, None) in publisher.published
+    assert (b"buffer", lease, None) in publisher.published
+    assert (b"mutable", lease, None) in publisher.published
+
+
+@pytest.mark.anyio
+async def test_filehost_policy_rejects_outside_paths_in_strict_mode(
+    tmp_path: Path,
+) -> None:
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+    allowed.mkdir()
+    outside.mkdir()
+    asset = outside / "secret.bin"
+    asset.write_bytes(b"secret")
+    publisher = RecordingPublisher()
+    resources = ResourceService(
+        reader=RecordingReader(ResourceContent(b"unused")),
+        local_access=ConfiguredLocalAccessPolicy(
+            allowed_roots=(allowed,),
+            allow_any=False,
+        ),
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+        publisher=publisher,
+    )
+
+    assert await resources.resolve_template_vars({"asset": asset}) == {"asset": asset}
+    with pytest.raises(ResourceResolutionError, match="outside allowed roots"):
+        await resources.resolve_template_vars({"asset": asset}, strict=True)
+    assert publisher.published == []
+
+
+@pytest.mark.anyio
+async def test_explicit_tolerant_resolution_overrides_strict_strategy(
+    tmp_path: Path,
+) -> None:
+    allowed = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+    allowed.mkdir()
+    outside.mkdir()
+    asset = outside / "secret.bin"
+    asset.write_bytes(b"secret")
+    resources = ResourceService(
+        reader=RecordingReader(ResourceContent(b"unused")),
+        local_access=ConfiguredLocalAccessPolicy(
+            allowed_roots=(allowed,),
+            allow_any=False,
+        ),
+        strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.STRICT),
+    )
+
+    with pytest.raises(ResourceResolutionError, match="outside allowed roots"):
+        await resources.resolve_template_vars({"asset": asset})
+    assert await resources.resolve_template_vars(
+        {"asset": asset},
+        strict=False,
+    ) == {"asset": asset}
+
+
+@pytest.mark.anyio
+async def test_filehost_policy_requires_an_injected_publisher(tmp_path: Path) -> None:
+    resources = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+    )
+
+    with pytest.raises(ResourceResolutionError, match="requires an AssetPublisher"):
+        await resources.resolve_template_vars({"asset": b"value"}, strict=True)
+
+
+@pytest.mark.anyio
+async def test_custom_resolver_runs_recursively_and_concurrently(
+    tmp_path: Path,
+) -> None:
+    template_root = tmp_path / "templates"
+    template_root.mkdir()
+    paths = [template_root / f"{index}.bin" for index in range(8)]
+    resolver = ConcurrentResolver()
+    resources = _resources(tmp_path)
+
+    result = await resources.resolve_template_vars(
+        {"paths": paths},
+        template_base=template_root,
+        resolver=resolver,
+    )
+
+    assert result == {
+        "paths": [f"resolved:templates:{index}.bin" for index in range(8)]
+    }
+    assert resolver.max_active > 1
+
+
+@pytest.mark.anyio
+async def test_custom_resolver_failure_is_soft_unless_strict(tmp_path: Path) -> None:
+    asset = tmp_path / "asset.bin"
+    resources = _resources(tmp_path)
+
+    assert await resources.resolve_template_vars(
+        {"asset": asset},
+        resolver=FailingResolver(),
+    ) == {"asset": asset}
+    with pytest.raises(ResourceResolutionError, match="resolver unavailable"):
+        await resources.resolve_template_vars(
+            {"asset": asset},
+            resolver=FailingResolver(),
             strict=True,
         )
 
 
 @pytest.mark.anyio
-async def test_resolve_template_vars_off_mode_keeps_original(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
-        resolve_template_vars,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(mode="off"),
-    )
-
-    source = {"avatar": "./assets/avatar.png"}
-    resolved = await resolve_template_vars(source)
-
-    assert resolved == source
-
-
-@pytest.mark.anyio
-async def test_to_resource_url_force_filehost(
-    mocker: MockerFixture,
+async def test_unknown_or_malformed_resolvers_fail_at_the_boundary(
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.resources import to_resource_url  # noqa: PLC0415
+    asset = tmp_path / "asset.bin"
+    resources = _resources(tmp_path)
 
-    asset = tmp_path / "logo.svg"
-    asset.write_text("<svg></svg>", encoding="utf-8")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(mode="off", filehost_allow_any_path=True),
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.filehost_url",
-        new=mocker.AsyncMock(return_value="https://example.com/logo.svg"),
-    )
-
-    result = await to_resource_url(asset, resolver="filehost")
-
-    assert result == "https://example.com/logo.svg"
+    with pytest.raises(InvalidRenderRequest, match="Unknown resource policy"):
+        await resources.resolve_template_vars({"asset": asset}, resolver="missing")
+    with pytest.raises(InvalidRenderRequest, match=r"must expose resolve\(\)"):
+        await resources.resolve_template_vars({"asset": asset}, resolver=object())
 
 
-@pytest.mark.anyio
-async def test_resolve_template_vars_filehost_rejects_path_outside_template_base(
-    mocker: MockerFixture,
+async def test_resource_path_normalization_uses_stable_errors(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    resources = _resources(tmp_path)
+    path_type = type(tmp_path)
+    original_expanduser = path_type.expanduser
+
+    def expanduser(path: Path) -> Path:
+        if str(path) == "broken-path":
+            raise RuntimeError("home directory is unavailable")
+        return original_expanduser(path)
+
+    monkeypatch.setattr(path_type, "expanduser", expanduser)
+
+    with pytest.raises(ResourceResolutionError, match="normalize resource path"):
+        await resources.read_bytes("broken-path")
+    with pytest.raises(ResourceResolutionError, match="normalize template base"):
+        await resources.resolve_template_vars({}, template_base="broken-path")
+
+
+async def test_custom_resolver_set_items_must_remain_hashable(
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
-        ResourceResolveError,
-        resolve_template_vars,
-    )
+    resources = _resources(tmp_path)
 
-    template_dir = tmp_path / "templates"
-    template_dir.mkdir()
-    outside = tmp_path / "secrets" / "private.txt"
-    outside.parent.mkdir()
-    outside.write_text("secret", encoding="utf-8")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(
-            mode="auto",
-            remote_policy="filehost",
-            is_remote_mode=True,
-        ),
-    )
-
-    with pytest.raises(ResourceResolveError, match="outside allowed roots"):
-        await resolve_template_vars(
-            {"secret": outside},
-            template_base=template_dir,
+    with pytest.raises(ResourceResolutionError, match="remain hashable"):
+        await resources.resolve_template_vars(
+            {"values": {b"value"}},
+            resolver=UnhashableResolver(),
             strict=True,
         )
 
 
 @pytest.mark.anyio
-async def test_resolve_template_vars_filehost_allows_explicit_allowed_roots(
-    mocker: MockerFixture,
+async def test_url_token_resolution_preserves_external_urls_query_and_fragment(
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.resources import (  # noqa: PLC0415
-        resolve_template_vars,
+    root = tmp_path / "assets"
+    root.mkdir()
+    (root / "style.css").write_text("body{}", encoding="utf-8")
+    resources = _resources(tmp_path)
+
+    result = await resources.resolve_url_tokens(
+        [
+            "style.css?v=1#theme",
+            "https://cdn.example/site.css?v=2",
+            "data:text/plain,hello",
+            "#section",
+        ],
+        template_base=root,
     )
 
-    template_dir = tmp_path / "templates"
-    template_dir.mkdir()
-    shared_dir = tmp_path / "shared"
-    shared_dir.mkdir()
-    shared_file = shared_dir / "avatar.png"
-    shared_file.write_bytes(b"ok")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(
-            mode="auto",
-            remote_policy="filehost",
-            is_remote_mode=True,
-            filehost_allowed_paths=[shared_dir],
-        ),
-    )
-    filehost_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.filehost_url",
-        new=mocker.AsyncMock(return_value="https://example.com/shared/avatar.png"),
-    )
-
-    resolved = await resolve_template_vars(
-        {"avatar": shared_file},
-        template_base=template_dir,
-        strict=True,
-    )
-
-    assert resolved["avatar"] == "https://example.com/shared/avatar.png"
-    filehost_mock.assert_awaited_once_with(shared_file.resolve(), lease_id=None)
+    assert result == [
+        f"{(root / 'style.css').as_uri()}?v=1#theme",
+        "https://cdn.example/site.css?v=2",
+        "data:text/plain,hello",
+        "#section",
+    ]
 
 
 @pytest.mark.anyio
-async def test_resolve_html_resources_rewrites_attrs_and_css_urls_with_filehost(
-    mocker: MockerFixture,
+async def test_url_token_resolution_translates_invalid_urls(tmp_path: Path) -> None:
+    resources = _resources(tmp_path)
+
+    with pytest.raises(ResourceResolutionError, match="Invalid resource URL"):
+        await resources.resolve_url_tokens(["http://["])
+
+
+@pytest.mark.anyio
+async def test_service_instances_can_select_opposite_transport_strategies(
     tmp_path: Path,
 ) -> None:
-    from nonebot_plugin_htmlrender.preparation.resolve import (  # noqa: PLC0415
-        resolve_html_resources,
+    asset = tmp_path / "asset.bin"
+    asset.write_bytes(b"asset")
+    local = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            local_local_policy=LocalLocalResourcePolicy.FILE,
+        ),
     )
-
-    assets = tmp_path / "assets"
-    images = assets / "images"
-    fonts = assets / "fonts"
-    assets.mkdir()
-    images.mkdir()
-    fonts.mkdir()
-    (assets / "style.css").write_text("body {}", encoding="utf-8")
-    (images / "logo.png").write_bytes(b"img")
-    (fonts / "site.woff2").write_bytes(b"font")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(
-            mode="auto",
-            remote_policy="filehost",
-            is_remote_mode=True,
+    remote = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.MEMORY,
         ),
     )
 
-    async def _fake_filehost_url(value, *, lease_id=None):
-        del lease_id
-        return f"https://render.local/filehost/{Path(value).name}"
-
-    filehost_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.filehost_url",
-        new=mocker.AsyncMock(side_effect=_fake_filehost_url),
-    )
-
-    html = (
-        '<link rel="stylesheet" href="assets/style.css?rev=1">'
-        '<img src="assets/images/logo.png">'
-        "<style>@font-face{src:url('assets/fonts/site.woff2');}</style>"
-    )
-    rewritten = await resolve_html_resources(
-        html,
-        template_base=tmp_path,
-        resolver="auto",
-        strict=True,
-    )
-
-    assert 'href="https://render.local/filehost/style.css?rev=1"' in rewritten
-    assert 'src="https://render.local/filehost/logo.png"' in rewritten
-    assert "url('https://render.local/filehost/site.woff2')" in rewritten
-    assert filehost_mock.await_count == 3
-
-
-@pytest.mark.anyio
-async def test_resolve_html_resources_keeps_external_and_anchor_links(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    from nonebot_plugin_htmlrender.preparation.resolve import (  # noqa: PLC0415
-        resolve_html_resources,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.get_resource_config",
-        return_value=_make_cfg(mode="auto", remote_policy="filehost"),
-    )
-    filehost_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.resolve.filehost_url",
-        new=mocker.AsyncMock(),
-    )
-
-    html = (
-        '<a href="#section">go</a>'
-        '<a href="https://example.com/x.css">external</a>'
-        "<style>.x{background-image:url('https://example.com/bg.png')}</style>"
-    )
-    rewritten = await resolve_html_resources(
-        html,
-        template_base=tmp_path,
-        resolver="auto",
-        strict=True,
-    )
-
-    assert rewritten == html
-    filehost_mock.assert_not_called()
-
-
-@pytest.mark.anyio
-async def test_filehost_prewarm_skips_when_not_enabled(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.resources.filehost import (  # noqa: PLC0415
-        ensure_filehost_runtime_ready,
-        get_filehost_prewarm_status,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=_make_cfg(mode="off"),
-    )
-    require_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.require"
-    )
-    filehost_url_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.filehost_url",
-        new=mocker.AsyncMock(),
-    )
-
-    assert await ensure_filehost_runtime_ready(reason="unit") is False
-    require_mock.assert_not_called()
-    filehost_url_mock.assert_not_awaited()
-    status = get_filehost_prewarm_status()
-    assert status["ready"] == "false"
-    assert status["url"] is None
-    assert status["last_error"] is None
-    assert status["cached_resources"] is not None
-    assert status["cached_url_mappings"] == status["cached_resources"]
-    assert status["ttl_scope"] == "url_mapping"
-    assert status["physical_cleanup_supported"] == "false"
-
-
-@pytest.mark.anyio
-async def test_filehost_prewarm_is_idempotent_after_success(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.resources.filehost import (  # noqa: PLC0415
-        ensure_filehost_runtime_ready,
-        get_filehost_prewarm_status,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=_make_cfg(mode="auto", remote_policy="filehost"),
-    )
-    guard_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.ensure_filehost_request_guard_installed",
-        return_value=True,
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.find_spec",
-        return_value=object(),
-    )
-    require_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.require"
-    )
-    filehost_url_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.filehost_url",
-        new=mocker.AsyncMock(return_value="http://render:9012/filehost/prewarm"),
-    )
-
-    assert await ensure_filehost_runtime_ready(reason="plugin_startup")
-    assert await ensure_filehost_runtime_ready(reason="playwright_startup")
-
-    require_mock.assert_called_once_with("nonebot_plugin_filehost")
-    guard_mock.assert_called_once()
-    filehost_url_mock.assert_awaited_once()
-    assert filehost_url_mock.await_args is not None
-    first_payload = filehost_url_mock.await_args.args[0]
-    assert isinstance(first_payload, bytes)
-    assert b"filehost-prewarm" in first_payload
-    status = get_filehost_prewarm_status()
-    assert status["ready"] == "true"
-    assert status["url"] == "http://render:9012/filehost/prewarm"
-    assert status["last_error"] is None
-    assert status["cached_resources"] is not None
-
-
-@pytest.mark.anyio
-async def test_filehost_prewarm_retries_after_failure(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.resources.filehost import (  # noqa: PLC0415
-        ensure_filehost_runtime_ready,
-        get_filehost_prewarm_status,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=_make_cfg(mode="auto", remote_policy="filehost"),
-    )
-    guard_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.ensure_filehost_request_guard_installed",
-        return_value=True,
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.find_spec",
-        return_value=object(),
-    )
-    require_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.require"
-    )
-    filehost_url_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.filehost_url",
-        new=mocker.AsyncMock(
-            side_effect=[
-                RuntimeError("bootstrap failed"),
-                "http://render:9012/filehost/prewarm",
-            ]
-        ),
-    )
-
-    assert await ensure_filehost_runtime_ready(reason="plugin_startup") is False
-    assert get_filehost_prewarm_status()["last_error"] == "bootstrap failed"
-
-    assert await ensure_filehost_runtime_ready(reason="playwright_startup") is True
-    assert require_mock.call_count == 2
-    assert guard_mock.call_count == 2
-    assert filehost_url_mock.await_count == 2
-    status = get_filehost_prewarm_status()
-    assert status["ready"] == "true"
-    assert status["url"] == "http://render:9012/filehost/prewarm"
-    assert status["last_error"] is None
-    assert status["cached_resources"] is not None
-
-
-@pytest.mark.anyio
-async def test_filehost_prewarm_fails_closed_when_guard_unavailable(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.resources.filehost import (  # noqa: PLC0415
-        ensure_filehost_runtime_ready,
-        get_filehost_prewarm_status,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=_make_cfg(mode="auto", remote_policy="filehost"),
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.find_spec",
-        return_value=object(),
-    )
-    mocker.patch("nonebot_plugin_htmlrender.resources.filehost.warmup.require")
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.ensure_filehost_request_guard_installed",
-        return_value=False,
-    )
-    filehost_url_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.filehost_url",
-        new=mocker.AsyncMock(return_value="http://render:9012/filehost/prewarm"),
-    )
-
-    assert await ensure_filehost_runtime_ready(reason="plugin_startup") is False
-    filehost_url_mock.assert_not_awaited()
-    assert (
-        get_filehost_prewarm_status()["last_error"]
-        == "filehost request guard is not available for current driver/runtime."
-    )
-
-
-def test_get_filehost_request_headers_uses_device_derived_token(
-    mocker: MockerFixture,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=_make_cfg(mode="auto", remote_policy="filehost"),
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard._resolve_device_identifier",
-        return_value="device-id-123",
-    )
-    headers = filehost_runtime.get_filehost_request_headers()
-    expected = hashlib.sha256(
-        b"nonebot-plugin-htmlrender:filehost:guard:v1:device-id-123"
-    ).hexdigest()
-    assert headers["X-HTMLRender-Filehost-Request"] == expected
-
-
-def test_get_filehost_request_headers_uses_configured_salt(
-    mocker: MockerFixture,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-
-    cfg = _make_cfg(
-        mode="auto",
-        remote_policy="filehost",
-        filehost_request_header_salt="custom-salt",
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=cfg,
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard.get_resource_config",
-        return_value=cfg,
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard._resolve_device_identifier",
-        return_value="device-id-123",
-    )
-
-    headers = filehost_runtime.get_filehost_request_headers()
-    expected = hashlib.sha256(b"custom-salt:device-id-123").hexdigest()
-    assert headers["X-HTMLRender-Filehost-Request"] == expected
-
-
-def test_get_filehost_request_headers_prefers_configured_token(
-    mocker: MockerFixture,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-
-    cfg = _make_cfg(
-        mode="auto",
-        remote_policy="filehost",
-        filehost_request_header_value="configured-token",
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=cfg,
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard.get_resource_config",
-        return_value=cfg,
-    )
-    resolver = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard._resolve_device_identifier",
-        return_value="ignored-device-id",
-    )
-
-    headers = filehost_runtime.get_filehost_request_headers()
-    assert headers["X-HTMLRender-Filehost-Request"] == "configured-token"
-    resolver.assert_not_called()
-
-
-def test_filehost_guard_token_is_stable_and_recognized(
-    mocker: MockerFixture,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=_make_cfg(mode="auto", remote_policy="filehost"),
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard._resolve_device_identifier",
-        return_value="device-id-123",
-    )
-    first = filehost_runtime.get_filehost_request_headers()
-    second = filehost_runtime.get_filehost_request_headers()
-    generated = first["X-HTMLRender-Filehost-Request"]
-
-    assert generated == second["X-HTMLRender-Filehost-Request"]
-    assert filehost_runtime._is_valid_guard_token(generated)
-    assert not filehost_runtime._is_valid_guard_token("invalid-token")
-
-
-def test_resolve_device_identifier_falls_back_to_process_uuid(
-    mocker: MockerFixture,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard.import_module",
-        side_effect=RuntimeError("machineid unavailable"),
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.guard.uuid.getnode",
-        side_effect=RuntimeError("mac unavailable"),
-    )
-
-    fallback = filehost_runtime._resolve_device_identifier()
-    assert fallback == filehost_runtime._FILEHOST_FALLBACK_INSTANCE_ID
-
-
-@pytest.mark.anyio
-async def test_filehost_url_reuses_cached_path_mapping(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
-    filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
-    filehost_runtime._FILEHOST_PATH_INDEX.clear()
-
-    asset = tmp_path / "style.css"
-    asset.write_text("body{}", encoding="utf-8")
-
-    upload_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.cache._filehost_upload",
-        new=mocker.AsyncMock(return_value="http://render/filehost/style.css"),
-    )
-
-    first = await filehost_runtime.filehost_url(asset)
-    second = await filehost_runtime.filehost_url(asset)
-
-    assert first == second == "http://render/filehost/style.css"
-    upload_mock.assert_awaited_once()
-
-
-@pytest.mark.anyio
-async def test_filehost_directory_prewarm_skips_template_files(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    filehost_runtime._FILEHOST_REGISTERED_ROOTS.clear()
-    filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
-    filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
-    filehost_runtime._FILEHOST_PATH_INDEX.clear()
-
-    assets = tmp_path / "assets"
-    assets.mkdir()
-    (assets / "card.html").write_text("<html/>", encoding="utf-8")
-    (assets / "site.css").write_text("body{}", encoding="utf-8")
-
-    cfg = _make_cfg(
-        mode="auto",
-        remote_policy="filehost",
-        is_remote_mode=True,
-        filehost_allowed_paths=[assets],
-        filehost_prewarm_enabled=True,
-        filehost_prewarm_max_files=16,
-        filehost_prewarm_extensions=[".css", ".html"],
-        filehost_prewarm_paths=[assets],
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.get_resource_config",
-        return_value=cfg,
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.get_resource_config",
-        return_value=cfg,
-    )
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.find_spec",
-        return_value=object(),
-    )
-    mocker.patch("nonebot_plugin_htmlrender.resources.filehost.warmup.require")
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.warmup.ensure_filehost_request_guard_installed",
-        return_value=True,
-    )
-    snapshot_spy = mocker.spy(
-        import_module("nonebot_plugin_htmlrender.resources.filehost.cache"),
-        "_read_consistent_path_snapshot",
-    )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.cache._filehost_upload",
-        new=mocker.AsyncMock(return_value="http://render/filehost/resource"),
-    )
-
-    assert await filehost_runtime.ensure_filehost_runtime_ready(reason="unit")
-    uploaded_names = [Path(call.args[0]).name for call in snapshot_spy.call_args_list]
-    assert "site.css" in uploaded_names
-    assert "card.html" not in uploaded_names
-
-
-@pytest.mark.anyio
-async def test_filehost_lease_ref_count_and_ttl_prune(
-    mocker: MockerFixture,
-    tmp_path: Path,
-) -> None:
-    filehost_runtime = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    filehost_runtime._FILEHOST_RESOURCE_CACHE.clear()
-    filehost_runtime._FILEHOST_RESOURCE_INFLIGHT.clear()
-    filehost_runtime._FILEHOST_PATH_INDEX.clear()
-    filehost_runtime._FILEHOST_LEASES.clear()
-
-    asset = tmp_path / "logo.png"
-    asset.write_bytes(b"logo")
-    mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.cache.get_resource_config",
-        return_value=_make_cfg(
-            mode="auto",
-            remote_policy="filehost",
-            filehost_cache_ttl_seconds=0.01,
-        ),
-    )
-    upload_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.resources.filehost.cache._filehost_upload",
-        new=mocker.AsyncMock(return_value="http://render/filehost/logo.png"),
-    )
-
-    lease = filehost_runtime.create_filehost_lease()
-    url = await filehost_runtime.filehost_url(asset, lease_id=lease)
-    assert url == "http://render/filehost/logo.png"
-    assert upload_mock.await_count == 1
-    assert len(filehost_runtime._FILEHOST_RESOURCE_CACHE) == 1
-    entry = next(iter(filehost_runtime._FILEHOST_RESOURCE_CACHE.values()))
-    assert entry["lease_ref_count"] == 1
-    assert entry["mapping_expires_at_ns"] is None
-
-    await filehost_runtime.release_filehost_lease(lease)
-    entry_after_release = next(iter(filehost_runtime._FILEHOST_RESOURCE_CACHE.values()))
-    assert entry_after_release["lease_ref_count"] == 0
-    assert entry_after_release["mapping_expires_at_ns"] is not None
-
-    await asyncio.sleep(0.02)
-    await filehost_runtime.prune_filehost_cache()
-    assert filehost_runtime._FILEHOST_RESOURCE_CACHE == {}
+    assert await local.resolve_template_vars({"asset": asset}) == {
+        "asset": asset.as_uri()
+    }
+    assert await remote.resolve_template_vars({"asset": asset}) == {"asset": asset}
+    assert local.strategy.is_remote is False
+    assert remote.strategy.is_remote is True

@@ -1,298 +1,103 @@
 from __future__ import annotations
 
-from concurrent.futures import ThreadPoolExecutor
-import threading
 from typing import TYPE_CHECKING
 
-import anyio
-from anyio.to_thread import run_sync
 import pytest
 
-from nonebot_plugin_htmlrender.resources import (
-    FilesystemResourceSource,
-    PackageResourceSource,
-    read_resource_text,
-)
-from nonebot_plugin_htmlrender.resources.budget import ResourceCacheBudget
-from nonebot_plugin_htmlrender.resources.cache import (
-    FileResourceCache,
-    FileRevision,
-    FileSnapshot,
+from nonebot_plugin_htmlrender.resources.models import (
+    FileResourceRef,
+    InlineResourceRef,
+    PackageResourceRef,
+    RemoteResourceRef,
+    ResourceContent,
+    ResourceRevision,
 )
 from nonebot_plugin_htmlrender.resources.source import (
-    PackageResource,
-    PackageResourceCache,
+    FilesystemResourceSource,
+    PackageResourceSource,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from tests.resources.conftest import FailingCacheObserver, RecordingCacheObserver
 
+def test_resource_models_have_stable_structural_cache_keys(tmp_path: Path) -> None:
+    path = tmp_path / "folder" / ".." / "asset.css"
+    file_reference = FileResourceRef(path)
+    package_reference = PackageResourceRef("example_package", "assets/card.css")
+    remote_reference = RemoteResourceRef("https://assets.example/card.css?v=1")
+    inline_reference = InlineResourceRef(b"card", "text/css")
 
-def test_resource_budget_exports_atomic_event_deltas(
-    recording_observer: RecordingCacheObserver,
-) -> None:
-    budget = ResourceCacheBudget(
-        max_entries=4,
-        max_bytes=32,
-        observer=recording_observer,
-    )
-    budget.record_hit()
-    budget.record_miss()
-    budget.record_load()
-    budget.record_wait()
-
-    budget.export_metrics()
-    budget.export_metrics()
-
-    assert recording_observer.calls == [
-        (
-            "resource",
-            {"hit": 1, "miss": 1, "load": 1, "wait": 1, "eviction": 0},
-            0,
-            0,
-        ),
-        (
-            "resource",
-            {"hit": 0, "miss": 0, "load": 0, "wait": 0, "eviction": 0},
-            0,
-            0,
-        ),
-    ]
-
-
-def test_resource_budget_survives_failing_observer(
-    failing_observer: FailingCacheObserver,
-) -> None:
-    budget = ResourceCacheBudget(
-        max_entries=4,
-        max_bytes=32,
-        observer=failing_observer,
-    )
-    budget.record_hit()
-
-    budget.export_metrics()
-
-    assert budget.stats().hits == 1
-
-
-def test_resource_sources_use_stable_identities_and_reject_traversal(
-    tmp_path: Path,
-) -> None:
-    package = PackageResourceSource("nonebot_plugin_htmlrender", "templates")
-    filesystem = FilesystemResourceSource(tmp_path)
-
-    assert package.identity == (
+    assert file_reference.path == path.resolve()
+    assert file_reference.cache_key == ("file", str(path.resolve()))
+    assert package_reference.cache_key == (
         "package",
-        "nonebot_plugin_htmlrender",
-        "templates",
+        "example_package",
+        "assets/card.css",
     )
-    assert filesystem.identity == ("filesystem", str(tmp_path.resolve()))
-    assert package.resource("text/text.html").name == "templates/text/text.html"
-    assert filesystem.resource("text.css") == (tmp_path / "text.css").resolve()
-
-    with pytest.raises(ValueError, match="Invalid logical resource"):
-        package.resource("../secret")
-    with pytest.raises(ValueError, match="Invalid logical resource"):
-        filesystem.resource("../secret")
-
-
-@pytest.mark.anyio
-async def test_package_resource_reads_without_exposing_a_path() -> None:
-    package = PackageResourceSource("nonebot_plugin_htmlrender", "templates")
-    template = package.resource("text/text.html")
-
-    rendered = await read_resource_text(template)
-
-    assert "<head>" in rendered
-    assert template.cache_key == (
-        "package",
-        "nonebot_plugin_htmlrender",
-        "templates/text/text.html",
+    assert remote_reference.cache_key == (
+        "remote",
+        "https://assets.example/card.css?v=1",
     )
+    assert inline_reference.cache_key == ("inline", b"card", "text/css")
+    assert ResourceContent(
+        b"card",
+        "text/css",
+        ResourceRevision("revision"),
+    ).revision == ResourceRevision("revision")
 
 
-@pytest.mark.anyio
-async def test_package_cache_clear_prevents_old_inflight_writeback(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    cache = PackageResourceCache(max_entries=4, max_bytes=1024)
-    resource = PackageResource("example_package", "resource.bin")
-    captured_old = threading.Event()
-    release_old = threading.Event()
-    payload = b"old"
-    calls = 0
-
-    class Traversable:
-        def read_bytes(self) -> bytes:
-            nonlocal calls
-            calls += 1
-            captured = payload
-            if calls == 1:
-                captured_old.set()
-                assert release_old.wait(timeout=2)
-            return captured
-
-    monkeypatch.setattr(PackageResource, "traversable", lambda _: Traversable())
-    old_results: list[bytes] = []
-
-    async def load_old() -> None:
-        old_results.append(await cache.read_bytes(resource))
-
-    async with anyio.create_task_group() as task_group:
-        task_group.start_soon(load_old)
-        assert await run_sync(captured_old.wait, 2)
-        await cache.clear()
-        payload = b"new"
-        assert await cache.read_bytes(resource) == b"new"
-        release_old.set()
-
-    assert old_results == [b"old"]
-    assert await cache.read_bytes(resource) == b"new"
+@pytest.mark.parametrize(
+    "name",
+    ["", ".", "..", "/absolute.css", "assets/../secret.css"],
+)
+def test_package_reference_rejects_non_logical_names(name: str) -> None:
+    with pytest.raises(ValueError, match="Invalid logical resource name"):
+        PackageResourceRef("example_package", name)
 
 
-@pytest.mark.anyio
-async def test_package_and_filesystem_sources_share_one_weighted_budget(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    budget = ResourceCacheBudget(max_entries=1, max_bytes=4)
-    filesystem_cache = FileResourceCache(
-        max_entries=1,
-        max_bytes=4,
-        revalidate_seconds=60,
-        budget=budget,
+@pytest.mark.parametrize(
+    "url",
+    ["file:///etc/passwd", "data:text/plain,secret", "relative/file.css", "https:"],
+)
+def test_remote_reference_rejects_non_http_urls(url: str) -> None:
+    with pytest.raises(ValueError, match="http:// or https://"):
+        RemoteResourceRef(url)
+
+
+def test_package_source_builds_logical_references() -> None:
+    source = PackageResourceSource("example_package", "assets/styles")
+
+    assert source.identity == ("package", "example_package", "assets/styles")
+    assert source.resource("themes/light.css") == PackageResourceRef(
+        "example_package",
+        "assets/styles/themes/light.css",
     )
-    package_cache = PackageResourceCache(
-        max_entries=1,
-        max_bytes=4,
-        budget=budget,
+    with pytest.raises(ValueError, match="Invalid logical resource name"):
+        source.resource("../secret.css")
+
+
+def test_filesystem_source_canonicalizes_and_contains_resources(tmp_path: Path) -> None:
+    root = tmp_path / "templates"
+    root.mkdir()
+    source = FilesystemResourceSource(root / ".")
+
+    assert source.root == root.resolve()
+    assert source.identity == ("filesystem", str(root.resolve()))
+    assert (
+        source.resource("nested/card.html") == (root / "nested" / "card.html").resolve()
     )
-    path = tmp_path / "file.bin"
-    path.write_bytes(b"file")
-    package_reads = 0
-
-    class Traversable:
-        def read_bytes(self) -> bytes:
-            nonlocal package_reads
-            package_reads += 1
-            return b"pkg"
-
-    monkeypatch.setattr(PackageResource, "traversable", lambda _: Traversable())
-    resource = PackageResource("example_package", "resource.bin")
-
-    assert await filesystem_cache.read_bytes(path) == b"file"
-    assert await package_cache.read_bytes(resource) == b"pkg"
-
-    stats = await filesystem_cache.stats()
-    assert stats.entries == 1
-    assert stats.resident_bytes == 3
-    assert stats.loads == 2
-    assert stats.evictions == 1
-
-    assert await filesystem_cache.read_bytes(path) == b"file"
-    assert (await filesystem_cache.stats()).evictions == 2
-    assert package_reads == 1
+    with pytest.raises(ValueError, match="Invalid logical resource name"):
+        source.resource("../outside.html")
 
 
-def test_shared_budget_serializes_cross_participant_eviction(tmp_path: Path) -> None:
-    budget = ResourceCacheBudget(max_entries=4, max_bytes=16)
-    filesystem_cache = FileResourceCache(
-        max_entries=4,
-        max_bytes=16,
-        revalidate_seconds=60,
-        budget=budget,
-    )
-    package_cache = PackageResourceCache(
-        max_entries=4,
-        max_bytes=16,
-        budget=budget,
-    )
-    revision = FileRevision(device=1, inode=1, size=4, mtime_ns=1, ctime_ns=1)
+def test_filesystem_source_rejects_symlink_escape(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    outside = tmp_path / "outside"
+    root.mkdir()
+    outside.mkdir()
+    (root / "linked").symlink_to(outside, target_is_directory=True)
+    source = FilesystemResourceSource(root)
 
-    def store_files(index: int) -> None:
-        for offset in range(100):
-            path = tmp_path / f"file-{index}-{offset}.bin"
-            snapshot = FileSnapshot(path=path, revision=revision, data=b"file")
-            with budget.locked():
-                filesystem_cache._store(
-                    snapshot,
-                    checked_at=0,
-                    epoch=0,
-                    generation=0,
-                )
-
-    def store_packages(index: int) -> None:
-        for offset in range(100):
-            key = ("package", str(index), str(offset))
-            with budget.locked():
-                package_cache._store(key, b"pkg")
-
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        futures = [
-            executor.submit(store_files, 0),
-            executor.submit(store_packages, 0),
-            executor.submit(store_files, 1),
-            executor.submit(store_packages, 1),
-        ]
-        for future in futures:
-            future.result()
-
-    stats = budget.stats()
-    assert stats.entries <= 4
-    assert stats.resident_bytes >= 0
-    assert stats.resident_bytes == (
-        filesystem_cache._resident_bytes + package_cache._resident_bytes
-    )
-
-
-@pytest.mark.anyio
-async def test_shared_clear_invalidates_package_inflight_generation(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    budget = ResourceCacheBudget(max_entries=4, max_bytes=1024)
-    filesystem_cache = FileResourceCache(
-        max_entries=4,
-        max_bytes=1024,
-        revalidate_seconds=60,
-        budget=budget,
-    )
-    package_cache = PackageResourceCache(
-        max_entries=4,
-        max_bytes=1024,
-        budget=budget,
-    )
-    resource = PackageResource("example_package", "resource.bin")
-    captured_old = threading.Event()
-    release_old = threading.Event()
-    payload = b"old"
-    calls = 0
-
-    class Traversable:
-        def read_bytes(self) -> bytes:
-            nonlocal calls
-            calls += 1
-            captured = payload
-            if calls == 1:
-                captured_old.set()
-                assert release_old.wait(timeout=2)
-            return captured
-
-    monkeypatch.setattr(PackageResource, "traversable", lambda _: Traversable())
-    old_results: list[bytes] = []
-
-    async def load_old() -> None:
-        old_results.append(await package_cache.read_bytes(resource))
-
-    async with anyio.create_task_group() as task_group:
-        task_group.start_soon(load_old)
-        assert await run_sync(captured_old.wait, 2)
-        await filesystem_cache.clear()
-        payload = b"new"
-        assert await package_cache.read_bytes(resource) == b"new"
-        release_old.set()
-
-    assert old_results == [b"old"]
-    assert await package_cache.read_bytes(resource) == b"new"
-    assert (await filesystem_cache.stats()).entries == 1
+    with pytest.raises(ValueError, match="escapes filesystem root"):
+        source.resource("linked/secret.txt")

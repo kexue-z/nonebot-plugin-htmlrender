@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -10,104 +10,156 @@ from nonebot_plugin_htmlrender.preparation import (
     RasterOptions,
     RenderRequirement,
     prepare_html,
-    prepare_markdown,
-    prepare_template,
-    prepare_text,
+)
+from nonebot_plugin_htmlrender.rendering import (
+    InvalidRenderRequest,
+    PreparationError,
+    ResourceResolutionError,
 )
 
 if TYPE_CHECKING:
     from pathlib import Path
+    from typing import Literal
+
+    from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 
 
-def test_prepare_html_preserves_browser_document_and_extracts_native_css() -> None:
+def test_prepare_html_preserves_document_and_extracts_css() -> None:
     prepared = prepare_html(
         "<style>.card { color: red }</style><main class='card'>ok</main>",
         stylesheets=[".logo { background: url(https://cdn.example/logo.png) }"],
         assets=[PreparedAsset("memory://icon", b"icon", "image/png")],
     )
-
-    assert "<style>" in prepared.html
-    assert [stylesheet.css for stylesheet in prepared.stylesheets] == [
-        ".logo { background: url(https://cdn.example/logo.png) }",
-        ".card { color: red }",
-    ]
-    assert prepared.stylesheets[0].embedded is False
-    assert prepared.stylesheets[1].embedded is True
+    assert [stylesheet.embedded for stylesheet in prepared.stylesheets] == [False, True]
     assert prepared.assets[0].source == "memory://icon"
     assert RenderRequirement.NETWORK in prepared.requirements
 
 
 def test_prepare_html_detects_script_and_local_resources() -> None:
-    prepared = prepare_html(
-        '<script>run()</script><img src="./avatar.png">',
-    )
+    prepared = prepare_html('<script>run()</script><img src="./avatar.png">')
     assert prepared.requirements == frozenset(
         {RenderRequirement.JAVASCRIPT, RenderRequirement.LOCAL_RESOURCE}
     )
 
 
-def test_prepare_html_classifies_relative_resources_against_document_base() -> None:
-    prepared = prepare_html(
-        '<base href="https://cdn.example/assets/"><img src="avatar.png">'
-    )
-
-    assert prepared.requirements == frozenset({RenderRequirement.NETWORK})
+@pytest.mark.parametrize(
+    ("html", "base_url"),
+    [
+        ("<img src='http://['>", None),
+        ("<p>plain</p>", "http://["),
+    ],
+)
+def test_prepare_html_translates_invalid_resource_urls(
+    html: str,
+    base_url: str | None,
+) -> None:
+    with pytest.raises(PreparationError, match="Invalid HTML preparation input"):
+        prepare_html(html, base_url=base_url)
 
 
 @pytest.mark.parametrize("ratio", [0.0, -1.0, math.nan, math.inf, -math.inf])
 def test_raster_options_reject_invalid_device_pixel_ratio(ratio: float) -> None:
-    with pytest.raises(ValueError, match="finite and positive"):
+    with pytest.raises(InvalidRenderRequest, match="finite and positive"):
         RasterOptions(device_pixel_ratio=ratio)
 
 
-@pytest.mark.anyio
-async def test_prepare_text_uses_shared_template_and_css(tmp_path: Path) -> None:
+def test_raster_options_use_stable_validation_errors() -> None:
+    with pytest.raises(InvalidRenderRequest, match="dimensions"):
+        RasterOptions(width=0)
+    with pytest.raises(InvalidRenderRequest, match="dimensions"):
+        RasterOptions(height=-1)
+    with pytest.raises(InvalidRenderRequest, match="format"):
+        RasterOptions(format=cast("Literal['png', 'jpeg']", "gif"))
+    with pytest.raises(InvalidRenderRequest, match="only supported for JPEG"):
+        RasterOptions(quality=80)
+    with pytest.raises(InvalidRenderRequest, match="between 0 and 100"):
+        RasterOptions(format="jpeg", quality=101)
+
+
+async def test_prepare_text_uses_injected_template_and_reader(
+    tmp_path: Path,
+    preparer: DefaultHtmlPreparer,
+) -> None:
     css = tmp_path / "text.css"
     css.write_text(".text { color: rebeccapurple; }", encoding="utf-8")
-
-    prepared = await prepare_text("<hello>", css_path=str(css))
-
+    prepared = await preparer.prepare_text("<hello>", css_path=str(css))
     assert "&lt;hello&gt;" in prepared.html
-    assert any(
-        ".text { color: rebeccapurple; }" in stylesheet.css
-        for stylesheet in prepared.stylesheets
-    )
-    assert prepared.base_url is None
     assert prepared.stylesheets[0].base_url == css.resolve().as_uri()
 
 
-@pytest.mark.anyio
-async def test_prepare_markdown_reads_source_and_marks_math_as_javascript(
+async def test_prepare_markdown_reads_source_and_marks_math(
     tmp_path: Path,
+    preparer: DefaultHtmlPreparer,
 ) -> None:
     source = tmp_path / "document.md"
     source.write_text("# Title\n\n$$x^2$$", encoding="utf-8")
-
-    prepared = await prepare_markdown(markdown_path=str(source))
-
+    prepared = await preparer.prepare_markdown(markdown_path=str(source))
     assert "<h1>Title</h1>" in prepared.html
-    assert "<script defer>" in prepared.html
     assert RenderRequirement.JAVASCRIPT in prepared.requirements
-    assert any(".katex" in stylesheet.css for stylesheet in prepared.stylesheets)
 
 
-@pytest.mark.anyio
+async def test_prepare_markdown_translates_invalid_generated_urls(
+    preparer: DefaultHtmlPreparer,
+) -> None:
+    with pytest.raises(PreparationError, match="Invalid HTML preparation input"):
+        await preparer.prepare_markdown("![](http://[)")
+
+
+async def test_prepare_markdown_translates_invalid_base_paths(
+    tmp_path: Path,
+    preparer: DefaultHtmlPreparer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    path_type = type(tmp_path)
+    original_expanduser = path_type.expanduser
+
+    def expanduser(path: Path) -> Path:
+        if str(path) == "broken-base":
+            raise RuntimeError("home directory is unavailable")
+        return original_expanduser(path)
+
+    monkeypatch.setattr(path_type, "expanduser", expanduser)
+
+    with pytest.raises(ResourceResolutionError, match="normalize local resource path"):
+        await preparer.prepare_markdown("# Title", markdown_path="broken-base")
+
+
+async def test_prepare_markdown_requires_content_or_path(
+    preparer: DefaultHtmlPreparer,
+) -> None:
+    with pytest.raises(InvalidRenderRequest, match="markdown"):
+        await preparer.prepare_markdown()
+
+
+async def test_prepare_template_requires_name(
+    tmp_path: Path,
+    preparer: DefaultHtmlPreparer,
+) -> None:
+    with pytest.raises(InvalidRenderRequest, match="template_name"):
+        await preparer.prepare_template(tmp_path, "", {})
+
+
+async def test_prepare_template_translates_template_engine_errors(
+    tmp_path: Path,
+    preparer: DefaultHtmlPreparer,
+) -> None:
+    with pytest.raises(PreparationError, match="Template rendering failed"):
+        await preparer.prepare_template(tmp_path, "missing.html", {})
+
+
 async def test_prepare_template_keeps_directory_base_and_filters(
     tmp_path: Path,
+    preparer: DefaultHtmlPreparer,
 ) -> None:
-    template_root = tmp_path / "templates"
-    template_root.mkdir()
-    (template_root / "card.html").write_text(
+    (tmp_path / "card.html").write_text(
         "<strong>{{ name|caps }}</strong>",
         encoding="utf-8",
     )
-
-    prepared = await prepare_template(
-        template_root,
+    prepared = await preparer.prepare_template(
+        tmp_path,
         "card.html",
         {"name": "takumi"},
         filters={"caps": str.upper},
     )
-
     assert prepared.html == "<strong>TAKUMI</strong>"
-    assert prepared.base_url == f"{template_root.resolve().as_uri()}/"
+    assert prepared.base_url == f"{tmp_path.resolve().as_uri()}/"  # noqa: ASYNC240

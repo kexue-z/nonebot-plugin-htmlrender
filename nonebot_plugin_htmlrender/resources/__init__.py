@@ -1,74 +1,50 @@
-"""Resource resolution and template processing facade.
+"""Resource domain models, ports, policies, and composition-owned service."""
 
-All external consumers import from here; implementation lives in
-``resolve`` (resource resolution engine) and ``template`` (HTML/CSS/template
-variable processing).
-"""
-
-from .cache import (
-    FileCachePolicy as FileCachePolicy,
+from .errors import ResourceAccessDenied as ResourceAccessDenied
+from .errors import ResourceNotFound as ResourceNotFound
+from .errors import ResourceResolutionError as ResourceResolutionError
+from .errors import ResourceSizeExceeded as ResourceSizeExceeded
+from .models import (
+    FileResourceRef,
+    InlineResourceRef,
+    PackageResourceRef,
+    RemoteResourceRef,
+    ResourceContent,
+    ResourceRef,
+    ResourceRevision,
 )
-from .cache import (
-    FileResourceCache as FileResourceCache,
+from .ports import (
+    AssetPublisher,
+    LocalAccessPolicy,
+    ResourceReader,
+    ResourceResolver,
+    ResourceValueResolver,
+    TemplateCompiler,
+    WorkerExecutor,
 )
-from .cache import (
-    FileRevision as FileRevision,
-)
-from .cache import (
-    FileSnapshot as FileSnapshot,
-)
-from .cache import (
-    ResourceCacheStats as ResourceCacheStats,
-)
-from .cache import (
-    get_resource_cache as get_resource_cache,
-)
-from .cache import (
-    read_resource_bytes as read_resource_bytes,
-)
-from .cache import (
-    read_resource_text as read_resource_text,
-)
-from .resolve import (
-    ResourceResolveError as ResourceResolveError,
-)
-from .resolve import (
-    ResourceResolver as ResourceResolver,
-)
-from .resolve import (
-    is_remote_playwright_mode as is_remote_playwright_mode,
-)
-from .source import (
-    FilesystemResourceSource as FilesystemResourceSource,
-)
-from .source import (
-    PackageResource as PackageResource,
-)
-from .source import (
-    PackageResourceSource as PackageResourceSource,
-)
-from .template import (
-    resolve_template_vars as resolve_template_vars,
-)
-from .template import (
-    to_resource_url as to_resource_url,
-)
+from .service import ResourceService
+from .source import FilesystemResourceSource, PackageResourceSource
 
 __all__ = [
-    "FileCachePolicy",
-    "FileResourceCache",
-    "FileRevision",
-    "FileSnapshot",
+    "AssetPublisher",
+    "FileResourceRef",
     "FilesystemResourceSource",
-    "PackageResource",
+    "InlineResourceRef",
+    "LocalAccessPolicy",
+    "PackageResourceRef",
     "PackageResourceSource",
-    "ResourceCacheStats",
-    "ResourceResolveError",
+    "RemoteResourceRef",
+    "ResourceAccessDenied",
+    "ResourceContent",
+    "ResourceNotFound",
+    "ResourceReader",
+    "ResourceRef",
+    "ResourceResolutionError",
     "ResourceResolver",
-    "get_resource_cache",
-    "is_remote_playwright_mode",
-    "read_resource_bytes",
-    "read_resource_text",
-    "resolve_template_vars",
-    "to_resource_url",
+    "ResourceRevision",
+    "ResourceService",
+    "ResourceSizeExceeded",
+    "ResourceValueResolver",
+    "TemplateCompiler",
+    "WorkerExecutor",
 ]

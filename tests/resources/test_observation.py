@@ -4,56 +4,64 @@ from typing import TYPE_CHECKING
 
 from nonebot_plugin_htmlrender.resources.observation import (
     NoopCacheObserver,
-    get_cache_observer,
     record_cache_observation,
-    register_cache_observer_provider,
 )
 
 if TYPE_CHECKING:
-    from tests.resources.conftest import FailingCacheObserver, RecordingCacheObserver
+    from tests.resources.conftest import (
+        FailingCacheObserver,
+        RecordingCacheObserver,
+    )
 
 
-def test_default_observer_is_noop() -> None:
-    previous = register_cache_observer_provider(None)
-    try:
-        assert isinstance(get_cache_observer(), NoopCacheObserver)
-    finally:
-        register_cache_observer_provider(previous)
+def test_noop_observer_accepts_complete_observation() -> None:
+    NoopCacheObserver().record(
+        "resource",
+        {"hit": 1, "miss": 2},
+        entries=3,
+        resident_bytes=128,
+    )
 
 
-def test_registration_returns_previous_provider(
+def test_observation_is_sent_only_to_injected_instance(
     recording_observer: RecordingCacheObserver,
 ) -> None:
-    first = register_cache_observer_provider(lambda: recording_observer)
-    try:
-        assert get_cache_observer() is recording_observer
-        second = register_cache_observer_provider(None)
-        assert second is not None
-        assert second() is recording_observer
-    finally:
-        register_cache_observer_provider(first)
+    other = RecordingObserver()
+
+    record_cache_observation(
+        recording_observer,
+        "resource",
+        {"load": 1},
+        entries=1,
+        resident_bytes=64,
+    )
+
+    assert recording_observer.calls == [
+        ("resource", {"load": 1}, 1, 64),
+    ]
+    assert other.calls == []
 
 
-def test_failing_provider_falls_back_to_noop() -> None:
-    def broken_provider() -> NoopCacheObserver:
-        raise RuntimeError("provider down")
-
-    previous = register_cache_observer_provider(broken_provider)
-    try:
-        assert isinstance(get_cache_observer(), NoopCacheObserver)
-    finally:
-        register_cache_observer_provider(previous)
-
-
-def test_record_cache_observation_contains_observer_failure(
+def test_observation_failure_never_changes_cache_correctness(
     failing_observer: FailingCacheObserver,
 ) -> None:
-    record_cache_observation(failing_observer, "resource", {"hit": 1}, 1, 10)
+    record_cache_observation(
+        failing_observer,
+        "resource",
+        {"hit": 1},
+        entries=1,
+    )
 
 
-def test_record_cache_observation_passes_through(
-    recording_observer: RecordingCacheObserver,
-) -> None:
-    record_cache_observation(recording_observer, "resource", {"hit": 2}, 3, 64)
+class RecordingObserver:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, dict[str, int], int, int | None]] = []
 
-    assert recording_observer.calls == [("resource", {"hit": 2}, 3, 64)]
+    def record(
+        self,
+        cache: str,
+        events: dict[str, int],
+        entries: int,
+        resident_bytes: int | None = None,
+    ) -> None:
+        self.calls.append((cache, events, entries, resident_bytes))
