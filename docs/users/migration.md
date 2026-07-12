@@ -10,6 +10,10 @@ tags:
 
 # 旧版本迁移指南
 
+!!! info "v0.7.2 补丁版本"
+    从 v0.7.1 升级时，请先阅读 [v0.7.2 迁移说明](migration-v072.md)。
+    该版本仅修复远程 Playwright 的 Markdown 模板导航，不改变公共 API 或配置。
+
 新版本将渲染逻辑与底层驱动解耦，引入分层架构（Render / Backend / Runtime / Session / Context）。
 旧 API 仍保留为兼容层，但调用时会触发弃用警告，且不再承载新能力。
 新项目请直接使用新 API；存量项目按本页对照表逐步迁移即可。
