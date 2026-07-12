@@ -22,6 +22,9 @@ tags:
 1. 将 `pyproject.toml` 中的项目版本更新为目标版本，并通过 `uv` 更新锁文件；
 1. 完成与该版本相关的实现、测试、迁移说明和用户文档；
 1. 通过 [Pull Request 生命周期](../contributing/pull-requests.md)中列出的 review 与 checks；
+1. 确认 README、当前文档与 examples 只描述最终公共契约，documentation contract、
+   两套类型检查和 strict docs build 全部通过；
+1. 在 PR preview 人工检查架构图、配置表、代码块换行与 prerelease 提示；
 1. 本地或 CI 验证 wheel、sdist 及包元数据：
 
 ```bash
@@ -30,7 +33,7 @@ make build-artifacts
 
 该 target 内部执行 `uv build --no-sources`、pinned `twine==6.2.0 check` 和仓库外隔离安装 smoke。`--no-sources` 很重要：发布构建不得因本地 workspace source 覆盖而得到一个无法从锁定依赖重现的产物。
 
-涉及 package resources 或 native extra 的版本还必须在仓库外、清空 `PYTHONPATH` 后安装真实产物。v0.7.2 的门禁要求 Python 3.10–3.14 验证 wheel，Python 3.12 至少验证一次 sdist；检查全部九个 package resources 非空且登记在 `RECORD`，执行 NoneBot load、text、普通/数学 Markdown preparation，并在 `[takumi]` 环境确认 `takumi-py==0.2.0` 后完成真实 native PNG 渲染。
+涉及 package resources 或 native extra 的版本还必须在仓库外、清空 `PYTHONPATH` 后安装真实产物。0.8 的门禁要求 Python 3.10–3.14 验证 wheel，Python 3.12 至少验证一次 sdist；检查全部 package resources 非空且登记在 `RECORD`，执行 NoneBot load、Preparation 与 typed artifact smoke，并在 `[takumi]` 环境确认受支持依赖版本后完成真实 native PNG 渲染。
 
 ## 自动发布主链路
 

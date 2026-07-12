@@ -26,7 +26,7 @@ tags:
 分支名称建议表达意图，例如：
 
 ```text
-feat/takumi-backend
+feat/takumi-provider
 fix/remote-markdown-template
 docs/release-process
 ci/docs-preview
@@ -37,7 +37,7 @@ ci/docs-preview
 PR 标题应能直接作为最终 squash commit 的 subject，并遵循 [提交消息指南](commit-message.md)：
 
 ```text
-feat(backend): add takumi renderer
+feat(provider): add takumi renderer
 fix(playwright): render remote markdown with set_content
 ```
 

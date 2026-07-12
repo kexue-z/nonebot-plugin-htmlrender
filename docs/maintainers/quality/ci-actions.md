@@ -164,6 +164,10 @@ PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是
 | Strict docs build | `make docs-build` |
 | Build artifacts + metadata check | `make build-artifacts` |
 
+`make test-ci` 包含 documentation contract：检查旧契约、公共导出、完整配置
+路径和 Python 示例；`make typecheck` / `make ty` 同时覆盖 examples。
+`make docs-build` 负责链接、导航和页面渲染，不能替代前两类检查。
+
 ## 排障入口
 
 - 测试失败：下载对应 `coverage-debug-*` artifact，先看 pytest log 最后 200 行；

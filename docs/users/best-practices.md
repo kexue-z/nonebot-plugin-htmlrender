@@ -1,129 +1,77 @@
 ---
 title: 最佳实践
-description: 基于 examples 示例项目的上手建议与常见模式
-icon: lucide/lightbulb
-status: new
-tags:
-  - Users
-  - Best Practices
+description: 稳定 API、资源策略、错误与生命周期建议
+icon: lucide/badge-check
 ---
 
 # 最佳实践
 
-这页面向刚接触本插件的同学，内容基于仓库 `examples/` 下的三个独立示例项目：
+## 优先使用通用 API
 
-- `examples/screenshot/`：网页截图与元素截图；
-- `examples/template_render/`：本地模板渲染与纯文本渲染；
-- `examples/remote_browser/`：远程浏览器渲染。
+内容到图片优先使用 `render_*`；只有导航、selector、node、SVG 等确实依赖
+引擎的操作才获取 typed Capability。这样更换 Provider 时，Preparation 与
+业务代码保持不变。
 
-如果你是第一次接入，建议按明确的接入顺序推进，而不是一开始就把远程浏览器、模板资源、外部字体和复杂交互全部堆进同一条链路。
-
-## 从最小可用开始
-
-推荐第一步先实现一个最简单命令，只调用一个 API（例如 `render_text`）：
+## 在边界转换 typed artifact
 
 ```python
-from nonebot import on_command, require
-from nonebot.adapters.onebot.v11 import Bot, MessageEvent, MessageSegment
-from nonebot_plugin_htmlrender import render_text
-
-require("nonebot_plugin_htmlrender")
-
-cmd = on_command("render_text")
-
-@cmd.handle()
-async def _(bot: Bot, event: MessageEvent) -> None:
-    text = str(event.get_message()).strip() or "Hello, HTMLRender!"
-    image = await render_text(text)
-    await cmd.finish(MessageSegment.image(image))
+artifact = await render_markdown(text)
+await matcher.finish(UniMessage(Image(raw=bytes(artifact))))
 ```
 
-先确保这条链路稳定，再扩展 Markdown、模板、资源解析等能力。
+不要把 `RenderedImage` 当作 `bytes` 透传，也不要过早丢弃
+`media_type`、format 和尺寸。
 
-## 推荐的能力接入顺序
+## 明确资源策略
 
-参考 `examples/template_render/` 与 `examples/screenshot/`，建议按这个顺序逐步添加：
+- 受控模板可使用 `ResourcePolicy.AUTO`。
+- 构建期或安全敏感任务使用 `ResourcePolicy.STRICT`，让缺失资源直接失败。
+- 确定无需本地物化时使用 `ResourcePolicy.OFF`。
+- `allowed_paths` 只加入最小目录；生产环境保持 `allow_any_path: false`。
+- 远程 Playwright 默认使用 `memory` transport，除非部署已显式共享卷。
 
-1. `list_render_backend_statuses`：先确认后端状态可读（示例中包装为 `render_status` 命令）。
-1. `render_text`：最快拿到第一张图。
-1. `render_markdown`：引入样式和内容结构。
-1. `get_render_context`：需要精细控制页面行为时再用。
-1. `render_template`：适合业务页面和可复用布局。
-1. `render_template + filters`：最后再引入模板过滤器。
+## 对完整操作设置超时
 
-这个顺序的好处是：每一步都可独立验证，定位问题时更容易。
-
-## 目录与资源组织建议
-
-模板示例给出了一个对初学者友好的结构：
-
-- `examples/template_render/plugins/template_render/templates/`：模板与 CSS 放一起。
-- `examples/template_render/plugins/template_render/__init__.py`：命令 handler 与渲染调用入口。
-- `examples/screenshot/plugins/screenshot/__init__.py`：需要直接操作页面时的 `get_render_context` 示例。
-
-实际项目里也建议保持同样思路：\
-“模板/CSS/工具函数”分目录管理，尽量避免把所有逻辑写在一个 handler 里。
-
-## 示例验证方式
-
-当前示例项目更偏“可复制到 Bot 中运行”的集成示例。若要验证核心行为，请优先跑仓库测试：
-
-```bash
-make test-ci
+```python
+artifact = await render_html(html, timeout_seconds=15)
 ```
 
-涉及真实浏览器行为时，先安装项目本地浏览器，再跑 local profile：
+超时应覆盖 Preparation、lease 获取与执行，而不是只给某个页面步骤设置值。
+使用 raw Playwright Page 时，仍应给 `goto` 等外部网络操作设置独立超时。
 
-```bash
-make install-browser
-make test-local
+## 按稳定错误分类
+
+```python
+from nonebot_plugin_htmlrender import (
+    CapabilityUnavailable,
+    ProviderUnavailable,
+    RenderingError,
+    ResourceResolutionError,
+)
+
+try:
+    artifact = await render_markdown(text)
+except ResourceResolutionError:
+    ...
+except (ProviderUnavailable, CapabilityUnavailable):
+    ...
+except RenderingError:
+    ...
 ```
 
-## 两条很实用的小技巧
+不要依赖 Playwright/Takumi 内部异常作为跨版本业务契约。
 
-### 1) 本地预览产物先落盘
+## 让 bootstrap 管理默认生命周期
 
-调模板时建议先在业务代码里临时把渲染结果写成 `png`，这对排查样式问题非常有帮助。\
-确认模板稳定后，再把结果直接发送到聊天消息里。
+常规 NoneBot 插件不要自行关闭默认 `Application`。独立 composition、测试或
+脚本应配对 `startup()` / `aclose()`；关闭后新建 composition，而不是复用。
 
-### 2) `get_render_context` 只在必要时使用
+## Capability 只保存 token，不保存 lease 产物
 
-`get_render_context` 很强，但也更偏底层。\
-如果你只是“输入文本/模板 -> 输出图片”，优先用 `render_*` API。\
-只有在你需要自己控制 `page.goto`、`page.screenshot` 等步骤时，再切到 context 模式。
+可以重复从 catalog 获取 Capability；不要长期保存 Playwright Page、Takumi
+extension 或其他绑定某次 runtime lease 的对象。Provider 重建后重新获取。
 
-## 并发与会话复用
+## 不在日志中记录内容
 
-- 默认优先复用 `Render` 持有的 runtime 与 session，不要在业务层自己反复重建浏览器
-- 高频调用时优先复用默认实例，避免手动在每次请求里显式 `startup_render()` / `shutdown_render()`
-- 真正需要限制并发时，在业务层做任务队列或 semaphore，不要靠“每次都重启浏览器”来规避竞争
-
-## 长文与长页面截图
-
-- 长 Markdown 或长 HTML 页面优先保留 `full_page=True`
-- 页面依赖异步资源时，优先用 `wait` 或自定义 page 行为补稳定等待，而不是单纯把 timeout 拉得很大
-- 超长页面如果单张图不可读，应在业务层做分页或分段渲染，而不是强行输出一张极长截图
-
-## 模板、字体与静态资源
-
-- 模板目录、CSS、图片、字体尽量放在同一棵静态资源树下
-- 内置模板保持为 package resources，用户模板保持为显式 filesystem source；不要复制到 localstore 制造第二份真源
-- 远程模式使用默认内存资产桥；只有共享卷才显式 `passthrough`，确需 HTTP URL 才显式 `filehost`
-- 容器或远端浏览器环境中，CJK 字体和 emoji 字体要显式安装；不要把“本机能显示”当成可部署结论
-
-## 远程模式的资源边界
-
-- 远程浏览器不能直接读取 Bot filesystem；本地图片、CSS 与字体应物化为 `PreparedAsset`
-- `PreparedHtml.base_url` 只用于定位相对资源，允许是 Bot 侧 `file://` 目录；它不会触发远程导航
-- 只有真实网页导航才设置 `document_url`，且该 URL 必须在浏览器网络环境可达
-
-## 接入节奏示例
-
-1. 先参考 `examples/template_render/` 中的纯文本渲染命令。
-1. 把它改成你自己的命令名和业务文本。
-1. 加入 `render_markdown` 命令并验证样式。
-1. 再接入 `render_template`，把页面结构沉淀为模板。
-1. 需要网页截图时参考 `examples/screenshot/`。
-1. 最后接入远程 Playwright；默认使用内存桥，既有 HTTP 托管需求再启用 filehost。
-
-做到这一步，你的渲染层通常已经足够稳定，也便于团队继续维护。
+只记录 operation、Provider ID、稳定错误类别与 request ID。不要记录 HTML、
+URL、路径、模板变量、headers、asset bytes 或资源 digest。

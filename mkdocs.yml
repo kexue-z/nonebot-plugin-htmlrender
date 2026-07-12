@@ -162,10 +162,10 @@ nav:
               - Takumi 配置与能力: users/config/takumi.md
               - 依赖扩展与观测: users/config/integrations.md
       - 使用:
-          - API 与兼容层: users/api.md
+          - API: users/api.md
           - 示例项目: users/examples.md
           - 最佳实践: users/best-practices.md
-          - 远程 Playwright 与资源桥: users/remote-playwright.md
+          - 远程 Playwright 与资源传输: users/remote-playwright.md
       - 排障与运维:
           - 故障排查: users/troubleshooting.md
           - 常见问题: users/faq.md
@@ -173,14 +173,14 @@ nav:
       - 迁移:
           - v0.8 迁移指南: users/migration-v080.md
           - v0.7.2 迁移说明: users/migration-v072.md
-          - 旧版本迁移指南: users/migration.md
+          - 旧版本迁移索引: users/migration.md
   - 面向开发者:
       - 概览: maintainers/index.md
       - 架构与设计:
           - 分层架构: maintainers/architecture/architecture.md
-          - 自定义 Backend 指南: maintainers/architecture/custom-backends.md
-          - 渲染后端开发指南: maintainers/architecture/render-backend-development.md
-          - 资源准备与传输方案: maintainers/architecture/filehost-resource-resolution.md
+          - 自定义 Provider: maintainers/architecture/custom-providers.md
+          - Provider 开发指南: maintainers/architecture/provider-development.md
+          - 资源解析与传输: maintainers/architecture/resource-resolution.md
       - 协作流程:
           - 贡献指南: maintainers/contributing/contributing.md
           - Pull Request 生命周期: maintainers/contributing/pull-requests.md

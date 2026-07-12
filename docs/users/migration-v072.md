@@ -11,6 +11,11 @@ tags:
 
 # v0.7.2 迁移说明
 
+!!! warning "历史文档"
+
+    本页只描述 0.7.1 → 0.7.2，不能作为 0.8 API 或配置依据。升级到当前版本请
+    阅读 [v0.8 迁移指南](migration-v080.md)。
+
 v0.7.2 修复远程 Playwright 无法读取 Bot 容器内 `file://` 模板的问题，并把资源准备、缓存和后端执行统一到同一套生命周期模型。v0.7.1 已发布公共 API 保持兼容；本页列出默认行为变化和需要主动迁移的含糊配置。
 
 !!! info "pre-1.0 兼容策略"
@@ -142,4 +147,4 @@ v0.7.1 在导入阶段无条件 `require` 两个可选插件（只要装了就�
 - [ ] 不再导入未发布的模板 Path 常量或 `PreparedHtml.markup`；
 - [ ] 依赖 Prometheus 的部署已显式设 `prometheus_enable=true`（默认已关闭），`/metrics` 端点正常挂载。
 
-更多细节见 [远程 Playwright 与资源桥](remote-playwright.md)、[Takumi 配置与能力](config/takumi.md) 与 [资源准备和传输方案](../maintainers/architecture/filehost-resource-resolution.md)。
+更多历史背景见 [远程 Playwright 与资源传输](remote-playwright.md)、[Takumi 配置与能力](config/takumi.md) 与 [资源解析和传输](../maintainers/architecture/resource-resolution.md)。

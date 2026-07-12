@@ -1,432 +1,222 @@
 ---
-title: API 与兼容层
-description: 新 API 用法与迁移路径
-icon: lucide/code-2
-status: new
-tags:
-  - Users
-  - API
+title: API
+description: 0.8 通用渲染、Preparation、Capability 与错误模型
+icon: lucide/code-xml
 ---
 
-# API 与兼容层
+# API
 
-所有公共 API 均从 `nonebot_plugin_htmlrender` 顶层导入：
+## 通用渲染函数
+
+所有函数返回类型化产物，只接受跨 Provider 可移植的参数。
+
+| 函数 | 输入 | 返回 |
+| --- | --- | --- |
+| `render_html` | HTML、raster 选项、资源基址 | `RenderedImage` |
+| `render_text` | 纯文本、可选 CSS、资源策略 | `RenderedImage` |
+| `render_markdown` | Markdown 字符串或文件 | `RenderedImage` |
+| `render_template` | Jinja 根目录、模板名、变量 | `RenderedImage` |
+| `render_template_html` | Jinja 输入 | `RenderedHtml` |
+| `rasterize_html` | `PreparedHtml`、`RasterOptions` | `RenderedImage` |
 
 ```python
-from nonebot_plugin_htmlrender import render_text, render_markdown, render_template
+from nonebot_plugin_htmlrender import (
+    ResourcePolicy,
+    render_html,
+    render_template_html,
+)
+
+image = await render_html(
+    "<main>Hello</main>",
+    width=800,
+    height=480,
+    device_pixel_ratio=2,
+    image_format="png",
+    resource_policy=ResourcePolicy.STRICT,
+    timeout_seconds=15,
+)
+payload = bytes(image)
+content_type = image.media_type
+
+html = await render_template_html(
+    "templates",
+    "card.html",
+    variables={"name": "Alice"},
+)
+source = str(html)
 ```
 
----
+`quality` 只能与 JPEG 一起使用。`timeout_seconds` 覆盖完整操作；值必须为有限正数。
 
-## 渲染 API
+## Request 与 Renderer
 
-### `render_text`
-
-将纯文本渲染为图片。
+需要复用请求或显式控制对象图时，直接构造 request：
 
 ```python
-async def render_text(
-    text: str,
-    css_path: str = "",
-    width: int = 500,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: Optional[int] = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: Optional[float] = 30_000,
-    *,
-    resource_strict: bool = False,
-    render: Optional[RenderConfig] = None,
-) -> bytes
+from nonebot_plugin_htmlrender import (
+    RasterOptions,
+    RenderHtmlRequest,
+    get_default_application,
+)
+
+request = RenderHtmlRequest(
+    html="<h1>Hello</h1>",
+    raster=RasterOptions(width=640, format="png"),
+    timeout_seconds=10,
+)
+artifact = await get_default_application().renderer.render_html(request)
 ```
 
-| 参数                  | 类型                     | 默认值  | 说明                                  |
-| --------------------- | ------------------------ | ------- | ------------------------------------- |
-| `text`                | `str`                    | 必填    | 要渲染的纯文本内容                    |
-| `css_path`            | `str`                    | `""`    | 自定义 CSS 文件路径，为空使用内置样式 |
-| `width`               | `int`                    | `500`   | 视口宽度（像素）                      |
-| `image_type`          | `Literal["jpeg", "png"]` | `"png"` | 输出图片格式                          |
-| `quality`             | `Optional[int]`          | `None`  | JPEG 质量（0-100），仅 jpeg 有效      |
-| `device_scale_factor` | `float`                  | `2`     | 设备像素比（DPR）                     |
-| `screenshot_timeout`  | `Optional[float]`        | `30000` | 截图超时（毫秒）                      |
-| `render`              | `Optional[RenderConfig]` | `None`  | 高级：覆盖完整渲染配置                |
+只需要 facade 时可调用 `get_default_renderer()`；它等价于读取默认
+`Application.renderer`，不会建立第二个 composition。
 
-**返回值：** `bytes` — 图片二进制数据
+`Renderer.capabilities` 是已绑定通用用例的名称集合；
+`Renderer.supports("render_html")` 可用于功能探测。
 
----
+## 类型化产物
 
-### `render_markdown`
+`RenderedImage` 提供：
 
-将 Markdown 渲染为图片，内置 KaTeX 数学公式支持。
+- `data: bytes`
+- `format: str`
+- `width: int | None`
+- `height: int | None`
+- `media_type: str`
+- `bytes(artifact)`
 
-```python
-async def render_markdown(
-    markdown_text: str = "",
-    md_path: str = "",
-    css_path: str = "",
-    width: int = 500,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: Optional[int] = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: Optional[float] = 30_000,
-    *,
-    render: Optional[RenderConfig] = None,
-) -> bytes
-```
+`RenderedHtml` 提供 `content: str` 与 `str(artifact)`。不要依赖隐式类型转换。
 
-| 参数                  | 类型                     | 默认值  | 说明                                                          |
-| --------------------- | ------------------------ | ------- | ------------------------------------------------------------- |
-| `markdown_text`       | `str`                    | `""`    | Markdown 文本，与 `md_path` 二选一；兼容层仍支持旧关键字 `md` |
-| `md_path`             | `str`                    | `""`    | Markdown 文件路径，与 `markdown_text` 二选一                  |
-| `css_path`            | `str`                    | `""`    | 自定义 CSS 文件路径，为空使用 GitHub 风格                     |
-| `width`               | `int`                    | `500`   | 视口宽度（像素）                                              |
-| `image_type`          | `Literal["jpeg", "png"]` | `"png"` | 输出图片格式                                                  |
-| `quality`             | `Optional[int]`          | `None`  | JPEG 质量（0-100），仅 jpeg 有效                              |
-| `device_scale_factor` | `float`                  | `2`     | 设备像素比                                                    |
-| `screenshot_timeout`  | `Optional[float]`        | `30000` | 截图超时（毫秒）                                              |
-| `resource_strict`     | `bool`                   | `False` | 无基址或无法读取的本地资源是否立即报错                        |
-| `render`              | `Optional[RenderConfig]` | `None`  | 高级：覆盖完整渲染配置                                        |
+## Preparation
 
-**返回值：** `bytes` — 图片二进制数据
-
----
-
-### `render_html`
-
-将原始 HTML 渲染为图片。支持传入字符串或 `HtmlRenderRequest` 对象。
+Preparation 不执行位图渲染，可用来检查或复用中立文档：
 
 ```python
-async def render_html(
-    request: Union[HtmlRenderRequest, str],
-    wait: int = 0,
-    template_path: Optional[str] = None,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: Optional[int] = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: Optional[float] = 30_000,
-    *,
-    full_page: bool = True,
-    viewport: Optional[dict[str, int]] = None,
-    user_agent: Optional[str] = None,
-    extra_http_headers: Optional[dict[str, str]] = None,
-) -> bytes
-```
-
-| 参数                  | 类型                            | 默认值  | 说明                                                     |
-| --------------------- | ------------------------------- | ------- | -------------------------------------------------------- |
-| `request`             | `Union[HtmlRenderRequest, str]` | 必填    | HTML 内容或完整渲染请求对象                              |
-| `wait`                | `int`                           | `0`     | 截图前额外等待时间（毫秒）                               |
-| `template_path`       | `Optional[str]`                 | `None`  | 页面 base URL（用于解析相对资源）                        |
-| `image_type`          | `Literal["jpeg", "png"]`        | `"png"` | 输出图片格式                                             |
-| `quality`             | `Optional[int]`                 | `None`  | JPEG 质量（0-100），仅 jpeg 有效                         |
-| `device_scale_factor` | `float`                         | `2`     | 设备像素比                                               |
-| `screenshot_timeout`  | `Optional[float]`               | `30000` | 截图超时（毫秒）                                         |
-| `full_page`           | `bool`                          | `True`  | 是否截取完整页面                                         |
-| `viewport`            | `Optional[dict[str, int]]`      | `None`  | 高级：覆盖页面视口，例如 `{"width": 800, "height": 600}` |
-| `user_agent`          | `Optional[str]`                 | `None`  | 高级：覆盖页面 User-Agent                                |
-| `extra_http_headers`  | `Optional[dict[str, str]]`      | `None`  | 高级：附加页面请求头                                     |
-
-**返回值：** `bytes` — 图片二进制数据
-
-常用高级参数：
-
-- `viewport`：页面视口，例如 `{"width": 800, "height": 600}`
-- `user_agent`：覆盖页面 UA
-- `extra_http_headers`：为页面请求附加 header，例如远端 filehost 场景
-
----
-
-### `render_template`
-
-基于 Jinja2 模板渲染图片，支持资源解析（远程场景下将本地资源转为可访问 URL）。
-
-```python
-async def render_template(
-    request: Union[TemplateRenderRequest, str],
-    template_name: Optional[str] = None,
-    templates: Optional[dict] = None,
-    filters: Optional[dict[str, Any]] = None,
-    pages: Optional[dict] = None,
-    wait: int = 0,
-    image_type: Literal["jpeg", "png"] = "png",
-    quality: Optional[int] = None,
-    device_scale_factor: float = 2,
-    screenshot_timeout: Optional[float] = 30_000,
-    *,
-    resolve_resources: Optional[bool] = None,
-    resource_resolver: Union[ResourceResolver, str, None] = None,
-    resource_strict: bool = False,
-) -> bytes
-```
-
-| 参数                  | 类型                                 | 默认值  | 说明                                                  |
-| --------------------- | ------------------------------------ | ------- | ----------------------------------------------------- |
-| `request`             | `Union[TemplateRenderRequest, str]`  | 必填    | 模板目录路径或完整请求对象                            |
-| `template_name`       | `Optional[str]`                      | `None`  | 模板文件名（`request` 为字符串时必填）                |
-| `templates`           | `Optional[dict]`                     | `None`  | 模板变量（键值对）                                    |
-| `filters`             | `Optional[dict[str, Any]]`           | `None`  | 自定义 Jinja2 过滤器                                  |
-| `pages`               | `Optional[dict]`                     | `None`  | 页面配置（`viewport`、`base_url`、`document_url` 等） |
-| `wait`                | `int`                                | `0`     | 截图前额外等待时间（毫秒）                            |
-| `image_type`          | `Literal["jpeg", "png"]`             | `"png"` | 输出图片格式                                          |
-| `quality`             | `Optional[int]`                      | `None`  | JPEG 质量（0-100），仅 jpeg 有效                      |
-| `device_scale_factor` | `float`                              | `2`     | 设备像素比                                            |
-| `screenshot_timeout`  | `Optional[float]`                    | `30000` | 截图超时（毫秒）                                      |
-| `resolve_resources`   | `Optional[bool]`                     | `None`  | 是否启用资源解析（`None` 由配置决定）                 |
-| `resource_resolver`   | `Union[ResourceResolver, str, None]` | `None`  | 资源解析策略：`None`/`"auto"`/`"filehost"` 或自定义   |
-| `resource_strict`     | `bool`                               | `False` | 严格模式：解析失败时是否直接抛错                      |
-
-**返回值：** `bytes` — 图片二进制数据
-
-`pages` 常用 key：
-
-| key            | 说明                                         |
-| -------------- | -------------------------------------------- |
-| `viewport`     | 页面视口，如 `{"width": 480, "height": 240}` |
-| `document_url` | 显式导航目标；仅设置后才调用 `page.goto()`                                  |
-| `base_url`     | v0.7.1 导航字段的弃用兼容别名；新代码不要使用，也不再表示 prepared 资源基址 |
-
-旧兼容入口曾把 `PageConfig.base_url` 用作导航目标。v0.7.2 会对这种用法发出弃用警告；新代码使用 `document_url`。资源基址由 `PreparedHtml.base_url` 表达，filesystem 模板与 Markdown/CSS 文件会在 preparation 时自动保留各自来源目录。
-
-更完整的页面模型见文末的 `PageConfig` / `RenderConfig` 请求模型说明。
-
----
-
-### `render_template_html`
-
-仅渲染模板生成 HTML 字符串，不截图。适用于需要自行控制页面行为的场景。
-
-```python
-async def render_template_html(
-    template: Union[TemplateConfig, str],
-    template_name: Optional[str] = None,
-    filters: Optional[dict[str, Any]] = None,
-    **kwargs: Any,
-) -> str
-```
-
-| 参数            | 类型                         | 默认值 | 说明                                    |
-| --------------- | ---------------------------- | ------ | --------------------------------------- |
-| `template`      | `Union[TemplateConfig, str]` | 必填   | 模板配置对象或模板目录路径              |
-| `template_name` | `Optional[str]`              | `None` | 模板文件名（`template` 为字符串时必填） |
-| `filters`       | `Optional[dict[str, Any]]`   | `None` | 自定义 Jinja2 过滤器                    |
-| `**kwargs`      | `Any`                        | —      | 模板变量，直接作为关键字参数传入        |
-
-**返回值：** `str` — 渲染后的 HTML 字符串
-
----
-
-### `capture_html_element`
-
-对指定 URL 页面中的某个元素截图。
-
-```python
-async def capture_html_element(
-    url: str,
-    element: str,
-    page_kwargs: Optional[dict] = None,
-    goto_kwargs: Optional[dict] = None,
-    screenshot_kwargs: Optional[dict] = None,
-) -> bytes
-```
-
-| 参数                | 类型             | 默认值 | 说明                                   |
-| ------------------- | ---------------- | ------ | -------------------------------------- |
-| `url`               | `str`            | 必填   | 目标页面 URL                           |
-| `element`           | `str`            | 必填   | CSS 选择器（定位截图元素）             |
-| `page_kwargs`       | `Optional[dict]` | `None` | 传给 `new_page()` 的额外参数           |
-| `goto_kwargs`       | `Optional[dict]` | `None` | 传给 `page.goto()` 的额外参数          |
-| `screenshot_kwargs` | `Optional[dict]` | `None` | 传给 `element.screenshot()` 的额外参数 |
-
-**返回值：** `bytes` — 图片二进制数据
-
----
-
-## 底层上下文
-
-### `get_render_context`
-
-异步上下文管理器，获取底层 Playwright `Page` 对象。适用于需要精细控制 `page.goto`、`page.screenshot` 等步骤的高级场景。
-
-```python
-@asynccontextmanager
-async def get_render_context(**kwargs) -> AsyncIterator[Page]
-```
-
-```python
-from nonebot_plugin_htmlrender import get_render_context
-
-async with get_render_context() as page:
-    await page.goto("https://example.com")
-    await page.screenshot(path="output.png")
-```
-
-!!! tip
-
-    大多数场景下 `render_*` API 已足够，仅在需要自定义页面行为时使用此接口。
-
----
-
-## 资源解析
-
-### `resolve_template_vars`
-
-递归遍历模板变量 dict，将本地资源（`Path`、路径字符串、`bytes`）转换为可访问 URL。
-
-```python
-async def resolve_template_vars(
-    template_vars: dict[str, Any],
-    *,
-    template_base: Union[str, Path, None] = None,
-    strict: bool = False,
-    resolver: Union[ResourceResolver, str, None] = None,
-    lease_id: Optional[str] = None,
-) -> dict[str, Any]
-```
-
-通常由 `render_template` 内部自动调用，无需手动使用。\
-只有在你需要先做模板变量预处理、再把结果交给别的渲染逻辑时，才需要显式调用。
-
-### `to_resource_url`
-
-将单个本地资源转换为可访问 URL。
-
-```python
-async def to_resource_url(
-    value: Union[str, Path, bytes],
-    *,
-    template_base: Union[str, Path, None] = None,
-    strict: bool = False,
-    resolver: Union[ResourceResolver, str, None] = None,
-    lease_id: Optional[str] = None,
-) -> str
-```
-
-适用场景：
-
-- 你只需要处理一个资源，而不是整组模板变量
-- 你要在自定义 HTML 拼装流程里拿到 filehost 或 `file://` URL
-
-### `ResourceResolveError`
-
-资源解析失败时抛出的异常（严格模式下）。继承自 `RuntimeError`。
-
----
-
-## 生命周期
-
-### `startup_render` / `probe_render` / `shutdown_render`
-
-启动、探测和关闭默认渲染实例。通常由插件自动在 NoneBot `on_startup` / `on_shutdown` 中调用。
-
-```python
-async def startup_render(**kwargs) -> RenderSession
-async def probe_render() -> None
-async def shutdown_render() -> None
-```
-
-这组接口通常由插件在 NoneBot 生命周期中自动调用。\
-业务插件不应把它们作为常规入口；只有在测试、手动预热或特殊部署控制场景下才需要显式调用。
-
-### `get_render`
-
-获取当前渲染会话。若会话不存在或已失效，自动创建新会话。
-
-```python
-async def get_render(**kwargs) -> RenderSession
-```
-
-### `get_default_render`
-
-获取默认 `Render` 实例（同步）。若不存在则自动创建。
-
-```python
-def get_default_render() -> Render
-```
-
----
-
-## 后端状态查询
-
-### `list_render_backend_statuses`
-
-列出所有已注册后端的状态。
-
-```python
-def list_render_backend_statuses() -> tuple[BackendStatus, ...]
-```
-
-`BackendStatus` 包含字段：`backend`（`RenderBackend`）、`registered`（`bool`）、`available`（`bool`）、`reason`（`Optional[str]`）。
-
-!!! info "关于 backend 枚举值"
-
-    `RenderBackend` 里公开了 `playwright` / `skia` / `pillow` / `htmlkit`。\
-    当前仓库正式实现的是 `playwright`；其他值不应被理解为“已经落地可用的正式 backend”。
-
-### `get_render_backend_status`
-
-查询指定后端的状态。
-
-```python
-def get_render_backend_status(backend: RenderBackend) -> BackendStatus
-```
-
-### `is_render_backend_available` / `is_render_backend_registered`
-
-```python
-def is_render_backend_available(backend: RenderBackend) -> bool
-def is_render_backend_registered(backend: RenderBackend) -> bool
-```
-
-### `available_render_backends` / `registered_render_backends` / `unavailable_render_backends`
-
-```python
-def available_render_backends() -> tuple[RenderBackend, ...]
-def registered_render_backends() -> tuple[RenderBackend, ...]
-def unavailable_render_backends() -> tuple[RenderBackend, ...]
-```
-
----
-
-## 兼容层（已弃用）
-
-以下 API 仅做转发和弃用提示，**不承载新能力**。
-
-| 旧 API                | 新 API                 | 说明           |
-| --------------------- | ---------------------- | -------------- |
-| `text_to_pic`         | `render_text`          | 纯文本渲染     |
-| `md_to_pic`           | `render_markdown`      | Markdown 渲染  |
-| `html_to_pic`         | `render_html`          | HTML 渲染      |
-| `template_to_pic`     | `render_template`      | 模板渲染       |
-| `template_to_html`    | `render_template_html` | 模板生成 HTML  |
-| `capture_element`     | `capture_html_element` | 元素截图       |
-| `get_new_page`        | `get_render_context`   | 获取页面上下文 |
-| `startup_htmlrender`  | `startup_render`       | 启动渲染       |
-| `shutdown_htmlrender` | `shutdown_render`      | 关闭渲染       |
-
-!!! warning "兼容层边界"
-
-    兼容层只做转发与弃用提示，不承载新能力。\
-    `render_template` 的资源解析参数（`resolve_resources` / `resource_resolver` / `resource_strict`）在兼容入口 `template_to_pic` 中不可用。
-
----
-
-## 请求模型
-
-渲染 API 支持传入结构化请求对象以进行精细控制：
-
-- **`HtmlRenderRequest`** — HTML 渲染请求（`content` + `render` 配置）
-- **`TemplateRenderRequest`** — 模板渲染请求（`template` + `render` 配置）
-- **`TemplateConfig`** — 模板配置（路径、文件名、变量、过滤器）
-- **`RenderConfig`** — 渲染配置（页面 + 截图选项）
-- **`PageConfig`** — 页面配置（viewport、base_url、document_url、user_agent、extra_http_headers）
-- **`ViewportConfig`** — 视口配置（width、height）
-
-```python
-from nonebot_plugin_htmlrender.backend.playwright.models import (
-    HtmlRenderRequest,
-    TemplateRenderRequest,
-    TemplateConfig,
-    RenderConfig,
-    PageConfig,
-    ViewportConfig,
+from nonebot_plugin_htmlrender import (
+    RasterOptions,
+    prepare_html,
+    rasterize_html,
+)
+
+prepared = prepare_html(
+    "<img src='avatar.png'>",
+    base_url="https://static.example/assets/",
+)
+artifact = await rasterize_html(
+    prepared,
+    RasterOptions(width=480, device_pixel_ratio=2),
 )
 ```
+
+`prepare_text`、`prepare_markdown`、`prepare_template` 是异步函数；
+`PreparedHtml` 由 HTML、stylesheets、assets、`base_url` 和 requirements 组成。
+`prepare_markdown(markdown=..., resource_policy=...)` 与渲染 API 使用同一
+`ResourcePolicy` 语义。
+
+## 资源辅助函数
+
+`resolve_template_vars` 递归解析映射和序列中的路径/bytes，
+`to_resource_url` 处理单个值。两者均为异步函数，并使用组合出的资源策略。
+`template_base` 只负责相对路径定位，不会扩张本地访问白名单。
+`strict=None` 继承组合策略，`strict=False` 显式采用宽松解析，
+`strict=True` 则在任一资源无法解析时失败。
+
+```python
+from nonebot_plugin_htmlrender import resolve_template_vars, to_resource_url
+
+variables = await resolve_template_vars(
+    {"avatar": "assets/avatar.png"},
+    template_base="templates",
+    strict=True,
+)
+logo_url = await to_resource_url(
+    "assets/logo.svg",
+    template_base="templates",
+    strict=True,
+)
+```
+
+## Application 生命周期
+
+NoneBot bootstrap 负责默认 `Application` 的安装与关闭。手工组合或测试替身可使用：
+
+```python
+from nonebot_plugin_htmlrender import get_default_application
+
+app = get_default_application()
+await app.startup()
+await app.probe()
+await app.aclose()
+```
+
+`startup()` 与 `aclose()` 幂等；关闭后不可重新启动，应创建新的 composition。
+
+## Playwright Capability
+
+页面导航、header、User-Agent、选择器截图属于浏览器专属语义：
+
+```python
+from nonebot_plugin_htmlrender import get_default_application
+from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
+    PLAYWRIGHT_CAPABILITIES,
+)
+
+playwright = get_default_application().capabilities.require(
+    PLAYWRIGHT_CAPABILITIES
+)
+async with playwright.page(
+    viewport={"width": 1280, "height": 800},
+    locale="zh-CN",
+) as page:
+    await page.goto("https://example.com", wait_until="networkidle")
+    image = await page.screenshot(full_page=True, type="png")
+
+element = await playwright.capture_element(
+    "https://example.com",
+    "main",
+    page_kwargs={"viewport": {"width": 1280, "height": 800}},
+)
+```
+
+缺少 Playwright Provider 时 `require()` 抛出 `CapabilityUnavailable`。
+
+## Takumi Capability
+
+Takumi 的 node、measure、SVG、animation 与动态字体 API 通过专属 Capability 获取：
+
+```python
+from nonebot_plugin_htmlrender import get_default_application
+from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
+    TAKUMI_CAPABILITIES,
+)
+
+takumi = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
+async with takumi.extension() as extension:
+    svg = await extension.render_svg_html("<strong>Hello</strong>", width=320)
+```
+
+`extension()` 的异步上下文持有一次 operation lease；不要让 `extension` 对象
+逃逸出上下文。
+
+## 稳定错误模型
+
+通用 request 的参数校验、Preparation、Resource Service、Application 生命周期与
+executor 边界由库产生或翻译的错误都继承 `RenderingError`：
+
+| 错误 | 含义 |
+| --- | --- |
+| `InvalidRenderRequest` | request 在执行前已确定无效 |
+| `PreparationError` | 模板编译或其他中立内容准备失败 |
+| `ProviderNotConfigured` | 默认 Application 尚未由插件或调用方安装 |
+| `ProviderNotFound` | 配置的 Provider ID 无法发现 |
+| `ProviderUnavailable` | Provider 存在但当前环境不可运行 |
+| `CapabilityUnavailable` | composition 未绑定请求的操作或 typed Capability；`provider: null` 的位图调用也属于此类 |
+| `UnsupportedRequirement` | 文档需求超出 Provider 能力 |
+| `ResourceResolutionError` | 资源读取、授权或物化失败 |
+| `ProviderExecutionError` | Provider 执行失败 |
+| `ProviderLifecycleError` | startup、probe 或关闭失败 |
+
+通用 executor 的适配器边界会把引擎异常翻译为这些类型；业务代码不应捕获
+引擎内部异常作为通用 API 的稳定契约。typed Capability 属于 Provider 专属 API：
+获取缺失 Capability 与 lease 生命周期仍使用上述稳定错误，但 raw Playwright
+`Page` 或 Takumi extension 内的专属操作可能直接抛出对应引擎异常，调用方需按
+该 Capability 文档处理。

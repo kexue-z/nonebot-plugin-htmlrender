@@ -1,143 +1,103 @@
 ---
 title: 快速开始
-description: 以最短路径接入 nonebot-plugin-htmlrender
+description: 安装 Provider、配置插件并完成第一次渲染
 icon: lucide/rocket
-status: new
-tags:
-  - Users
-  - Getting Started
 ---
 
 # 快速开始
 
-## 接入前提
+## 1. 安装
 
-开始前只需要先明确两件事：
+浏览器语义最完整，推荐首次接入选择 Playwright：
 
-- 这是一个库型插件，你会在自己的代码里调用它
-- 新版需要显式指定渲染后端：浏览器语义选 `playwright`，确定性静态排版可选 `takumi`
+```bash
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv run playwright install chromium
+```
 
-## 安装
+完全静态且不需要 JavaScript 的内容可以选择 Takumi：
 
-=== "基础安装"
+```bash
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+```
 
-    ```bash
-    uv add nonebot-plugin-htmlrender
-    ```
+## 2. 配置
 
-=== "包含 filehost 能力"
+`pyproject.toml`：
 
-    ```bash
-    uv add "nonebot-plugin-htmlrender[filehost]"
-    ```
+```toml
+[tool.nonebot]
+plugins = ["nonebot_plugin_htmlrender"]
+```
 
-=== "使用 Takumi 后端"
+NoneBot 配置：
 
-    ```bash
-    uv add "nonebot-plugin-htmlrender[takumi]"
-    ```
+```yaml
+render:
+  provider: playwright
+  startup: warmup
+  resources:
+    local_access:
+      allowed_paths: [templates]
+```
 
-=== "包含全部可选能力"
+Dotenv 需要把整个嵌套对象写入 `RENDER`：
 
-    ```bash
-    uv add "nonebot-plugin-htmlrender[filehost,takumi,sentry,prometheus]"
-    ```
+```dotenv
+RENDER={"provider":"playwright","startup":"warmup","resources":{"local_access":{"allowed_paths":["templates"]}}}
+```
 
-## 最小配置
+`startup: off` 延迟到第一次操作启动；`warmup` 在 NoneBot 启动时创建运行时；
+`probe` 还会执行一次最小可用性探测。
 
-最小配置只需要指定后端：
-
-=== "Dotenv"
-
-    ```dotenv
-    RENDER_BACKEND=playwright
-    ```
-
-=== "nonebot.init"
-
-    ```python
-    import nonebot
-
-    nonebot.init(render_backend="playwright")
-    ```
-
-=== "Takumi"
-
-    ```dotenv
-    RENDER_BACKEND=takumi
-    ```
-
-完整配置说明见 [基础配置与加载](config/core.md)。
-选择 Takumi 前请先阅读其 [能力边界、字体与资源配置](config/takumi.md)。
-
-## 加载插件
+## 3. 渲染
 
 ```python
 from nonebot import require
 
 require("nonebot_plugin_htmlrender")
-```
 
-## 最小调用示例
-
-```python
 from nonebot_plugin_htmlrender import render_markdown
 
-image = await render_markdown("# Hello\n\n**World**")
-```
 
-这时 `image` 的类型是 `bytes`，你可以把它交给适配器发送，或写入文件做调试。
-
-## 一个更贴近真实业务的例子
-
-```python
-from nonebot import on_command, require
-
-require("nonebot_plugin_htmlrender")
-
-from nonebot_plugin_htmlrender import render_template
-
-show_profile = on_command("profile")
-
-@show_profile.handle()
-async def handle_profile() -> None:
-    image = await render_template(
-        "templates",
-        template_name="profile.html",
-        templates={"name": "Tacrolimus", "score": 98},
+async def make_image() -> bytes:
+    artifact = await render_markdown(
+        "# Status\n\n- Provider ready\n- Typed artifact",
+        width=720,
+        timeout_seconds=15,
     )
+    return bytes(artifact)
 ```
 
-## 模板目录的最小可运行例子
+模板示例：
 
-如果你要接 `render_template`，至少要有一份模板目录。模板目录本身就是默认资源基址：
+模板目录必须位于 `render.resources.local_access.allowed_paths` 中。
 
 ```python
 from pathlib import Path
 
 from nonebot_plugin_htmlrender import render_template
 
-TEMPLATE_DIR = Path("templates")
+TEMPLATES = Path(__file__).parent / "templates"
 
-image = await render_template(
-    str(TEMPLATE_DIR),
-    template_name="card.html",
-    templates={"title": "Hello", "value": "World"},
-    pages={"viewport": {"width": 480, "height": 240}},
-)
+
+async def make_card(name: str) -> bytes:
+    artifact = await render_template(
+        TEMPLATES,
+        "card.html",
+        variables={"name": name},
+        width=480,
+        height=320,
+    )
+    return bytes(artifact)
 ```
 
-本地与远程模式都能使用这条路径；模板目录会自动成为资源基址，远程资源默认经内存资产桥传输。只有自定义 `PreparedHtml` 才需要设置其 `base_url`；真实页面导航使用 `PageConfig.document_url`。
+## 4. 发送到消息适配器
 
-## 下一步该看什么
+```python
+artifact = await render_markdown("**hello**")
+await matcher.finish(UniMessage(Image(raw=bytes(artifact))))
+```
 
-如果你已经能成功渲染第一张图，下一步按需要继续：
-
-- 想看公共接口：去 [API 与兼容层](api.md)
-- 想整理配置：去 [配置总览](config/index.md)
-- 想用无浏览器的原生渲染：去 [Takumi 配置与能力](config/takumi.md)
-- 想接远程浏览器或 filehost：去 [远程 Playwright 与资源桥](remote-playwright.md)
-- 想从 v0.7.1 升级：去 [v0.7.2 迁移说明](migration-v072.md)
-- 想迁移更早的旧项目：去 [旧版本迁移指南](migration.md)
-
-如果启动阶段直接失败，先看 [故障排查](troubleshooting.md) 里的 `Render runtime startup failed.` 与 Playwright 安装相关条目。
+下一步阅读 [API](api.md)；需要页面导航或元素截图时阅读
+[Playwright typed Capability](api.md#playwright-capability)。

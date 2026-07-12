@@ -1,158 +1,121 @@
 ---
 title: 分层架构
-description: 模块职责与依赖方向
-icon: lucide/layers-3
-status: new
-tags:
-  - Maintainers
-  - Architecture
+description: 0.8 object graph、依赖方向、调用与生命周期
+icon: lucide/blocks
 ---
 
 # 分层架构
 
 ## 依赖方向
 
-`__init__/render` -> `preparation` -> `backend` -> `resources`
-
-!!! info "约束"
-
-    目录拆分只是开始，关键是依赖方向不能反转。
-
-## 五层语义
-
-由上至下：
-
-1. **Render（渲染层）**：面向用户的最高层接口，例如 `render_html`、`render_template`。对 `Backend` 做抽象封装，负责会话复用与默认实例管理。
-1. **Preparation（准备层）**：把文本、Markdown、Jinja 模板与原始 HTML 转成 `PreparedHtml`、`PreparedStylesheet` 与 `PreparedAsset`，不选择执行后端。
-1. **Backend（后端层）**：Playwright 或 Takumi executor，负责消费 prepared model 并管理 `Runtime` / `Session`。
-1. **Runtime（运行时）**：一次驱动实例化的产物，对应 Playwright 进程/远端连接，或进程内 Takumi renderer 与 worker。
-1. **Session / Context（会话与上下文）**：Playwright 对应 `Browser`、`BrowserContext` 与 `Page`；Takumi session 是 runtime-local native 执行入口，不伪造 Page 语义。
-
-层次约束：
-
-- 上层只能透过下层暴露的接口操作下层资源，不直接持有更下层对象。
-- `Render` 不感知 Playwright 细节；`Backend` 不感知 NoneBot 生命周期。
-- 资源 source、byte cache、templating 与 asset index 位于 `resources/`，被 preparation 与 executor 共同复用；后端专属传输适配器不能反向污染 prepared model。
-
-## 架构图
-
 ```mermaid
-flowchart TD
-    A["nonebot_plugin_htmlrender/__init__.py<br/>插件入口/导出 API"] --> B["render.py<br/>默认实例/生命周期"]
-    B --> P["preparation/<br/>PreparedHtml · stylesheet · asset"]
-    B --> C["backend/base.py + backend/factory.py<br/>后端抽象与注册"]
-    P --> C
-    C --> D["backend/playwright/<br/>BrowserLoadPlan · page route"]
-    C --> T["backend/takumi/<br/>native runtime · compiled cache"]
-    P --> F
-    D --> F
-    T --> F
-
-    subgraph F["resources/ 共用资源层"]
-        F1["source.py<br/>package / filesystem identity"]
-        F2["cache.py<br/>generation-safe byte cache"]
-        F3["templating.py<br/>PackageLoader / FileSystemLoader"]
-        F4["filehost/<br/>explicit compatibility adapter"]
-        F1 --> F2
-        F1 --> F3
-    end
-
-    G["tests/render/test_render_api.py"] --> B
-    H["tests/backend/*/test_*.py"] --> C
-    I["tests/resources/test_resources*.py"] --> F
+flowchart LR
+    API["Public API"] --> APP["Application / Renderer"]
+    APP --> PREP["Preparation"]
+    APP --> PORTS["Rendering ports"]
+    PREP --> RES["Resource contracts"]
+    BOOT["NoneBot composition root"] --> APP
+    BOOT --> PROVIDER["Engine Provider"]
+    PROVIDER --> ADAPTER["Playwright / Takumi adapter"]
+    ADAPTER --> PORTS
+    BOOT --> RADAPTER["Resource / template / observability adapters"]
+    RADAPTER --> RES
 ```
 
-## 渲染动作时序（HTML -> 图片）
+箭头表示“可以依赖”。核心层不反向导入 bootstrap 或 adapters。
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant Caller as 业务插件/调用方
-    participant API as render.render_html
-    participant Render as Render.get_render
-    participant Backend as PlaywrightBackend
-    participant Ops as operations.render_html
-    participant Browser as Browser(Session)
-    participant Page as Playwright Page
+## 分层职责
 
-    Caller->>API: await render_html(html/request)
-    API->>Render: get_render()
-    alt session 可复用
-        Render-->>API: 返回现有 session
-    else 冷启动
-        Render->>Backend: create_runtime()
-        Backend-->>Render: runtime
-        Render->>Backend: create_session(runtime)
-        Backend-->>Render: session
-        Render-->>API: 返回新 session
-    end
-    API->>Backend: backend.render_html(session, request)
-    Backend->>Ops: operations.render_html(...)
-    Ops->>Browser: new_page(...) (通过 open_page_context)
-    Browser-->>Ops: page
-    Ops->>Ops: build BrowserLoadPlan
-    Ops->>Page: install PreparedAsset routes
-    opt 显式 document_url
-        Ops->>Page: goto(document_url)
-    end
-    Ops->>Page: set_content(original html)
-    Ops->>Page: screenshot(...)
-    Page-->>Ops: bytes
-    Ops->>Page: 退出上下文，关闭 page
-    Ops-->>Backend: image bytes
-    Backend-->>API: image bytes
-    API-->>Caller: image bytes
-```
+### Public API
 
-## 插件初始化与关闭时序
+把便捷函数转换为 request，并通过默认 `Application` 执行。此层只提供稳定的
+跨 Provider 语义和 typed artifacts。
+
+### Application
+
+`Application` 聚合 `Renderer`、Capability catalog、Preparation/Resource
+services 与组合生命周期。use case 通过构造器得到 preparer、executor 和
+observer，不做 discovery。
+
+### Preparation
+
+把 HTML、文本、Markdown 与 Jinja 模板转换为 `PreparedHtml`。输出包含
+stylesheets、assets、资源基址和 execution requirements，不包含具体引擎对象。
+
+### Resource contracts
+
+定义 `ResourceRef`、`ResourceContent`、`ResourceReader`、
+`LocalAccessPolicy`、`AssetPublisher`、`WorkerExecutor` 与 `ResourceService`。
+filesystem/package/remote/filehost/Jinja 的实现都在 adapters。
+
+### Provider
+
+Provider 负责专属配置、availability、bootstrap requirements 和 bindings。
+它返回 executor、lifecycle、ResourceStrategy 与 typed capabilities，不读取
+NoneBot 全局配置。
+
+### Composition root
+
+唯一负责：
+
+- 读取并校验 `RenderSettings`；
+- discovery 并解析 Provider 配置；
+- 创建 observer、worker、资源 reader/decorator、publisher 与 template adapter；
+- 调用 Provider `compose()`；
+- 组装并安装默认 `Application`；
+- 把 startup/shutdown 接到 NoneBot driver。
+
+## 渲染调用
 
 ```mermaid
 sequenceDiagram
-    autonumber
-    participant NB as NoneBot Driver
-    participant Plugin as nonebot_plugin_htmlrender.__init__
-    participant Render as Render(Default)
-    participant Backend as PlaywrightBackend
-    participant Runtime as Playwright Runtime
-    participant Session as Browser Session
-
-    NB->>Plugin: on_startup -> init()
-    alt 配置了 render_backend 且 startup_mode=probe
-        Plugin->>Render: startup_render()
-        Plugin->>Render: probe_render()
-        Render->>Backend: startup_steps()
-        Render->>Backend: create_runtime()
-        Backend-->>Runtime: runtime handle
-        Render->>Backend: create_session(runtime)
-        Backend-->>Session: browser session
-        Render-->>Plugin: startup + probe 完成
-    else 配置了 render_backend 且 startup_mode=warmup
-        Plugin->>Render: startup_render()
-        Render->>Backend: startup_steps()
-        Render->>Backend: create_runtime()
-        Backend-->>Runtime: runtime handle
-        Render->>Backend: create_session(runtime)
-        Backend-->>Session: browser session
-        Render-->>Plugin: startup 完成
-    else 未配置 backend 或 startup_mode=off
-        Plugin-->>NB: 直接返回
-    end
-
-    NB->>Plugin: on_shutdown -> shutdown()
-    Plugin->>Render: shutdown_render()
-    Render->>Session: aclose()
-    Render->>Runtime: aclose()
-    Render-->>Plugin: 状态清空
-    Plugin-->>NB: shutdown 完成
+    participant Caller
+    participant API
+    participant Renderer
+    participant Preparation
+    participant Resources
+    participant Executor
+    Caller->>API: render_template(...)
+    API->>Renderer: RenderTemplateRequest
+    Renderer->>Preparation: prepare_template(...)
+    Preparation->>Resources: read / authorize / materialize
+    Resources-->>Preparation: ResourceContent / assets
+    Preparation-->>Renderer: PreparedHtml
+    Renderer->>Executor: execute(prepared, raster, policy)
+    Executor-->>Renderer: bytes
+    Renderer-->>Caller: RenderedImage
 ```
 
-## 兼容层原则
+Provider 专属调用跳过通用 request 参数扩张：调用方从 catalog 获取 typed
+Capability，再由 Capability 获取当前 lease。
 
-- 兼容层只转发旧 API
-- 新能力只放在新 API（避免语义漂移）
+## 生命周期
 
-## 当前实现状态
+组合启动顺序：
 
-- backend 抽象层已经落地，扩展面在 `backend/base.py` 与 `backend/factory.py`。
-- 当前仓库的正式 backend 实现包括 Playwright 与可选 `takumi-py==0.2.0` 后端。
-- `RenderBackend.SKIA`、`PILLOW`、`HTMLKIT` 目前只保留公开枚举与扩展接口，不代表仓库内已经提供对应实现。
+1. Resource Service / publisher；
+2. Provider lifecycle；
+3. 可选 probe。
+
+关闭顺序相反：先拒绝新 lease，等待或取消有界的在途操作，关闭 Provider，
+再关闭 publisher/资源服务。`startup()` 与 `aclose()` 幂等；部分启动失败必须
+只清理由本次调用成功创建的资源。
+
+## 允许的进程级状态
+
+渲染对象图中，只有默认 `Application` holder（引用、惰性 factory 与构建锁）
+可以是进程级状态。Provider discovery 每次从显式列表、第一方映射或 entry
+point 解析，不持有 Provider/配置实例缓存。配置、reader、cache、template
+environment、observer、publisher 和 lease provider 都属于某个 composition，
+不得通过模块级 provider seam 注入。
+
+宿主适配层仍可管理本质上属于整个进程的资源，例如 ASGI filehost guard、
+观测 SDK 的 exporter registry，以及安装工具使用的 OS signal/process task
+状态。这些状态只能封装在 adapter/utility 边界内，不能成为业务路径读取配置、
+发现 service 或共享 Provider runtime 的后门。
+
+## 架构门禁
+
+静态测试同时扫描普通 import、lazy import 与字符串模块路径，禁止核心层触达
+NoneBot/adapters/bootstrap/telemetry。allowlist 必须为空；新例外意味着边界设计
+需要重新评估，而不是扩充名单。

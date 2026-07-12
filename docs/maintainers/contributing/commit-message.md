@@ -46,8 +46,9 @@ docs(maintainers): add coding standards and contribution guide
 ## scope 建议
 
 - `core`
-- `render`
-- `backend/playwright`
+- `application`
+- `provider/playwright`
+- `preparation`
 - `resources`
 - `utils`
 - `tests`

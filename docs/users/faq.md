@@ -1,189 +1,66 @@
 ---
 title: 常见问题
-description: 接入与使用过程中最常被问到的问题
+description: 0.8 Provider、typed artifact 与资源模型常见问题
 icon: lucide/circle-help
-status: new
-tags:
-  - Users
-  - FAQ
 ---
 
 # 常见问题
 
-## 接入与定位
+## 为什么结果不能直接传给只接受 bytes 的 API？
 
-### 为什么 `/render` 之类的命令没出现？
+`render_*` 返回 `RenderedImage`，它同时保存 format、MIME 类型和尺寸。请在
+I/O 边界使用 `bytes(artifact)` 或 `artifact.data`。
 
-本插件是 **library 类型**，不内置任何 `message matcher`。
-调用方需要在自己的业务插件中处理命令或事件，再调用 `render_*` API 返回图片。
-模板和命令的最小写法见 [最佳实践](best-practices.md) 第 1 节。
+## 为什么配置了插件却不能渲染位图？
 
-### 远程渲染和本地渲染怎么选？
+确认 `render.provider` 已选择、对应 extra 已安装，并检查
+`render.provider_config`。不选择 Provider 时，Preparation 和模板到 HTML
+仍可工作，但没有位图执行器。
 
-| 场景                                                  | 建议        |
-| ----------------------------------------------------- | ----------- |
-| 单机部署、并发不高、对启动时间敏感                    | 本地        |
-| 多 Bot 实例共用浏览器、容器化部署、希望与业务进程解耦 | 远程        |
-| 已有 Chromium/CDP 基础设施                            | 远程（CDP） |
-| 想要完整 Playwright 能力栈（多引擎、跟随版本）        | 远程（WS）  |
+## `startup: off` 是否表示禁用渲染？
 
-v0.7.2 默认用 render-scoped 内存资产桥解决“远端读不到本地资源”，不要求共享 filesystem 或 filehost。参考 [远程 Playwright 与资源桥](remote-playwright.md)。
+不是。它表示延迟创建 Provider runtime。第一次需要执行器或 Capability 的
+操作会启动；希望启动失败尽早暴露时使用 `warmup` 或 `probe`。
 
-### 一定要装系统级 Chromium 吗？
+## 如何操作 Playwright Page？
 
-不需要。`playwright install --with-deps chromium` 会下载浏览器到 Playwright 自己的缓存目录。
-插件首次启动时会自动尝试这条命令（除非 `skip_browser_install=true`）。
+从 `get_default_application().capabilities` 中按
+`PLAYWRIGHT_CAPABILITIES` 获取 typed Capability，再使用 `page()` 上下文。
+通用 `render_*` 不接受浏览器专属参数。
 
-只有以下情况才需要系统级浏览器：
+## 如何判断当前 composition 是否提供某项能力？
 
-- 离线环境，提前打入镜像；
-- 想用 Chrome Stable / Beta / Dev 等 channel；
-- 部署平台不允许 Playwright 写自定义路径。
+通用渲染使用 `app.renderer.supports("render_html")`；Provider 专属能力使用
+`app.capabilities.get(KEY)` 或 `require(KEY)`。后者缺失时抛出
+`CapabilityUnavailable`。
 
-后两种通过 `executable_path` 或 `channel` 配置即可。
+## `base_url` 会让浏览器导航吗？
 
-### 浏览器装在哪？怎么换路径？
+不会。通用 `render_html(..., base_url=...)` 与 `PreparedHtml.base_url` 只
+用于相对资源解析。网页导航属于 Playwright Page：显式调用 `page.goto()`。
 
-新版默认装在项目级缓存目录（`PLAYWRIGHT_BROWSERS_PATH` 或当前 venv 关联路径）。
-如果你看到旧的全局路径告警 `Legacy Playwright cache directory detected`，可以：
+## 远程浏览器为什么看不到本地图片？
 
-```dotenv
-RENDER_PLAYWRIGHT={"cleanup_legacy_cache":true}
-```
+远端进程不能直接读取 Bot 的路径。保持
+`render.provider_config.remote_local_resource_policy: memory`，或在明确共享卷
+时使用 `passthrough`；确需 HTTP URL 时安装 filehost extra。
 
-让插件启动时自动清理。否则手动 `rm -rf ~/Library/Caches/ms-playwright` 也行（macOS）。
+## 模板变量中的 Path/bytes 怎么处理？
 
-## API 与配置
+`render_template` 的 Preparation 会处理资源值；独立处理可调用
+`resolve_template_vars` 或 `to_resource_url`。严格任务使用 `strict=True`。
 
-### 要不要每次都传 `RenderConfig` / `PageConfig`？
+## Playwright 与 Takumi 怎么选？
 
-不需要。`render_*` 顶层 API 都把常用参数（`width` / `image_type` / `quality` / `device_scale_factor` / `screenshot_timeout` / `viewport` / `user_agent` / `extra_http_headers` 等）拍平成关键字参数。
-只有需要更精细控制（同时改多组配置、复用 preset）时再传 `render=RenderConfig(...)`。
+需要 JavaScript、页面导航、网络或浏览器 CSS 语义时选 Playwright；静态内容、
+低进程开销或 native SVG/measure/animation 时选 Takumi。
 
-### 怎么改 Markdown 默认样式？
+## 可以同时配置两个 Provider 吗？
 
-传 `css_path`：
+默认 NoneBot composition 选择一个 `render.provider`。高级场景可在应用层创建
+多个独立 composition，但它们必须分别管理生命周期、缓存和 Capability。
 
-```python
-img = await render_markdown(text, css_path="assets/my-md.css")
-```
+## 如何从 0.7 升级？
 
-留空会使用内置 `github-markdown-light.css`。
-如果只是想覆盖几条规则，建议复制内置 CSS 后再改，避免覆盖不全。
-
-### `render_template` 怎么传变量？
-
-`templates` 参数是 dict，键名要与 Jinja2 模板变量对得上：
-
-```python
-img = await render_template(
-    "templates",
-    template_name="card.html",
-    templates={"user": "Alice", "score": 100},
-)
-```
-
-dict 中的 `Path` / 路径字符串在启用资源解析时会被自动转换为可访问 URL，参考 [API 与兼容层](api.md) 中 `render_template` 一节。
-
-### `get_render_context` 和 `render_html` 区别？
-
-- `render_html`：黑盒接口，传入 HTML/请求拿图片，自己不接触 Page。
-- `get_render_context`：异步上下文，拿到 Playwright `Page`，可以自己 `goto` / `evaluate` / `screenshot`。
-
-只在以下场景用 context：
-
-- 需要操作 cookie / 认证流程；
-- 需要交互（点击 / 滚动）后再截图；
-- 需要等待复杂的网络/JS 行为。
-
-### 远程模式下 `executable_path` 还有用吗？
-
-没用。远程模式（`connect_ws` / `connect_cdp`）由远端控制浏览器二进制。本地的 `executable_path` / `launch_args` 只在 launch 模式下生效。
-
-## 故障与限制
-
-### 启动很慢 / 容器冷启动超时
-
-`startup_mode=probe`（推荐）会拉浏览器并做一次最小渲染验证，慢但能提前暴露问题。
-对启动时间敏感时降为：
-
-- `warmup`：只拉浏览器，不做探测渲染；
-- `off`：插件加载阶段不触碰渲染层，等首次 API 调用再拉起。
-
-代价是 `probe` 能在启动时拦截的错误（缺字体、无法连远端等）改为运行期再暴露。
-
-### 一张图渲染得太慢
-
-按链路自上而下排查：
-
-1. **模板层**：是否引用外链 CDN/字体？尽量本地化并交给内存资产桥；
-1. **截图层**：调高 `screenshot_timeout`，但同时检查页面是否真的 onload；
-1. **会话层**：远程模式下网络 RTT 大；高频调用考虑本地，或在远端边缘部署；
-1. **后端层**：`close_on_exit=false` 让浏览器进程长驻，避免每次 session 关闭都重启。
-
-### 多次调用看上去"卡住"
-
-通常是 session 复用没生效或被竞争。先用 `list_render_backend_statuses()` 看后端状态；
-再确认远端 endpoint 没限流；最后看 Bot 主线程是否被同步代码阻塞。
-
-### 兼容层旧 API 还能用多久？
-
-兼容层只做转发与弃用提示，不承载新能力，何时移除取决于版本计划。
-新项目直接用新 API；存量项目按 [迁移指南](migration.md) 推进，调用日志里的 `DeprecationWarning` 是直接的 TODO 列表。
-
-## 部署相关
-
-### filehost 必须开吗？
-
-不需要。远程 Playwright 默认把本地图片、字体和 CSS 读成 `PreparedAsset`，通过当前 Page 的内存 route 传给 Chromium；普通跨容器部署无需安装 `[filehost]`。
-
-只有既有部署要求 HTTP URL，或其他进程需要在 Page 生命周期之外访问资源时，才显式选择 `remote_local_resource_policy=filehost`。共享卷部署则显式选择 `passthrough`。
-
-### 远程渲染会泄露我的本地文件吗？
-
-**默认不会通过 HTTP 暴露**。内存资产 route 只绑定当前 Page，并仍受资源允许根约束。
-
-显式 filehost 模式只暴露调用方明确给定的资源（受 `filehost_allowed_paths` 与 `template_base` 双重约束），且 `/filehost/*` 端点带请求头守卫。
-但如果你显式打开 `filehost_allow_any_path=true`，就等于绕过路径白名单，需要自己评估风险。内置逻辑仍会用非穷尽 denylist 拒绝常见系统与用户秘密位置并记录警告日志，但这不是信任边界或完整的文件系统沙箱，也不能消除本地路径的 TOCTOU 风险。
-完整说明参考 [安全须知](security.md)。
-
-### 多个 Bot 共用同一远端浏览器可以吗？
-
-可以。WS / CDP 都支持多客户端连接。
-注意：
-
-- 内存资产桥无需跨 Bot 共享 token；显式共用 filehost 入口时，各 Bot 应配置相同的 `filehost_request_header_value`；
-- 远端浏览器的并发能力受服务端配置约束，超出后请求会排队。
-
-### CI/CD 里如何加速？
-
-- 把 `playwright install --with-deps chromium` 放在镜像构建阶段，运行时设 `skip_browser_install=true`；
-- 把 `node_modules`（如果有）和 Playwright 浏览器缓存上 cache action；
-- 测试用 `make test-ci`（不依赖真浏览器），需要真浏览器再 `make test-local`。
-
-## 观测与监控
-
-### Sentry / Prometheus 怎么开？
-
-按需安装 extras，再在配置里启用：
-
-```bash
-uv add "nonebot-plugin-htmlrender[sentry,prometheus]"
-```
-
-```dotenv
-RENDER_TELEMETRY={"sentry":{"enabled":true,"dsn":"..."},"prometheus":{"enabled":true}}
-```
-
-具体字段与默认值参考 [依赖扩展与观测](config/integrations.md)。
-
-### 怎么知道当前后端到底在用哪个浏览器？
-
-```python
-from nonebot_plugin_htmlrender import list_render_backend_statuses
-
-for status in list_render_backend_statuses():
-    print(status.backend, status.registered, status.available, status.reason)
-```
-
-启动时也会有 `Connecting to Chromium via CDP / WS` 或 `Using local <engine>` 日志。
+阅读 [v0.8 迁移指南](migration-v080.md)。插件会拒绝旧配置键，不会静默猜测
+其含义。

@@ -1,176 +1,113 @@
 ---
-title: 远程 Playwright 与资源桥
-description: 远程连接、内存资产桥与 filehost 兼容模式
-icon: lucide/cloud-cog
-status: new
-tags:
-  - Users
-  - Remote
+title: 远程 Playwright 与资源传输
+description: WS/CDP 连接、typed Capability 与本地资源 transport
+icon: lucide/cloud
 ---
 
-# 远程 Playwright 与资源桥
+# 远程 Playwright 与资源传输
 
-远程模式下，HTML 在 Bot 进程中生成，Chromium 却运行在另一个进程、容器甚至主机。v0.7.2 不再假设远端浏览器可以读取 Bot 的 filesystem：页面文档通过 `page.set_content()` 注入，本地图片、字体与 CSS 等资源默认通过 render-scoped 内存资产桥传输。
+调用侧始终使用同一 Playwright Capability；本地、WS 与 CDP 的差异只存在于
+Provider 配置与资源 transport。
 
-最重要的结论：
+## WS
 
-- `md_to_pic`、`render_markdown`、`render_text` 与内置模板不会再导航到包内 `file://` URL；
-- 远程有效默认值是 `resource_resolve_mode=auto` 与 `remote_local_resource_policy=memory`；
-- filehost 降为显式兼容模式，不再是远程部署的默认前提；
-- `PreparedHtml.base_url` 只解析相对资源，只有显式 `PageConfig.document_url` 才触发 `page.goto()`。
-
-## 三种部署形态
-
-| 形态                  | 浏览器位置        | 默认本地资源处理 | 适用场景                                |
-| --------------------- | ----------------- | ---------------- | --------------------------------------- |
-| 本地 Playwright       | 与业务进程同机    | 本地文件策略     | 单机部署、调试                          |
-| 远程 Playwright（WS） | Playwright Server | 内存资产桥       | 完整 Playwright 协议、多 Bot 共用浏览器 |
-| 远程浏览器（CDP）     | Chromium          | 内存资产桥       | 已有 CDP 基础设施、容器化部署           |
-
-### 远程 Playwright（WS）
-
-=== "Dotenv"
-
-    ```dotenv
-    RENDER_BACKEND=playwright
-    RENDER_PLAYWRIGHT={"connect_ws":{"endpoint":"ws://playwright:53333/playwright"}}
-    ```
-
-=== "nonebot.init"
-
-    ```python
-    import nonebot
-
-    nonebot.init(
-        render_backend="playwright",
-        render_playwright={
-            "connect_ws": {"endpoint": "ws://playwright:53333/playwright"},
-        },
-    )
-    ```
-
-### 远程浏览器（CDP）
-
-=== "Dotenv"
-
-    ```dotenv
-    RENDER_BACKEND=playwright
-    RENDER_PLAYWRIGHT={"connect_cdp":{"endpoint":"http://chromium:9222/"}}
-    ```
-
-=== "nonebot.init"
-
-    ```python
-    import nonebot
-
-    nonebot.init(
-        render_backend="playwright",
-        render_playwright={
-            "connect_cdp": {"endpoint": "http://chromium:9222/"},
-        },
-    )
-    ```
-
-通过 `startup_render(endpoint=...)` 动态建立的远程 session 与静态 `connect_ws` / `connect_cdp` 配置采用同一资源策略。判定依据是实际 session 的 `PlaywrightMode`，不是仅检查插件启动时的静态配置。
-
-## 内存资产桥如何工作
-
-```mermaid
-flowchart LR
-    A["Bot filesystem"] -->|"read bytes"| B["PreparedAsset"]
-    B -->|"SHA-256 dedup"| C["BrowserLoadPlan"]
-    C -->|"page.route + fulfill"| D["remote Chromium"]
-    C -->|"page.set_content"| D
+```yaml
+render:
+  provider: playwright
+  startup: probe
+  provider_config:
+    engine: chromium
+    connect_ws:
+      endpoint: ws://playwright:3000/
+    remote_local_resource_policy: memory
 ```
 
-准备阶段保留原始浏览器文档，并将实际引用的本地文件读成 `PreparedAsset`。Playwright 为每份内容生成 `https://htmlrender.invalid/.htmlrender/assets/<digest>` 合成地址，通过 `page.route()` 直接 `fulfill` bytes、媒体类型和 CORS 响应头。资产只存活到本次页面关闭：
+WS 使用 Playwright 协议，可连接 `playwright run-server` 或匹配版本的服务。
 
-- 不写入 localstore、临时文件或共享卷；
-- 相同内容按 SHA-256 去重；
-- Chromium 不需要访问 Bot 容器的路径；
-- Takumi 消费同一份 `PreparedAsset.data`，不需要第二套传输协议。
+## CDP
 
-合成域名不会发起真实网络请求；路由只在当前 Page 生命周期内注册。
+```yaml
+render:
+  provider: playwright
+  startup: probe
+  provider_config:
+    engine: chromium
+    connect_cdp:
+      endpoint: http://chromium:9222/
+    remote_local_resource_policy: memory
+```
 
-## 资源策略
+CDP 仅支持 Chromium。`render.provider_config.connect_ws.endpoint` 与
+`render.provider_config.connect_cdp.endpoint` 不能同时设置。
 
-### 全局解析模式
-
-| 配置                           | 含义                                     |
-| ------------------------------ | ---------------------------------------- |
-| `resource_resolve_mode=off`    | 默认不主动解析资源；显式调用参数仍可开启 |
-| `resource_resolve_mode=auto`   | 按实际 session 的本地/远程策略解析       |
-| `resource_resolve_mode=strict` | 同 `auto`，但无法解析的资源直接报错      |
-
-### 远程本地资源策略
-
-| `remote_local_resource_policy` | 行为                                                |
-| ------------------------------ | --------------------------------------------------- |
-| `memory`                       | 读为 `PreparedAsset` 并通过页面路由传输；远程默认值 |
-| `passthrough`                  | 原值透传；仅适用于已明确配置相同路径共享卷的部署    |
-| `filehost`                     | 转换为 filehost URL；显式兼容模式                   |
-| `error`                        | 发现本地引用立即失败，用于强制禁止本地资源          |
-
-`AUTO + MEMORY` 是远程有效默认组合。通常只需配置连接端点，不需要再提供 HTTP `base_url` 或安装 filehost extra。
-
-### 本地模式策略
-
-本地 Playwright 仍按 `local_local_resource_policy` 使用 `file`、`filehost` 或 `passthrough`；v0.7.2 的 `memory` 默认变更只针对远程 session。
-
-## `base_url` 与 `document_url`
-
-这些字段从 v0.7.2 起具有不同且不可混用的职责：
-
-| 字段                      | 职责                                               | 是否触发导航           |
-| ------------------------- | -------------------------------------------------- | ---------------------- |
-| `PreparedHtml.base_url`   | 解析 HTML、CSS 中的相对资源                        | 否                     |
-| `PageConfig.document_url` | 在注入 HTML 前打开一个真实浏览器可访问页面         | 是，调用 `page.goto()` |
-| `PageConfig.base_url`     | v0.7.1 导航字段的弃用兼容别名，不再表示资源解析基址 | 同 `document_url`      |
-
-无显式 `document_url` 时，页面停留在 `about:blank`，随后调用 `page.set_content(html)`。这正是 text、Markdown 与普通模板的默认路径。
-
-旧代码若在 `PageConfig.base_url` 中表达导航目标，v0.7.2 会发出弃用警告。迁移时把导航目标改为 `document_url`；资源目录或 HTTP origin 属于 preparation 产生的 `PreparedHtml.base_url`。`PageConfig.base_url` 与 `document_url` 同时传入会报错，避免含糊解释。
-
-若 `PreparedHtml` 没有显式资源基址而 `document_url` 是 HTTP(S)，浏览器会把该导航 URL 作为相对网络资源的 fallback；它不会写回 `PreparedHtml.base_url`。`file://` 导航则要求远端可见同一路径，并应只与显式 `passthrough` 共享卷策略组合。
+## 页面操作
 
 ```python
-img = await render_template(
-    "templates",
-    template_name="card.html",
-    templates={"avatar": "assets/avatar.png"},
+from nonebot_plugin_htmlrender import get_default_application
+from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
+    PLAYWRIGHT_CAPABILITIES,
 )
+
+capability = get_default_application().capabilities.require(
+    PLAYWRIGHT_CAPABILITIES
+)
+async with capability.page(viewport={"width": 1280, "height": 800}) as page:
+    await page.goto("https://example.com", wait_until="networkidle", timeout=30_000)
+    raw = await page.screenshot(full_page=True, type="png")
 ```
 
-上例由 filesystem 模板 source 自动以 `templates/` 作为资源基址，定位 `assets/avatar.png`；远程 Chromium 不会导航到该目录，文件会被准备为内存资产。
+Page 属于当前 lease；离开上下文后不可使用。
 
-只有确实需要先打开网页时才设置 `document_url`：
+## 本地资源 transport
+
+| 策略 | 适用场景 | 约束 |
+| --- | --- | --- |
+| `memory` | 默认远程部署 | asset 只活到单次操作结束，无共享磁盘要求 |
+| `passthrough` | Bot 与浏览器有相同挂载点 | 两端路径必须完全一致 |
+| `filehost` | 浏览器必须通过 HTTP 拉取资源 | 需要 `filehost` extra、路由与请求头保护 |
+| `error` | 禁止本地资源 | 发现本地引用立即失败 |
+
+`memory` 会读取受授权资源、按内容去重，并由 Page route 返回 bytes。
+`passthrough` 不会上传文件；容器路径不一致时必然失败。
+
+## filehost
+
+```yaml
+render:
+  provider: playwright
+  provider_config:
+    remote_local_resource_policy: filehost
+  resources:
+    local_access:
+      allowed_paths:
+        - /app/assets
+    filehost:
+      cache_ttl_seconds: 300
+```
+
+filehost URL mapping 有 TTL 与 render lease 保护；它不承诺逐文件物理删除。
+默认请求头守卫必须保持开启，反向代理需要透传该 header。不要把路由暴露为
+任意文件下载服务。
+
+## 健康检查
+
+`startup: probe` 会在 NoneBot 启动期验证连接。运行中可调用：
 
 ```python
-pages={"document_url": "https://render-origin.example/card"}
+from nonebot_plugin_htmlrender import get_default_application
+
+await get_default_application().probe()
 ```
 
-## 无基址的相对资源
+探测失败会以 `ProviderUnavailable` 或 `ProviderLifecycleError` 报告，不会返回
+模糊的状态对象。
 
-内存 Markdown 字符串没有天然文件目录。若其中出现 `./image.png`：
+## 部署检查表
 
-- `resource_strict=True` 会报错，因为无法可靠定位文件；
-- 默认非严格模式会记录 warning 并保留原引用。
-
-从 Markdown 文件读取时，Markdown 文件与自定义 CSS 文件各自保留来源基址。因此正文里的相对图片按 Markdown 目录解析，CSS 中的字体或背景图按 CSS 文件目录解析。
-
-## 何时显式使用 filehost
-
-只有其他进程需要在当前 Page 生命周期之外访问稳定 HTTP URL，或既有部署已经围绕 `/filehost/*` 建立网关策略时，才选择：
-
-```dotenv
-RENDER_PLAYWRIGHT={"resource_resolve_mode":"auto","remote_local_resource_policy":"filehost"}
-```
-
-filehost 的 TTL 是 URL mapping TTL，不代表逐文件物理删除。物理文件由 `nonebot-plugin-filehost` 的进程级临时目录生命周期管理；htmlrender 不读取其私有文件字段，也不承诺渲染结束后立即删除单个文件。完整契约见 [资源准备与传输方案](../maintainers/architecture/filehost-resource-resolution.md)。
-
-## 相关页面
-
-- [Playwright 配置](config/playwright.md)
-- [v0.7.2 迁移说明](migration-v072.md)
-- [安全须知](security.md)
-- [故障排查](troubleshooting.md)
+- Provider extra 与远程服务 Playwright 版本兼容；
+- endpoint 不对不可信网络开放；
+- CDP 服务启用网络隔离和认证；
+- local access 白名单最小化；
+- 远程默认使用 `memory`，共享卷才使用 `passthrough`；
+- `goto` 目标经过 SSRF 策略校验；
+- shutdown 能在有界时间内关闭连接并唤醒等待者。

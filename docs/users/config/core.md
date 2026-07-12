@@ -1,110 +1,88 @@
 ---
 title: 基础配置与加载
-description: 插件基础配置项与配置方式
+description: Provider 选择、启动策略、资源缓存与本地访问
 icon: lucide/sliders-horizontal
-status: new
-tags:
-  - Users
-  - Config
 ---
 
 # 基础配置与加载
 
-## 先记住两个结论
+## Provider 与启动
 
-- 当前仓库正式支持 `playwright` 与 `takumi` 两套 backend。
-- `render_backend` 默认不是 `playwright`，而是 `null`；不配置就不会自动选择后端。
+| 路径 | 默认值 | 说明 |
+| --- | --- | --- |
+| `render.provider` | `null` | `playwright`、`takumi` 或第三方 Provider ID |
+| `render.startup` | `off` | `off`、`warmup`、`probe` |
+| `render.provider_config` | `{}` | 交给已选择 Provider 的配置对象 |
 
-## 为什么存在 `render_backend`
+`off` 只延迟运行时创建，不会改变 API；第一次位图操作会按需启动。
+`warmup` 在 NoneBot startup 创建运行时，`probe` 还会做最小真实探测。
 
-`RENDER_BACKEND` 的意义不是“多写一个看起来重复的配置”，而是把“渲染 API”与“具体运行时实现”明确拆开：
+不选择 Provider 时，插件仍可加载并运行 Preparation 与
+`render_template_html`；需要位图执行器的调用会得到 `CapabilityUnavailable`。
 
-- 用户代码调用的是统一的 `render_text`、`render_markdown`、`render_html`、`render_template`
-- 插件内部需要根据 backend 决定由谁负责创建页面、执行截图、处理生命周期与资源解析
-- 这让公共 API、兼容层、启动流程和后端实现之间有清晰边界，而不是把 `playwright` 硬编码成不可替换的隐式前提
+## 资源缓存
 
-因此 `render_backend` 的配置意义主要有三点：
+| 路径 | 默认值 | 说明 |
+| --- | --- | --- |
+| `render.resources.cache.max_entries` | `256` | 共享 byte cache 条目上限，`0` 禁用 |
+| `render.resources.cache.max_bytes` | `67108864` | 共享 byte budget，`0` 禁用 |
+| `render.resources.cache.max_resource_bytes` | `67108864` | 单个资源读取/发布上限，`0` 表示不限制 |
+| `render.resources.cache.revalidate_seconds` | `1.0` | cached resource 的 revision 复查/重读窗口 |
+| `render.resources.templates.environment_cache_max_entries` | `64` | Jinja environment LRU 上限 |
 
-- 显式声明你要启用哪套渲染实现，避免插件在启动时“猜测”运行方式
-- 让启动阶段、健康检查和错误信息都围绕同一个已选 backend 展开
-- 为后续扩展或实验性 backend 保留协议边界，同时不污染调用方 API
+缓存按 composition 隔离，命中不会绕过路径授权。filesystem 按 stat revision
+复查，package/inline 使用稳定 revision；remote ref 没有可用 revision 时会在
+窗口到期后重新读取。
 
-`playwright` 提供完整浏览器、JavaScript、网络与元素截图语义；`takumi` 提供进程内 Rust 原生静态排版、SVG、测量和动画能力。两者复用同一套文本、Markdown、Jinja preparation 与资源缓存，但执行能力并不伪装成完全相同。
+## 本地访问策略
 
-## 插件级配置
+| 路径 | 默认值 | 说明 |
+| --- | --- | --- |
+| `render.resources.local_access.allow_any_path` | `false` | 是否允许访问任意本地路径 |
+| `render.resources.local_access.allowed_paths` | `[]` | 额外允许的目录根 |
 
-> 以下默认值以当前代码实现为准（`nonebot_plugin_htmlrender/config.py`）。
+默认拒绝所有本地路径；模板目录、Markdown/CSS 文件及其本地依赖都必须落在
+`allowed_paths` 内。白名单应使用最小目录，不要把 `/`、用户主目录或容器根
+加入生产配置。
 
-| 配置项                                          | 类型                      | 默认值                                              | 说明                                                                                                  |
-| ----------------------------------------------- | ------------------------- | --------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| `render_backend`                                | `Optional[RenderBackend]` | `null`                                              | 未配置时插件不会自动选择渲染后端。生产环境应显式设置为 `playwright` 或 `takumi`。                     |
-| `render_startup_mode`                           | `RenderStartupMode`       | `off`                                               | 启动策略：`off` 仅加载插件；`warmup` 启动时拉起运行时；`probe` 在 warmup 后再执行一次最小可用性探测。 |
-| `render_storage_path`                           | `Path`                    | `nonebot_plugin_localstore.get_plugin_data_dir()`   | 插件数据目录（运行时解析为实际绝对路径）。                                                            |
-| `render_cache_path`                             | `Path`                    | `nonebot_plugin_localstore.get_plugin_cache_dir()`  | 保留的插件缓存目录配置；当前没有模板消费者。                                                          |
-| `render_config_path`                            | `Path`                    | `nonebot_plugin_localstore.get_plugin_config_dir()` | 保留的插件配置目录配置；当前没有模板消费者。                                                          |
-| `render_resource_cache_max_entries`             | `int`                     | `256`                                               | 共用资源 byte cache 的条目上限。                                                                      |
-| `render_resource_cache_max_bytes`               | `int`                     | `67108864`                                          | 共用资源 byte cache 的权重上限（64 MiB）。                                                            |
-| `render_resource_cache_revalidate_seconds`      | `float`                   | `1.0`                                               | filesystem 资源 revision 重新检查间隔（秒）。                                                         |
-| `render_template_environment_cache_max_entries` | `int`                     | `64`                                                | Jinja environment cache 条目上限。                                                                    |
+## Filehost publisher
 
-!!! info "关于 `render_backend` 的一个常见误区"
+这些核心字段仅在 ResourceStrategy 选择 filehost publisher 时生效：
 
-    `render_backend` 并不是默认 `playwright`，而是默认 `null`。\
-    如果你希望插件在启动时自动完成渲染运行时初始化，还需要显式设置 `RENDER_STARTUP_MODE=warmup` 或 `probe`。
-    枚举值定义为：`playwright` / `takumi` / `skia` / `pillow` / `htmlkit`。其中当前仓库正式支持 `playwright` 与 `takumi`；其余值仅表示公开枚举与扩展接口，不应视为已落地后端。
+| 路径 | 默认值 |
+| --- | --- |
+| `render.resources.filehost.cache_ttl_seconds` | `300.0` |
+| `render.resources.filehost.prewarm_enabled` | `true` |
+| `render.resources.filehost.prewarm_max_files` | `256` |
+| `render.resources.filehost.prewarm_paths` | `[]` |
+| `render.resources.filehost.prewarm_extensions` | `[]` |
+| `render.resources.filehost.request_header_name` | `X-HTMLRender-Filehost-Request` |
+| `render.resources.filehost.request_header_value` | `null` |
+| `render.resources.filehost.request_header_salt` | 内置稳定值 |
 
-## 推荐阅读顺序
+Resource Service 拥有 publisher 配置，Provider 只返回不可变的 transport 策略。
 
-1. 先在本页确定 `render_backend` 与 `render_startup_mode`
-1. 再按后端阅读 [Playwright 配置](playwright.md) 或 [Takumi 配置与能力](takumi.md)
-1. 最后按需看 [依赖扩展与观测](integrations.md)
+## 配置形式
 
-## 配置方式
+YAML：
 
-本仓库文档默认主推两种写法：
+```yaml
+render:
+  provider: playwright
+  startup: probe
+  resources:
+    local_access:
+      allowed_paths:
+        - /app/assets
+    filehost:
+      prewarm_paths:
+        - /app/assets
+```
 
-- `.env` 中使用 `RENDER_PLAYWRIGHT={...}` / `RENDER_TAKUMI={...}` 的 JSON 风格
-- `nonebot.init(render_playwright={...})` / `nonebot.init(render_takumi={...})` 的 Python dict 风格
+Dotenv：
 
-双下划线展开环境变量写法（例如 `RENDER_PLAYWRIGHT__CONNECT_CDP__ENDPOINT=...`）仍可使用，但本仓库不把它作为主文档风格，仅在示例或部署系统必须逐项展开时提及。
+```dotenv
+RENDER={"provider":"playwright","startup":"probe","resources":{"local_access":{"allowed_paths":["/app/assets"]},"filehost":{"prewarm_paths":["/app/assets"]}}}
+```
 
-=== "Dotenv"
-
-    ```dotenv
-    RENDER_BACKEND=playwright
-    RENDER_STARTUP_MODE=probe
-    RENDER_PLAYWRIGHT={"connect_ws":{"endpoint":"ws://playwright:53333/playwright"}}
-
-    # sentry（可选）
-    SENTRY_DSN=https://<key>@sentry.example.com/<project>
-    SENTRY_TRACES_SAMPLE_RATE=0.2
-
-    # prometheus（可选；默认非 false 即启用，通常可省略）
-    PROMETHEUS_ENABLE=true
-    ```
-
-=== "nonebot.init"
-
-    ```python
-    import nonebot
-
-    nonebot.init(
-        render_backend="playwright",
-        render_startup_mode="probe",
-        render_playwright={
-            "connect_ws": {"endpoint": "ws://playwright:53333/playwright"},
-        },
-        sentry_dsn="https://<key>@sentry.example.com/<project>",
-        sentry_traces_sample_rate=0.2,
-        # 可省略；仅在你需要显式声明时设置
-        prometheus_enable=True,
-    )
-    ```
-
-## 内置模板与 localstore
-
-内置 text / Markdown 模板只作为 package resource 随 wheel 分发，由 `importlib.resources` 与 Jinja `PackageLoader` 读取，并登记在 wheel 的 `RECORD` 中。卸载 Python distribution 时，它们随包文件一起删除。
-
-插件不会把内置模板复制到 localstore，也不提供 uninstall hook、localstore purge、用户覆盖模板目录或“首次启动解压模板”流程。这样可以避免 package 版本与落盘副本产生双重真源。用户模板始终从调用方显式传入的 filesystem 目录加载。
-
-共用资源缓存、Jinja environment cache 与 `PreparedAsset` 都是进程内对象，不写入 `render_cache_path`。`render_cache_path` 和 `render_config_path` 当前保留给未来有明确生命周期契约的消费者，不能依赖它们包含可覆盖或可删除的模板副本。
+从 0.7 升级时不要混用旧键；详见 [v0.8 迁移指南](../migration-v080.md)。

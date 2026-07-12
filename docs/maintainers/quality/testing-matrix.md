@@ -57,7 +57,7 @@ Ruff、`ty`、`basedpyright`、package 与 docs 固定在 Python 3.12，减少�
 1. 检查 plugin metadata、配置模型与依赖插件要求；
 1. 在任一 Python 版本失败时令 job 失败。
 
-当前只检查核心依赖，不遍历全部 optional dependency 组合；extras 的依赖解析、backend 特有能力与真实浏览器启动分别由 package、pytest 和 smoke 层承担。`noneload` 通过不意味着渲染功能已经执行。
+当前只检查核心依赖，不遍历全部 optional dependency 组合；extras 的依赖解析、Provider 专属能力与真实浏览器启动分别由 package、pytest 和 smoke 层承担。`noneload` 通过不意味着渲染功能已经执行。
 
 ## 浏览器覆盖决策
 
@@ -67,7 +67,7 @@ Ruff、`ty`、`basedpyright`、package 与 docs 固定在 Python 3.12，减少�
 | Playwright page/context 生命周期、注入、截图参数         | 必须      | 必须            | 视 transport 影响                       |
 | `connect_ws`、远程模板、Filehost、资源 URL、跨语言字符串 | 必须      | 建议            | 必须                                    |
 | Dockerfile、Compose、浏览器版本解析                      | 必须      | 不一定          | 必须，必要时 `remote-smoke-build`       |
-| 新 backend                                               | 必须      | 按 backend 能力 | 必须提供对应端到端 smoke 或说明等价环境 |
+| 新 Provider                                              | 必须      | 按 Provider 能力 | 必须提供对应端到端 smoke 或说明等价环境 |
 
 测试应覆盖成功、失败、超时、取消和资源释放。远程模式尤其不能假设浏览器能读取调用方的 `file://` filesystem。
 
@@ -80,11 +80,23 @@ Ruff、`ty`、`basedpyright`、package 与 docs 固定在 Python 3.12，减少�
 - 修改插件入口、metadata、config 或依赖：除单测外必须等待完整 `noneload` 矩阵；
 - 修改公开行为：同步更新用户文档、回归测试和必要的迁移说明。
 
+Documentation contract 属于 pytest 门禁，而不只是站点构建：
+
+- 非 migration README/docs/examples 禁止已删除的 0.7/alpha 契约；
+- 当前公共顶层导出必须有文档覆盖；
+- `render` schema 的全部 leaf 使用完整 dotted path；
+- 所有 Python fence 与 examples Python 文件必须可解析；
+- 顶层示例 import 必须存在于 `__all__`；
+- examples 纳入 basedpyright、ty 与 Ruff 检查。
+
+`make docs-build` 另外验证导航、链接、anchor、引用和静态站渲染，两层都必须
+通过。
+
 远程 Docker `connect_ws` smoke 覆盖 text、Markdown 相对图片、CSS 字体和模板资源，并且不得要求调用方手工提供 HTTP base URL。测试必须断言 Bot 侧 `file://` 从未作为远程文档导航目标。
 
 ## warning 与排除策略
 
-- 主路径默认测试当前公开 API，兼容层只保留有明确价值的专测；
-- `ty` 可能报告兼容层 deprecated warning；只有工具退出码为 0 且 warning 已知属于兼容契约时才可接受；
+- 主路径与 examples 只测试当前公开 API；旧契约只允许出现在显式 migration 对照中；
+- `ty` / basedpyright 必须零错误；不得用 ignore 掩盖已删除接口；
 - `requires_browser` 只用于确实需要浏览器进程的 case，不得用它把普通回归测试移出 PR 快速层；
 - coverage 排除必须对应不可执行或平台专用代码，并在配置中留下可审查的理由。

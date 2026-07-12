@@ -1,96 +1,20 @@
 ---
-title: 开发者概览
-description: 面向维护者的架构、流程与质量入口
-icon: lucide/wrench
-status: new
-tags:
-  - Developers
+title: 维护者文档
+description: 0.8 架构、Provider SDK、资源服务与质量门禁
+icon: lucide/construction
 ---
 
-# 面向开发者
+# 维护者文档
 
-维护者文档关注三件事：
+0.8 以 composition root 为唯一接线位置。核心层只依赖协议和值对象；NoneBot、
+Playwright、Takumi、Jinja、filehost 与 telemetry 都属于外部适配器。
 
-- 当前实现是怎么组织的
-- 这套实现应该如何验证与发布
-- 后续演进时哪些边界不能被破坏
+## 架构
 
-<div class="grid cards" markdown>
-
-- **架构与 backend**
-
-    ______________________________________________________________________
-
-    理解渲染主链路、Backend Protocol、资源解析和后端开发的落地步骤。
-
-    [分层架构](architecture/architecture.md)
-
-- **协作流程**
-
-    ______________________________________________________________________
-
-    对齐贡献入口、工程规范、编码风格和提交消息格式。
-
-    [Pull Request 生命周期](contributing/pull-requests.md)
-
-- **质量与发布**
-
-    ______________________________________________________________________
-
-    查看测试分层、CI 工作流、软件发布和文档版本规则。
-
-    [发布流程](quality/release-process.md)
-
-</div>
-
-## 建议阅读顺序
-
-=== "维护代码"
-
-    1. [分层架构](architecture/architecture.md)
-    1. [资源准备与传输方案](architecture/filehost-resource-resolution.md)
-    1. [工程协作与规范](contributing/engineering-guide.md)
-    1. [测试矩阵](quality/testing-matrix.md)
-
-=== "开发 backend"
-
-    1. [分层架构](architecture/architecture.md)
-    1. [自定义 Backend 指南](architecture/custom-backends.md)
-    1. [渲染后端开发指南](architecture/render-backend-development.md)
-    1. [测试矩阵](quality/testing-matrix.md)
-
-=== "发布文档"
-
-    1. [贡献指南](contributing/contributing.md)
-    1. [Pull Request 生命周期](contributing/pull-requests.md)
-    1. [发布流程](quality/release-process.md)
-    1. [CI Actions](quality/ci-actions.md)
-    1. [文档版本管理](quality/versioning.md)
-
-## 推荐同步阅读的用户文档
-
-维护者在排查 issue、判断兼容性影响或评估默认行为时，通常也需要回看用户侧文档：
-
-- [故障排查](../users/troubleshooting.md)
-- [常见问题](../users/faq.md)
-- [安全须知](../users/security.md)
-- [v0.7.2 迁移说明](../users/migration-v072.md)
-- [旧版本迁移指南](../users/migration.md)
-
-## 架构与设计
-
-- [分层架构](architecture/architecture.md)
-- [自定义 Backend 指南](architecture/custom-backends.md)
-- [渲染后端开发指南](architecture/render-backend-development.md)
-- [资源准备与传输方案](architecture/filehost-resource-resolution.md)
-
-## 协作流程
-
-- [贡献指南](contributing/contributing.md)
-- [Pull Request 生命周期](contributing/pull-requests.md)
-- [工程协作与规范](contributing/engineering-guide.md)
-- [编码规范](contributing/coding-standards.md)
-- [提交消息指南](contributing/commit-message.md)
+1. [分层架构](architecture/architecture.md)
+2. [自定义 Provider](architecture/custom-providers.md)
+3. [Provider 开发指南](architecture/provider-development.md)
+4. [资源解析与传输](architecture/resource-resolution.md)
 
 ## 质量与发布
 
@@ -99,11 +23,26 @@ tags:
 - [发布流程](quality/release-process.md)
 - [文档版本管理](quality/versioning.md)
 
-## 当前维护重点
+## 核心不变量
 
-如果你正在处理这轮重构后的收口工作，优先关注：
+- application/domain/preparation/resource contracts 不导入 NoneBot 或具体适配器。
+- 业务路径不读取全局配置，不访问 registry/service locator。
+- Provider 配置只在 composition root 解析一次。
+- Preparation 生成中立 `PreparedHtml`；执行器只消费已准备内容。
+- Capability 是类型化边界，不把专属参数加入通用 request。
+- 资源读取必须先授权；cache 不得绕过策略。
+- lifecycle、lease、singleflight 与取消路径都必须有界并可测试。
+- observer 失败不改变业务结果，标签保持低基数。
 
-- `render.py` 与 `backend/` 的生命周期边界
-- `backend/playwright/` 中 runtime、operations、compat 的职责分离
-- `resources/` 中资源解析、filehost 守卫、lease/caching 的一致性
-- 测试分层是否仍对应主实现边界，而不是跟着历史目录漂移
+## 开始贡献
+
+先运行：
+
+```bash
+make prepare
+make check
+make docs-build
+```
+
+涉及浏览器行为时增加 `make test-local`；涉及远程连接或资源 transport 时增加
+`make remote-smoke-build`。

@@ -20,7 +20,7 @@ tags:
 
 ## 目录与文件组织
 
-- 目录按能力域组织（`render` / `backend` / `resources` / `utils`），避免按“代码类型”堆目录；
+- 目录按依赖层组织（`application` / `rendering` / `preparation` / `resources` / `adapters` / `bootstrap`），避免按“代码类型”堆目录；
 - 文件尽量保持“单一概念”，避免一个文件同时承担多个无关职责；
 - 测试目录按插件实现分类维护，不把浏览器相关 case 统一堆放。
 
@@ -55,15 +55,16 @@ make test-ci
 - 避免模块级全局状态竞争，涉及共享状态需显式加锁；
 - 并发路径必须有测试覆盖（成功、失败、超时、取消）。
 
-## 渲染层（Render）规范
+## Application 与 Provider 规范
 
-- 新能力优先挂接到 `render` 抽象层，再由 backend 实现；
-- 不在上层直接依赖具体 backend 内部细节；
+- 跨引擎能力先进入 request/use-case/port；专属能力通过 typed Capability 暴露；
+- 核心层不依赖具体 Provider adapter；
+- Provider 与资源服务只通过 composition 注入依赖，不读取全局配置；
 - 资源解析策略变更需同步更新用户文档与迁移文档。
 
 ## 日志与可观测性规范
 
-- 错误日志必须包含上下文（操作名、后端、关键参数）；
+- 错误日志必须包含上下文（操作名、Provider ID、稳定错误类别）；
 - Sentry/Prometheus 为可选能力，缺失时应有本地可观测回退（如 debug 日志）；
 - 避免在高频路径打无意义 debug，必要时加开关或采样。
 
@@ -73,7 +74,7 @@ make test-ci
 - 需要真实浏览器的测试使用 `@pytest.mark.requires_browser`；
 - 非浏览器单元测试默认应可在 CI profile 运行；
 - 并发与生命周期测试必须覆盖“资源释放”路径；
-- bugfix 先提供能在修复前失败的回归测试；新 backend 同时覆盖通用 Backend 契约和特有能力；
+- bugfix 先提供能在修复前失败的回归测试；新 Provider 同时覆盖 SDK、通用 executor 与 typed Capability；
 - 不依赖测试执行顺序、共享进程全局状态或外部网络；确需外部服务的 case 放入明确的 smoke 层；
 - 插件入口、元数据或依赖变化必须通过 Python 3.10–3.14 的 `noneload` 加载矩阵。
 

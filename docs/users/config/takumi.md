@@ -1,171 +1,113 @@
 ---
 title: Takumi 配置与能力
-description: takumi-py 原生渲染后端的安装、能力边界、资源模型与观测
+description: Takumi 原生 Provider 的静态渲染、字体和 typed Capability
 icon: lucide/gauge
-status: new
-tags:
-  - Users
-  - Config
-  - Takumi
 ---
 
 # Takumi 配置与能力
 
-Takumi 后端把 `takumi-py==0.2.0` 作为可选的进程内渲染引擎。它不启动浏览器，也不建立远程连接；同步的 Rust 原生调用统一进入受并发限制的 worker thread，避免阻塞 NoneBot 事件循环。
+Takumi 在进程内执行 Rust 原生排版，不启动浏览器，不执行 JavaScript，也不
+访问网络。
 
 ## 安装与选择
 
 ```bash
-uv add "nonebot-plugin-htmlrender[takumi]"
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
 ```
 
-```dotenv
-RENDER_BACKEND=takumi
-RENDER_STARTUP_MODE=probe
-RENDER_TAKUMI={"max_concurrency":4,"compiled_cache_max_entries":128,"compiled_cache_max_bytes":33554432}
+```yaml
+render:
+  provider: takumi
+  startup: probe
+  provider_config:
+    max_concurrency: 4
 ```
 
-后端可用性检查只读取模块与 distribution metadata，并要求精确版本 `0.2.0`；真正加载 native extension 和创建 `Renderer` 发生在 runtime 启动阶段。
+## 配置
 
-## 如何选择后端
+下表字段均位于 `render.provider_config`：
 
-| 能力                                              | Playwright                        | Takumi                                         |
-| ------------------------------------------------- | --------------------------------- | ---------------------------------------------- |
-| `render_html` / `render_text` / `render_template` | 支持                              | 支持静态内容                                   |
-| `render_markdown`                                 | 支持，含浏览器执行的 KaTeX        | 支持；遇到需要 JavaScript 的数学公式会明确拒绝 |
-| 共享 `PreparedHtml` + `RasterOptions`             | 支持                              | 支持                                           |
-| JavaScript、网络请求、远程页面                    | 支持                              | 不支持                                         |
-| 本地资源                                          | 通过内存资产桥、共享卷或 filehost | 直接消费共用 `PreparedAsset` bytes             |
-| 元素定位截图                                      | 支持                              | 不支持                                         |
-| Node、measure、SVG                                | 通过浏览器上下文自行实现          | typed extension 原生支持                       |
-| WebP / APNG / GIF 动画与 frame 编码               | 不属于公共 API                    | typed extension 原生支持                       |
+| 完整路径 | 默认值 | 说明 |
+| --- | --- | --- |
+| `render.provider_config.load_default_fonts` | `true` | 加载 Takumi 默认字体 |
+| `render.provider_config.fonts` | `[]` | 启动时注册的字体 |
+| `render.provider_config.font_cache_policy` | `revalidate` | 默认字体文件 cache policy |
+| `render.provider_config.max_concurrency` | `min(cpu_count, 4)` | native 调用并发上限，1–64 |
+| `render.provider_config.compiled_cache_max_entries` | `128` | compiled LRU 条目上限 |
+| `render.provider_config.compiled_cache_max_bytes` | `33554432` | compiled cache byte 上限 |
+| `render.provider_config.html_options.presets` | `chromium` | `chromium` 或 `none` |
+| `render.provider_config.html_options.tailwind_property` | `null` | Tailwind 属性名 |
+| `render.provider_config.html_options.max_depth` | `null` | parser 最大深度 |
+| `render.provider_config.default_lang` | `null` | 默认语言 |
+| `render.provider_config.font_families` | `[]` | 字体回退顺序 |
 
-需要执行脚本、加载网页、等待 DOM 更新或复用浏览器插件时选择 Playwright。内容完全可控、希望避免浏览器进程开销，或需要原生 measure / SVG / animation 时选择 Takumi。
+`fonts` 中每个条目的字段如下；未知字段会被拒绝：
 
-## 配置项
-
-所有后端配置位于 `render_takumi`：
-
-| 配置项                           | 默认值              | 说明                                                             |
-| -------------------------------- | ------------------- | ---------------------------------------------------------------- |
-| `load_default_fonts`             | `true`              | 是否加载 Takumi 自带默认字体                                     |
-| `fonts`                          | `[]`                | 启动时注册的字体文件列表                                         |
-| `font_cache_policy`              | `revalidate`        | filesystem 字体默认 byte cache 策略：`immutable` 或 `revalidate` |
-| `fonts[].cache_policy`           | `null`              | 单字体缓存策略覆盖；为空时继承 `font_cache_policy`               |
-| `max_concurrency`                | `min(cpu_count, 4)` | 同时执行 native 调用的 worker 上限，范围 1–64                    |
-| `compiled_cache_max_entries`     | `128`               | HTML 与 stylesheet 编译缓存的 LRU 条目上限；`0` 禁用             |
-| `compiled_cache_max_bytes`       | `33554432`          | compiled cache 权重上限（32 MiB）；`0` 禁用                      |
-| `html_options.presets`           | `chromium`          | Takumi HTML parser preset，可选 `chromium` / `none`              |
-| `html_options.tailwind_property` | `null`              | 交给 Takumi 的 Tailwind 属性名                                   |
-| `html_options.max_depth`         | `null`              | HTML parser 最大节点深度                                         |
-| `default_lang`                   | `null`              | 默认语言标记                                                     |
-| `font_families`                  | `[]`                | 默认字体族回退顺序                                               |
+| 字段 | 默认值 | 约束 |
+| --- | --- | --- |
+| `path` | 必填 | 非空字体文件路径 |
+| `name` | `null` | 注册后的字体族名称 |
+| `weight` | `null` | `1`–`1000` |
+| `style` | `null` | 字体 style |
+| `subset_of` | `null` | 作为指定字体族的子集注册 |
+| `generic_family` | `null` | CSS generic family，如 `sans-serif`、`serif`、`monospace`、`emoji` |
+| `cache_policy` | `null` | `immutable` / `revalidate`；为空时继承 `font_cache_policy` |
 
 字体示例：
 
-```dotenv
-RENDER_TAKUMI={"load_default_fonts":false,"fonts":[{"path":"/app/fonts/NotoSansSC-Regular.otf","name":"Noto Sans SC","generic_family":"sans-serif","cache_policy":"immutable"}],"font_families":["Noto Sans SC","sans-serif"],"max_concurrency":4}
+```yaml
+render:
+  provider: takumi
+  resources:
+    local_access:
+      allowed_paths: [/app/fonts]
+  provider_config:
+    load_default_fonts: false
+    fonts:
+      - path: /app/fonts/NotoSansSC-Regular.otf
+        name: Noto Sans SC
+        generic_family: sans-serif
+        cache_policy: immutable
+    font_families: [Noto Sans SC, sans-serif]
 ```
 
-字体文件通过共用的有界 byte cache 读取，并在每个 Takumi runtime 中注册一次。filesystem 字体默认使用 `revalidate`；确定随镜像不可变的字体可在单个字体配置中覆盖为 `immutable`。
+只有随镜像不可变的字体才应使用 `immutable`。运行中的 native renderer
+不会热替换已注册字体；文件变化后需重建 composition。字体路径同样受
+`render.resources.local_access.allowed_paths` 约束。
 
-同一 runtime 内，同来源同 digest 的动态字体注册是幂等操作。字体内容发生变化后必须重建 runtime；运行中的 native renderer 不会热替换已经注册的同名字体。
+## 能力边界
 
-## 共用 preparation API
+Takumi 支持静态 HTML、文本、模板和大多数 Markdown；下列需求会明确失败：
 
-文本、Markdown、Jinja 模板和原始 HTML 先进入 backend-neutral preparation，再交给选中的 executor：
+- JavaScript、远程网络资源和页面导航；
+- 无法在 Preparation 阶段物化的 `@import`、字体或图片；
+- Provider 无法表达的 conditional stylesheet；
+- 浏览器页面、User-Agent、header 与 selector 操作。
+
+`PreparedAsset` 直接把 bytes 交给 native renderer，不创建临时文件。
+
+## typed Capability
+
+node、measure、SVG、动画和动态字体是 Takumi 专属能力：
 
 ```python
-from nonebot_plugin_htmlrender import RasterOptions, prepare_html, rasterize_html
-
-prepared = prepare_html("<style>.card { color: #663399 }</style><div class='card'>Hello</div>")
-image = await rasterize_html(
-    prepared,
-    RasterOptions(width=480, device_pixel_ratio=2, format="png"),
+from nonebot_plugin_htmlrender import get_default_application
+from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
+    TAKUMI_CAPABILITIES,
 )
+
+capability = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
+async with capability.extension() as extension:
+    svg = await extension.render_svg_html("<strong>Hello</strong>", width=320)
 ```
 
-`RasterOptions` 的尺寸是 CSS pixel；Takumi 会按 DPR 转成 native device-pixel canvas，因此 `width=480, device_pixel_ratio=2` 生成 960 physical pixels 宽的图片。
+`extension()` 的异步上下文绑定并持有当前有效 lease。调用方不得让
+`extension` 逃逸出上下文，也不应把它保存为进程级单例。
 
-`PreparedHtml.html` 永远保留原始浏览器文档；`PreparedStylesheet` 按顺序记录 `css`、各自的 `base_url`、是否来自内嵌 `<style>` 以及 `media` 条件；`PreparedAsset` 保存资源标识与 bytes。`base_url` 只用于资源解析，不表示浏览器导航。
+## 选择建议
 
-Takumi 使用共用的 `PreparedAssetIndex` 按 exact key 与相对 `base_url` 规范化匹配资源，只把文档实际引用的图片交给 native。Python/Rust 边界前会验证所有字符串可严格编码为 UTF-8，并在失败时给出字段化错误；不会引入 JSON/base64 中间层或临时文件。
+需要脚本、网页导航或浏览器布局语义时选择 Playwright；内容完全受控、希望
+避免浏览器进程，或需要 native measure/SVG/animation 时选择 Takumi。
 
-## Takumi typed extension
-
-公共 API 只承载后端间真正共用的语义。Takumi 特有能力通过类型化 token 获取，不向 `Render` 塞入 union 或后端判断：
-
-```python
-from nonebot_plugin_htmlrender import require_render_extension
-from nonebot_plugin_htmlrender.backend.takumi import (
-    TAKUMI_EXTENSION,
-    TakumiImageResource,
-)
-
-extension = await require_render_extension(TAKUMI_EXTENSION)
-image = await extension.render_html(
-    '<img src="memory:avatar" width="96" height="96">',
-    images=[TakumiImageResource("memory:avatar", avatar_bytes)],
-    width=96,
-    height=96,
-    device_pixel_ratio=2,
-)
-svg = await extension.render_svg_html("<strong>Hello</strong>", width=320)
-```
-
-`TakumiExtension` 提供：
-
-- 编译 HTML、node、stylesheet、keyframes，并复用有界 compiled LRU
-- 渲染 HTML / compiled document / node，输出 PNG、JPEG/JPG、WebP、ICO 或 raw bytes
-- measure HTML / compiled document / node
-- 输出 HTML / compiled document / node 的 SVG
-- 输出 WebP、APNG、GIF 动画，按时间渲染 sequence，以及编码 raw frames
-- 运行时注册字体 bytes / 字体文件
-- 使用共用 Jinja environment cache 渲染模板为静态图片或 SVG
-
-## 资源约束
-
-Takumi 不访问调用方 filesystem，不发起 HTTP 请求，也不执行 JavaScript：
-
-- `<script>`、网络 stylesheet 与无法在准备阶段物化的 CSS `@import` / URL 型 `@font-face` 会得到明确的 `TakumiUnsupportedError`
-- `<img>`、SVG image 与 CSS `url(...)` 必须使用 data URI，或用完全相同的 `src` key 携带 `bytes`
-- `images=` 接受 htmlrender 的 `TakumiImageResource`、上游 `takumi_py.ImageResource`、`(str, bytes)` tuple，以及承诺提供 `src` / `data` 属性的 duck object；它们都先归一化，再在 worker 内构造 native 类型
-- `PreparedAsset` / `TakumiImageResource` 的 key 必须唯一；缺失或重复会在进入 native renderer 前失败
-- 带 `media` 等 Takumi 无法表达的条件 stylesheet 会明确抛出 `TakumiUnsupportedError`，不会静默变成全局 CSS；Playwright 则保留原 `<style media>` 顺序与语义
-- `wait`、User-Agent、HTTP headers、浏览器 session/page 配置不会被静默忽略，而会明确拒绝
-
-这套约束使 remote/local 部署具有相同资源语义，也避免把本地路径错误地传给 native 或另一个容器。
-
-## 缓存、并发与失效
-
-- 文件 cache 同时按 entry 数和 byte 数限制，动态文件通过 stat revision 与 revalidate window 失效；内置模板、固定字体可标为 immutable
-- 同一路径冷读使用 singleflight，避免并发重复 I/O；文件读取在线程池执行
-- Jinja environment cache 按模板根、扩展与 filter identity 隔离，并有独立 LRU 上限
-- Takumi compiled cache 属于 runtime，按 entry 与估算 weight 双限驱逐，并对同一 key 使用 singleflight；超过 byte 上限的单个结果直接旁路，不污染缓存
-- runtime 关闭先进入 `CLOSING` 并拒绝新调用，等待已有 worker drain，最后释放 compiled cache、字体状态与 renderer
-- `max_concurrency` 是 native 执行的容量限制，不是额外线程池大小
-
-compiled cache 提供只读统计（entry、weight、hit/miss、eviction、inflight），用于低基数观测，不暴露 HTML、CSS、字体名或资源标识。
-
-共用缓存上限由基础配置中的 `render_resource_cache_max_entries`、`render_resource_cache_max_bytes`、`render_resource_cache_revalidate_seconds` 与 `render_template_environment_cache_max_entries` 控制。
-
-## Sentry 与 metrics
-
-Takumi 复用项目统一的 `track_render`：每个公共操作、runtime 生命周期与 typed extension 操作都会同时进入 Sentry span/metrics 和 Prometheus metrics。标签只有稳定的 `op`、`backend=takumi`、`status`，不会记录 HTML、Markdown、模板路径、URL、字体名或资源 bytes。
-
-典型操作名：
-
-- `takumi.open_runtime` / `takumi.close_runtime`
-- `takumi.render_html` / `takumi.render_text` / `takumi.render_markdown` / `takumi.render_template`
-- `takumi.rasterize_html`
-- `takumi.extension.render_node` / `measure_html` / `render_svg_html` / `render_animation`
-
-指标名称、Sentry 配置与 Prometheus labels 见 [依赖扩展与观测](integrations.md)。
-
-## 平台与许可检查
-
-`takumi-py 0.2.0` 提供 CPython abi3 wheels：macOS arm64、manylinux glibc x86_64 / aarch64、Windows x86_64；其他平台会回退到 source distribution，是否能构建取决于本机 Rust 与 native 构建环境。
-
-!!! warning "发布前检查依赖许可"
-
-    `nonebot-plugin-htmlrender` 本身使用 MIT；`takumi-py 0.2.0` 的 distribution metadata 声明 `GPL-3.0-or-later`。启用可选 extra、再分发镜像或二进制前，应由项目维护者完成适用于自身分发方式的许可兼容性审查。这里仅记录上游 metadata，不构成法律意见。参见 [PyPI 0.2.0](https://pypi.org/project/takumi-py/0.2.0/) 与 [v0.2.0 release](https://github.com/BalconyJH/takumi-py/releases/tag/v0.2.0)。
+启用或再分发 Takumi 前，请自行检查 `takumi-py` 当前版本的许可与平台 wheel；
+这里不构成法律意见。
