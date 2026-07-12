@@ -1,22 +1,18 @@
+from __future__ import annotations
+
 from html import unescape
-from importlib import import_module
 import mimetypes
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 from urllib.parse import urldefrag, urlsplit
 
 from anyio import CancelScope
 from nonebot.log import logger
 
-from nonebot_plugin_htmlrender.adapters.playwright.config import get_playwright_config
 from nonebot_plugin_htmlrender.consts import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
-    RenderBackend,
-)
-from nonebot_plugin_htmlrender.preparation import (
-    PreparedAsset,
-    PreparedHtml,
+    ResourceResolveMode,
 )
 from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
@@ -31,18 +27,13 @@ from nonebot_plugin_htmlrender.preparation.references import (
     inspect_html_references,
     rewrite_css_references,
 )
-from nonebot_plugin_htmlrender.resources import (
-    PackageResourceSource,
-    is_remote_playwright_mode,
-)
-from nonebot_plugin_htmlrender.utils import track_render
+from nonebot_plugin_htmlrender.rendering.errors import ResourceResolutionError
+from nonebot_plugin_htmlrender.resources import PackageResourceSource
 
 from ._page import (
-    SupportsBrowserSession,
     _setup_page_logging,
     install_filehost_request_route,
     open_page_context,
-    register_render_context_provider,
 )
 from .models import (
     ContentConfig,
@@ -56,11 +47,16 @@ from .prepared import (
     install_browser_asset_routes,
 )
 from .telemetry import log_page_telemetry
-from .types import (
-    GotoKwargs,
-    LocatorScreenshotKwargs,
-    PageContextKwargs,
-)
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from nonebot_plugin_htmlrender.preparation import PreparedAsset, PreparedHtml
+    from nonebot_plugin_htmlrender.resources.ports import AssetPublisher
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+    from .render import PlaywrightLease
+    from .types import GotoKwargs, LocatorScreenshotKwargs, PageContextKwargs
 
 EMPTY_PAGE_CONTEXT_KWARGS: PageContextKwargs = {}
 EMPTY_GOTO_KWARGS: GotoKwargs = {}
@@ -71,61 +67,13 @@ BUILTIN_TEMPLATES = PackageResourceSource(
 )
 
 
-def create_filehost_lease() -> str:
-    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    create_lease = filehost.create_filehost_lease
-
-    return create_lease()
-
-
-async def release_filehost_lease(lease_id: str) -> None:
-    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    release_lease = filehost.release_filehost_lease
-
-    await release_lease(lease_id)
-
-
-async def resolve_filehost_url(
-    value: bytes,
-    *,
-    lease_id: str,
-    suffix: str | None,
-) -> str:
-    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    filehost_url = filehost.filehost_url
-
-    return await filehost_url(value, lease_id=lease_id, suffix=suffix)
-
-
-def get_filehost_request_headers() -> dict[str, str]:
-    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    get_headers = filehost.get_filehost_request_headers
-
-    return get_headers()
-
-
-def register_filehost_resource_root(path: str | Path) -> Path:
-    filehost = import_module("nonebot_plugin_htmlrender.resources.filehost")
-    register_root = filehost.register_filehost_resource_root
-
-    return register_root(path)
-
-
 def _enum_value(raw: object) -> str:
     """获取枚举值的字符串表示。"""
     return str(getattr(raw, "value", raw))
 
 
-def _is_remote_session(session: SupportsBrowserSession | None) -> bool:
-    """Use the mode selected for this session, with config as legacy fallback."""
-    mode = getattr(session, "mode", None)
-    if mode is not None:
-        mode_value = _enum_value(mode)
-        if mode_value in {"remote_cdp", "remote_ws"}:
-            return True
-        if mode_value == "local_pw":
-            return False
-    return is_remote_playwright_mode()
+def _is_remote_lease(lease: PlaywrightLease) -> bool:
+    return _enum_value(lease.mode) in {"remote_cdp", "remote_ws"}
 
 
 def _document_url_for_render(
@@ -138,20 +86,14 @@ def _document_url_for_render(
     return document_url
 
 
-def _local_resource_policy(*, remote_mode: bool) -> str:
-    config = get_playwright_config()
+def _local_resource_policy(
+    resources: ResourceService,
+    *,
+    remote_mode: bool,
+) -> str:
+    strategy = resources.strategy
     policy = (
-        getattr(
-            config,
-            "remote_local_resource_policy",
-            RemoteLocalResourcePolicy.MEMORY,
-        )
-        if remote_mode
-        else getattr(
-            config,
-            "local_local_resource_policy",
-            LocalLocalResourcePolicy.FILE,
-        )
+        strategy.remote_local_policy if remote_mode else strategy.local_local_policy
     )
     return _enum_value(policy)
 
@@ -237,6 +179,7 @@ def _asset_suffix(asset: PreparedAsset) -> str | None:
 async def _publish_prepared_assets(
     prepared: PreparedHtml,
     *,
+    publisher: AssetPublisher,
     lease_id: str,
 ) -> dict[str, str]:
     """Publish an asset graph bottom-up, rewriting CSS children to hosted URLs."""
@@ -281,7 +224,7 @@ async def _publish_prepared_assets(
                     return f"{child_url}#{fragment}" if fragment else child_url
 
                 payload = rewrite_css_references(css, rewrite_child).encode("utf-8")
-        url = await resolve_filehost_url(
+        url = await publisher.publish(
             payload,
             lease_id=lease_id,
             suffix=_asset_suffix(asset),
@@ -301,23 +244,24 @@ async def _execute_browser_load_plan(
     *,
     content: ContentConfig,
     render: RenderConfig,
-    session: SupportsBrowserSession | None,
+    lease: PlaywrightLease,
+    local_resource_policy: str,
+    filehost_headers: Mapping[str, str],
     page_kwargs: PageContextKwargs,
     telemetry_op: str,
 ) -> bytes:
     """Execute a fully resolved load plan in one Playwright page."""
     async with open_page_context(
-        session=session,
+        lease=lease,
         **cast(
             "PageContextKwargs",
             {**_page_context_kwargs(render), **page_kwargs},
         ),
     ) as page:
-        remote_mode = _is_remote_session(session)
-        if _local_resource_policy(remote_mode=remote_mode) == "filehost":
+        if local_resource_policy == RemoteLocalResourcePolicy.FILEHOST.value:
             await install_filehost_request_route(
                 page,
-                filehost_headers=get_filehost_request_headers(),
+                filehost_headers=dict(filehost_headers),
             )
 
         # Install the narrow route after the catch-all filehost route so it gets
@@ -350,15 +294,22 @@ async def render_prepared_html(
     *,
     content: ContentConfig,
     render: RenderConfig,
-    session: SupportsBrowserSession | None,
+    lease: PlaywrightLease,
+    resources: ResourceService,
+    asset_publisher: AssetPublisher | None,
     page_kwargs: PageContextKwargs | None = None,
-    strict_assets: bool | None = None,
+    resolve_mode: ResourceResolveMode | None = None,
     filehost_lease_id: str | None = None,
     telemetry_op: str = "playwright.html_render.render_html",
 ) -> bytes:
     """Apply local-resource policy and render a prepared document."""
-    remote_mode = _is_remote_session(session)
-    policy = _local_resource_policy(remote_mode=remote_mode)
+    remote_mode = _is_remote_lease(lease)
+    mode = resolve_mode or resources.strategy.resolve_mode
+    policy = (
+        RemoteLocalResourcePolicy.PASSTHROUGH.value
+        if mode is ResourceResolveMode.OFF
+        else _local_resource_policy(resources, remote_mode=remote_mode)
+    )
     document_url = _document_url_for_render(render)
     fallback_base_url = (
         document_url
@@ -367,28 +318,35 @@ async def render_prepared_html(
         and urlsplit(document_url).scheme in {"http", "https"}
         else None
     )
-    strict = remote_mode if strict_assets is None else strict_assets
+    strict = mode is ResourceResolveMode.STRICT
     asset_urls: dict[str, str] | None = None
     owns_lease = False
     try:
         if policy == RemoteLocalResourcePolicy.MEMORY.value:
             prepared = await materialize_local_assets(
                 prepared,
+                resources=resources,
                 strict=strict,
                 fallback_base_url=fallback_base_url,
             )
         elif policy == RemoteLocalResourcePolicy.FILEHOST.value:
             prepared = await materialize_local_assets(
                 prepared,
+                resources=resources,
                 strict=strict,
                 fallback_base_url=fallback_base_url,
             )
             if prepared.assets:
+                if asset_publisher is None:
+                    raise ResourceResolutionError(
+                        "The filehost resource policy requires an AssetPublisher."
+                    )
                 if filehost_lease_id is None:
-                    filehost_lease_id = create_filehost_lease()
+                    filehost_lease_id = asset_publisher.create_lease()
                     owns_lease = True
                 asset_urls = await _publish_prepared_assets(
                     prepared,
+                    publisher=asset_publisher,
                     lease_id=filehost_lease_id,
                 )
         elif policy == RemoteLocalResourcePolicy.ERROR.value:
@@ -415,14 +373,21 @@ async def render_prepared_html(
             plan,
             content=content,
             render=render,
-            session=session,
+            lease=lease,
+            local_resource_policy=policy,
+            filehost_headers=(
+                asset_publisher.request_headers()
+                if policy == RemoteLocalResourcePolicy.FILEHOST.value
+                and asset_publisher is not None
+                else {}
+            ),
             page_kwargs=page_kwargs or EMPTY_PAGE_CONTEXT_KWARGS,
             telemetry_op=telemetry_op,
         )
     finally:
-        if owns_lease and filehost_lease_id is not None:
+        if owns_lease and filehost_lease_id is not None and asset_publisher is not None:
             with CancelScope(shield=True):
-                await release_filehost_lease(filehost_lease_id)
+                await asset_publisher.release(filehost_lease_id)
 
 
 async def capture_html_element(
@@ -432,7 +397,7 @@ async def capture_html_element(
     goto_kwargs: GotoKwargs | None = None,
     screenshot_kwargs: LocatorScreenshotKwargs | None = None,
     *,
-    session: SupportsBrowserSession | None = None,
+    lease: PlaywrightLease,
 ) -> bytes:
     """捕获指定 URL 页面中的 HTML 元素截图。
 
@@ -447,30 +412,23 @@ async def capture_html_element(
     Returns:
         捕获的元素图片字节数据。
     """
-    async with track_render(
-        "playwright.html_render.capture_html_element",
-        backend=RenderBackend.PLAYWRIGHT,
-    ):
-        page_options = page_kwargs or EMPTY_PAGE_CONTEXT_KWARGS
-        goto_options = goto_kwargs or EMPTY_GOTO_KWARGS
-        screenshot_options = screenshot_kwargs or EMPTY_LOCATOR_SCREENSHOT_KWARGS
+    page_options = page_kwargs or EMPTY_PAGE_CONTEXT_KWARGS
+    goto_options = goto_kwargs or EMPTY_GOTO_KWARGS
+    screenshot_options = screenshot_kwargs or EMPTY_LOCATOR_SCREENSHOT_KWARGS
 
-        async with open_page_context(session=session, **page_options) as page:
-            page.on(
-                "console",
-                lambda msg: logger.opt(colors=True).debug(
-                    f"<cyan>[Browser Console]</cyan> {msg.text}"
-                ),
-            )
-            await page.goto(url, **goto_options)
-            await log_page_telemetry(
-                page, op="playwright.html_render.capture_html_element"
-            )
-            return await page.locator(element).screenshot(**screenshot_options)
+    async with open_page_context(lease=lease, **page_options) as page:
+        page.on(
+            "console",
+            lambda msg: logger.opt(colors=True).debug(
+                f"<cyan>[Browser Console]</cyan> {msg.text}"
+            ),
+        )
+        await page.goto(url, **goto_options)
+        await log_page_telemetry(page, op="playwright.html_render.capture_html_element")
+        return await page.locator(element).screenshot(**screenshot_options)
 
 
 __all__ = [
     "capture_html_element",
-    "register_render_context_provider",
     "render_prepared_html",
 ]

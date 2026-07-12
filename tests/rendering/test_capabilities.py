@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any, Protocol, cast
+
 import pytest
 
 from nonebot_plugin_htmlrender.rendering import (
@@ -16,6 +18,10 @@ class _Echo:
 
 class _Other:
     pass
+
+
+class _StructuralCapability(Protocol):
+    def ping(self) -> str: ...
 
 
 ECHO_KEY = CapabilityKey("test.echo", _Echo)
@@ -55,7 +61,14 @@ def test_duplicate_capability_name_rejected() -> None:
 
 def test_registration_validates_interface() -> None:
     with pytest.raises(TypeError, match="expects _Echo"):
-        CapabilityCatalog().with_capability(ECHO_KEY, _Other())  # type: ignore[arg-type]
+        CapabilityCatalog().with_capability(ECHO_KEY, cast("Any", _Other()))
+
+
+def test_registration_diagnoses_non_runtime_protocol() -> None:
+    key = CapabilityKey("test.structural", _StructuralCapability)
+
+    with pytest.raises(TypeError, match="runtime_checkable"):
+        CapabilityCatalog().with_capability(key, cast("Any", _Other()))
 
 
 def test_contains_rejects_non_key_objects() -> None:

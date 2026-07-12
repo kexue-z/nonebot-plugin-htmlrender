@@ -5,10 +5,8 @@ from enum import Enum
 from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
-from importlib.util import find_spec
 import re
-import shutil
-from typing import TYPE_CHECKING, Awaitable, Callable, cast
+from typing import TYPE_CHECKING, cast
 from typing_extensions import Unpack
 from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
 from urllib.request import Request, urlopen
@@ -33,23 +31,21 @@ from playwright.async_api import (
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from nonebot_plugin_htmlrender.consts import BrowserEngine, RenderBackend
-from nonebot_plugin_htmlrender.utils import suppress_and_log, track_render
+from nonebot_plugin_htmlrender.rendering.observers import observe_operation
+from nonebot_plugin_htmlrender.utils import suppress_and_log
 
-from .._backend import (
-    BackendAvailability,
-    BackendCapability,
-    RenderRuntime,
-    RenderSession,
-)
-from .config import PlaywrightConfig, get_playwright_config
 from .install import install_browser
 from .runtime import (
     clear_playwright_env_vars,
-    has_installed_browser,
     prepare_playwright_env_vars,
     reconcile_legacy_playwright_cache,
     record_playwright_runtime_state,
 )
+
+if TYPE_CHECKING:
+    from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
+
+    from .config import PlaywrightConfig
 
 
 class StrEnum(str, Enum):
@@ -63,9 +59,11 @@ class PlaywrightMode(StrEnum):
 
 
 @dataclass(slots=True)
-class PlaywrightRenderSession(RenderSession):
-    """Render session carrying the mode actually selected at connection time."""
+class PlaywrightLease:
+    """Provider-local Playwright process and browser connection."""
 
+    playwright: Playwright
+    browser: Browser
     mode: PlaywrightMode
 
 
@@ -75,128 +73,76 @@ class WsVersionRiskLevel(StrEnum):
     BLOCK = "block"
 
 
-class PlaywrightBackend:
-    """Playwright-backed renderer.
-
-    Implements the ``Backend[Playwright, Browser]`` protocol:
-
-    - ``create_runtime`` starts the Playwright subprocess and prepares env vars.
-    - ``create_session`` launches or connects a Browser.
-    - ``is_alive`` reports whether the Browser connection is healthy.
-    - ``get_render_context`` is a Playwright-specific extension that yields a new Page.
-    """
+class PlaywrightEngine:
+    """Own Playwright resources using one explicitly injected configuration."""
 
     backend: RenderBackend = RenderBackend.PLAYWRIGHT
-    capabilities = frozenset(
-        {
-            BackendCapability.RENDER_CONTEXT,
-            BackendCapability.HTML_RENDER,
-            BackendCapability.HTML_RASTERIZE,
-            BackendCapability.TEXT_RENDER,
-            BackendCapability.MARKDOWN_RENDER,
-            BackendCapability.TEMPLATE_RENDER,
-            BackendCapability.TEMPLATE_HTML_RENDER,
-            BackendCapability.HTML_ELEMENT_CAPTURE,
-        }
-    )
 
-    def startup_steps(self) -> tuple[Callable[[], Awaitable[None]], ...]:
-        """返回后端启动前需要执行的异步准备步骤。"""
+    def __init__(
+        self,
+        config: PlaywrightConfig,
+        *,
+        operation_observer: OperationObserver,
+    ) -> None:
+        self._config = config.model_copy(deep=True)
+        self._operation_observer = operation_observer
 
-        async def _prepare_env() -> None:
-            await run_sync(prepare_playwright_env_vars)
-
-        async def _clean_cache() -> None:
+    async def create_lease(self) -> PlaywrightLease:
+        """Prepare the environment and create one process/browser lease."""
+        playwright: Playwright | None = None
+        try:
+            await run_sync(prepare_playwright_env_vars, self._config)
             await run_sync(
                 partial(
                     reconcile_legacy_playwright_cache,
-                    cleanup=get_playwright_config().cleanup_legacy_cache,
+                    self._config,
+                    cleanup=self._config.cleanup_legacy_cache,
                 )
             )
+            await run_sync(record_playwright_runtime_state, self._config)
 
-        async def _record_runtime_state() -> None:
-            await run_sync(record_playwright_runtime_state)
-
-        async def _prewarm_filehost() -> None:
-            from nonebot_plugin_htmlrender.resources.filehost import (  # noqa: PLC0415
-                ensure_filehost_runtime_ready,
-            )
-
-            await ensure_filehost_runtime_ready(reason="playwright_startup")
-
-        return (_prepare_env, _clean_cache, _record_runtime_state, _prewarm_filehost)
-
-    async def create_runtime(self) -> RenderRuntime:
-        """启动 Playwright 子进程并准备环境变量。
-
-        Returns:
-            包装了 Playwright 实例的 RenderRuntime。
-        """
-        async with track_render("playwright.open_runtime", backend=self.backend):
-            pw = await async_playwright().start()
-
-            async def _aclose() -> None:
+            with observe_operation(
+                self._operation_observer,
+                "playwright.open_runtime",
+                {"render.backend": self.backend.value},
+            ):
+                playwright = await async_playwright().start()
+            with observe_operation(
+                self._operation_observer,
+                "playwright.open_session",
+                {"render.backend": self.backend.value},
+            ):
+                mode = self._resolve_mode()
+                browser = await self._create_browser(playwright, mode)
+        except BaseException:
+            if playwright is not None:
                 with suppress_and_log():
-                    await pw.stop()
-                    logger.info("Playwright stopped.")
-                clear_playwright_env_vars()
+                    await playwright.stop()
+            clear_playwright_env_vars(self._config)
+            raise
+        return PlaywrightLease(
+            playwright=playwright,
+            browser=browser,
+            mode=mode,
+        )
 
-            return RenderRuntime(backend=self.backend, handle=pw, _aclose=_aclose)
+    def is_alive(self, lease: PlaywrightLease) -> bool:
+        return lease.browser.is_connected()
 
-    async def create_session(
-        self,
-        runtime: RenderRuntime,
-        **kwargs: Unpack[BrowserSessionKwargs],
-    ) -> PlaywrightRenderSession:
-        """启动或连接一个绑定到给定运行时的浏览器会话。
-
-        Args:
-            runtime: 包装了 Playwright 实例的活跃 RenderRuntime。
-            **kwargs: 透传给浏览器 launch / connect 调用的额外选项。
-
-        Returns:
-            包装了已连接 Browser 实例的 RenderSession。
-
-        Raises:
-            RuntimeError: 浏览器无法启动或连接时抛出。
-        """
-        async with track_render("playwright.open_session", backend=self.backend):
-            pw = runtime.handle
-            if not isinstance(pw, Playwright):
-                raise TypeError(f"Expected Playwright handle, got {type(pw).__name__}")
-            mode = self._resolve_mode(**kwargs)
-            browser = await self._create_browser(pw, mode, **kwargs)
-
-            async def _aclose() -> None:
-                cfg = get_playwright_config()
-                if (
-                    mode == PlaywrightMode.LOCAL
-                    and cfg.close_on_exit
-                    and browser.is_connected()
-                ):
-                    logger.debug("Closing browser...")
-                    with suppress_and_log():
-                        await browser.close()
-                        logger.info("Browser closed.")
-
-            return PlaywrightRenderSession(
-                runtime=runtime,
-                handle=browser,
-                _aclose=_aclose,
-                mode=mode,
-            )
-
-    def is_alive(self, session: RenderSession) -> bool:
-        """检查浏览器会话是否仍处于连接状态。
-
-        Args:
-            session: 一个活跃的 RenderSession，其 handle 应为 Browser。
-
-        Returns:
-            浏览器已连接则返回 True，否则返回 False。
-        """
-        browser = session.handle
-        return isinstance(browser, Browser) and browser.is_connected()
+    async def close_lease(self, lease: PlaywrightLease) -> None:
+        if (
+            lease.mode == PlaywrightMode.LOCAL
+            and self._config.close_on_exit
+            and lease.browser.is_connected()
+        ):
+            logger.debug("Closing browser...")
+            with suppress_and_log():
+                await lease.browser.close()
+                logger.info("Browser closed.")
+        with suppress_and_log():
+            await lease.playwright.stop()
+            logger.info("Playwright stopped.")
+        clear_playwright_env_vars(self._config)
 
     @staticmethod
     def _normalize_endpoint(value: object) -> str | None:
@@ -209,7 +155,7 @@ class PlaywrightBackend:
 
     def _resolve_mode(self, **kwargs: object) -> PlaywrightMode:
         """根据配置确定 Playwright 连接模式（CDP / WebSocket / 本地）。"""
-        cfg = get_playwright_config()
+        cfg = self._config
         cdp_endpoint = self._normalize_endpoint(
             cfg.connect_cdp.endpoint or kwargs.get("endpoint_url")
         )
@@ -220,8 +166,9 @@ class PlaywrightBackend:
         has_ws = ws_endpoint is not None
         if has_cdp and has_ws:
             raise RuntimeError(
-                "Invalid configuration: `render_playwright.connect_cdp.endpoint` and "
-                "`render_playwright.connect_ws.endpoint` cannot both be set. "
+                "Invalid configuration: "
+                "`render.provider_config.connect_cdp.endpoint` and "
+                "`render.provider_config.connect_ws.endpoint` cannot both be set. "
                 "The `endpoint_url` and `endpoint` startup arguments "
                 "count as remote endpoints too."
             )
@@ -250,14 +197,15 @@ class PlaywrightBackend:
         Raises:
             RuntimeError: 配置无效或连接失败时。
         """
-        cfg = get_playwright_config()
+        cfg = self._config
         browser_name = cfg.engine.value
 
         match mode:
             case PlaywrightMode.REMOTE_CDP:
                 if cfg.engine is not BrowserEngine.CHROMIUM:
                     raise RuntimeError(
-                        'CDP connection requires `render_playwright.engine="chromium"`.'
+                        "CDP connection requires "
+                        '`render.provider_config.engine="chromium"`.'
                     )
                 endpoint = self._normalize_endpoint(
                     cfg.connect_cdp.endpoint or kwargs.get("endpoint_url")
@@ -363,10 +311,10 @@ class PlaywrightBackend:
         try:
             return await self._check_playwright_env(pw, **kwargs)
         except RuntimeError:
-            if get_playwright_config().skip_browser_install:
+            if self._config.skip_browser_install:
                 raise
             try:
-                await install_browser()
+                await install_browser(self._config)
             except Exception as e:
                 logger.exception("Browser installation failed.")
                 raise RuntimeError(f"install_browser failed: {e}") from e
@@ -380,9 +328,7 @@ class PlaywrightBackend:
         """检查 Playwright 环境并尝试启动浏览器。"""
         logger.info("Checking Playwright environment...")
         try:
-            browser_type = self._get_browser_type(
-                pw, get_playwright_config().engine.value
-            )
+            browser_type = self._get_browser_type(pw, self._config.engine.value)
             browser = await browser_type.launch(**kwargs)
             logger.success("Playwright environment is set up correctly.")
             return browser
@@ -493,7 +439,7 @@ class PlaywrightBackend:
 
     def _check_ws_version_gate(self, endpoint: str | None = None) -> None:
         """检查本地与远程 Playwright 版本兼容性，不兼容时抛出异常。"""
-        ws_endpoint = endpoint or get_playwright_config().connect_ws.endpoint
+        ws_endpoint = endpoint or self._config.connect_ws.endpoint
         if not ws_endpoint:
             raise RuntimeError("WS endpoint is empty.")
         try:
@@ -538,114 +484,9 @@ class PlaywrightBackend:
         )
 
 
-def _has_valid_remote_endpoint(endpoint: str, *, schemes: set[str]) -> bool:
-    """验证远程端点 URL 的协议和主机是否有效。"""
-    parsed = urlparse(endpoint)
-    return bool(parsed.scheme in schemes and parsed.netloc)
-
-
-def _channel_command_candidates(channel: str) -> tuple[str, ...]:
-    """获取浏览器 channel 对应的命令行候选列表。"""
-    return {
-        "chromium": ("chromium",),
-        "chrome": ("google-chrome", "chrome", "google-chrome-stable"),
-        "chrome-beta": ("google-chrome-beta", "chrome-beta"),
-        "chrome-dev": ("google-chrome-unstable", "google-chrome-dev", "chrome-dev"),
-        "chrome-canary": ("google-chrome-canary", "chrome-canary"),
-        "msedge": ("microsoft-edge", "msedge"),
-        "msedge-beta": ("microsoft-edge-beta", "msedge-beta"),
-        "msedge-dev": ("microsoft-edge-dev", "msedge-dev"),
-        "msedge-canary": ("microsoft-edge-canary", "msedge-canary"),
-    }.get(channel, (channel,))
-
-
-def _has_available_channel_browser(channel: str) -> bool:
-    """检查指定 channel 的浏览器是否在 PATH 中可用。"""
-    return any(
-        shutil.which(candidate) for candidate in _channel_command_candidates(channel)
-    )
-
-
-def is_playwright_backend_available(
-    cfg: PlaywrightConfig | None = None,
-) -> BackendAvailability:
-    """检查 Playwright 后端是否可用。
-
-    依次检查 playwright 包安装状态、配置有效性、远程端点或本地浏览器可用性。
-
-    Args:
-        cfg: 已解析的 Playwright 配置；为 ``None`` 时读取当前配置。
-
-    Returns:
-        包含可用性状态和原因的 BackendAvailability 对象。
-    """
-    if find_spec("playwright.async_api") is None:
-        return BackendAvailability(
-            available=False,
-            reason="Python package `playwright` is not installed.",
-        )
-
-    if cfg is None:
-        try:
-            cfg = get_playwright_config()
-        except Exception as e:
-            return BackendAvailability(
-                available=False,
-                reason=f"Invalid Playwright config: {e}",
-            )
-
-    if cfg.connect_cdp.endpoint:
-        if not _has_valid_remote_endpoint(
-            cfg.connect_cdp.endpoint,
-            schemes={"http", "https", "ws", "wss"},
-        ):
-            return BackendAvailability(
-                available=False,
-                reason="Configured CDP endpoint is invalid.",
-            )
-        return BackendAvailability(available=True)
-
-    if cfg.connect_ws.endpoint:
-        if not _has_valid_remote_endpoint(
-            cfg.connect_ws.endpoint,
-            schemes={"ws", "wss"},
-        ):
-            return BackendAvailability(
-                available=False,
-                reason="Configured WebSocket endpoint is invalid.",
-            )
-        return BackendAvailability(available=True)
-
-    if cfg.executable_path is not None:
-        executable_path = cfg.executable_path.expanduser()
-        if executable_path.is_file():
-            return BackendAvailability(available=True)
-        return BackendAvailability(
-            available=False,
-            reason=f"Configured executable does not exist: {executable_path}",
-        )
-
-    if cfg.channel is not None:
-        if _has_available_channel_browser(cfg.channel.value):
-            return BackendAvailability(available=True)
-        return BackendAvailability(
-            available=False,
-            reason=(
-                f"Configured browser channel `{cfg.channel.value}` is not available "
-                "on PATH."
-            ),
-        )
-
-    if not cfg.skip_browser_install:
-        return BackendAvailability(available=True)
-
-    if has_installed_browser(cfg.engine):
-        return BackendAvailability(available=True)
-
-    return BackendAvailability(
-        available=False,
-        reason=(
-            f"No installed Playwright browser was found for `{cfg.engine.value}` while "
-            "`skip_browser_install=true`."
-        ),
-    )
+__all__ = [
+    "PlaywrightEngine",
+    "PlaywrightLease",
+    "PlaywrightMode",
+    "WsVersionRiskLevel",
+]

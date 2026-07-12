@@ -10,8 +10,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from enum import Enum
+import math
 from typing import TYPE_CHECKING
 
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.models import RasterOptions
 
 from .errors import InvalidRenderRequest
@@ -37,12 +39,26 @@ class ResourcePolicy(str, Enum):
     """Resolve local resources and fail on any unresolvable reference."""
 
     OFF = "off"
-    """Skip preparation-time local resource resolution."""
+    """Skip local resource resolution and materialization for this execution."""
+
+
+def effective_resource_resolve_mode(
+    policy: ResourcePolicy | None,
+    default: ResourceResolveMode,
+) -> ResourceResolveMode:
+    """Resolve a per-call override against the provider-selected default."""
+    if policy is None:
+        return default
+    return ResourceResolveMode(policy.value)
 
 
 def _validate_timeout(timeout_seconds: float | None) -> None:
-    if timeout_seconds is not None and timeout_seconds <= 0:
-        raise InvalidRenderRequest("timeout_seconds must be positive when provided.")
+    if timeout_seconds is not None and (
+        not math.isfinite(timeout_seconds) or timeout_seconds <= 0
+    ):
+        raise InvalidRenderRequest(
+            "timeout_seconds must be finite and positive when provided."
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +82,7 @@ class RenderTextRequest:
     text: str
     css_path: str = ""
     raster: RasterOptions = field(default_factory=RasterOptions)
+    resource_policy: ResourcePolicy | None = None
     timeout_seconds: float | None = None
 
     def __post_init__(self) -> None:

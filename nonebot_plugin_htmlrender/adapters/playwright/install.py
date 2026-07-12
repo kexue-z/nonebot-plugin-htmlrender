@@ -1,6 +1,9 @@
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 import os
 import sys
+from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
 from nonebot import logger
@@ -13,7 +16,8 @@ from nonebot_plugin_htmlrender.utils.install import (
     execute_install_command as _execute_install_command,
 )
 
-from .config import get_playwright_config
+if TYPE_CHECKING:
+    from .config import PlaywrightConfig
 
 
 def _redact_url(value: str) -> str:
@@ -29,7 +33,10 @@ def _redact_url(value: str) -> str:
     return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
 
 
-async def check_mirror_connectivity(timeout_seconds: int = 5) -> MirrorSource | None:
+async def check_mirror_connectivity(
+    config: PlaywrightConfig,
+    timeout_seconds: int = 5,
+) -> MirrorSource | None:
     """检查镜像源连通性并返回最优镜像。
 
     Args:
@@ -39,14 +46,13 @@ async def check_mirror_connectivity(timeout_seconds: int = 5) -> MirrorSource | 
         可用的最优镜像源，若均不可用则返回 None。
     """
     mirrors = list(MIRRORS)
-    cfg = get_playwright_config()
-    if cfg.install_mirror:
-        mirrors.append(MirrorSource("Custom mirror", cfg.install_mirror, 0))
+    if config.install_mirror:
+        mirrors.append(MirrorSource("Custom mirror", config.install_mirror, 0))
     return await _check_mirror_connectivity(mirrors, timeout_seconds=timeout_seconds)
 
 
 @asynccontextmanager
-async def download_context():
+async def download_context(config: PlaywrightConfig):
     """配置下载环境的异步上下文管理器。
 
     在进入时设置镜像源和代理环境变量，退出时恢复原始环境。
@@ -55,9 +61,8 @@ async def download_context():
     original_host = os.environ.get("PLAYWRIGHT_DOWNLOAD_HOST")
     os.environ["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"] = "300000"
 
-    cfg = get_playwright_config()
-    if cfg.install_proxy:
-        proxy = cfg.install_proxy
+    if config.install_proxy:
+        proxy = config.install_proxy
         if proxy.startswith("http://") and not os.environ.get("HTTP_PROXY"):
             logger.info(f"Using http Proxy: {_redact_url(proxy)}")
             os.environ["HTTP_PROXY"] = proxy
@@ -66,7 +71,7 @@ async def download_context():
             os.environ["HTTPS_PROXY"] = proxy
 
     try:
-        best_mirror = await check_mirror_connectivity()
+        best_mirror = await check_mirror_connectivity(config)
         if best_mirror is not None:
             logger.opt(colors=True).info(
                 f"Using mirror source: <cyan>{best_mirror.name}</cyan> {best_mirror.url}"
@@ -88,7 +93,10 @@ async def download_context():
             del os.environ["HTTPS_PROXY"]
 
 
-async def execute_install_command(timeout_seconds: int) -> tuple[bool, str]:
+async def execute_install_command(
+    config: PlaywrightConfig,
+    timeout_seconds: int,
+) -> tuple[bool, str]:
     """执行 Playwright 浏览器安装命令。
 
     Args:
@@ -104,7 +112,7 @@ async def execute_install_command(timeout_seconds: int) -> tuple[bool, str]:
             "playwright",
             "install",
             "--with-deps",
-            get_playwright_config().engine,
+            config.engine,
         ),
         timeout_seconds=timeout_seconds,
     )
@@ -115,7 +123,10 @@ def _is_install_interrupted(message: str) -> bool:
     return message.startswith("Interrupted by signal")
 
 
-async def install_browser(timeout_seconds: int = 300) -> bool:
+async def install_browser(
+    config: PlaywrightConfig,
+    timeout_seconds: int = 300,
+) -> bool:
     """安装 Playwright 浏览器，带镜像源选择和重试逻辑。
 
     Args:
@@ -127,11 +138,11 @@ async def install_browser(timeout_seconds: int = 300) -> bool:
     Raises:
         KeyboardInterrupt: 安装被信号中断时。
     """
-    async with download_context():
+    async with download_context(config):
         logger.opt(colors=True).info(
-            f"Checking <cyan>{get_playwright_config().engine}</cyan> installation..."
+            f"Checking <cyan>{config.engine}</cyan> installation..."
         )
-        installed, message = await execute_install_command(timeout_seconds)
+        installed, message = await execute_install_command(config, timeout_seconds)
         if installed:
             logger.info("Installation succeeded")
             return True
@@ -141,7 +152,7 @@ async def install_browser(timeout_seconds: int = 300) -> bool:
 
         logger.warning("Installation failed, retrying with official mirror...")
         os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
-        installed, message = await execute_install_command(timeout_seconds)
+        installed, message = await execute_install_command(config, timeout_seconds)
         if installed:
             logger.info("Installation succeeded")
             return True

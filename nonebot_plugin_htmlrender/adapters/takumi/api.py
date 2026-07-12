@@ -2,7 +2,7 @@ from __future__ import annotations
 
 # Keep Takumi's public ``format=`` spelling in the typed extension API.
 # ruff: noqa: A002
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import wraps
 from typing import (
     TYPE_CHECKING,
@@ -15,18 +15,13 @@ from typing import (
     cast,
 )
 
-from nonebot_plugin_htmlrender.adapters._backend import BackendExtension
-from nonebot_plugin_htmlrender.consts import RenderBackend
-from nonebot_plugin_htmlrender.preparation import (
-    PreparedHtml,
-    prepare_html,
-    prepare_template,
+from nonebot_plugin_htmlrender.preparation import PreparedHtml, prepare_html
+from nonebot_plugin_htmlrender.rendering.observers import (
+    NoopOperationObserver,
+    observe_operation,
 )
-from nonebot_plugin_htmlrender.resources import (
-    FileCachePolicy,
-)
-from nonebot_plugin_htmlrender.utils import track_render
 
+from .config import FileCachePolicy
 from .operations import (
     device_dimension,
     render_prepared_html,
@@ -37,7 +32,7 @@ from .source import materialize_takumi_document
 from .types import AnimationImageFormat, StaticImageFormat, TakumiImageResource
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
     from pathlib import Path
 
     from takumi_py import (
@@ -53,8 +48,9 @@ if TYPE_CHECKING:
         RawAnimationFrame,
     )
 
-    from nonebot_plugin_htmlrender.resources.templating import FilterCallable
-    from nonebot_plugin_htmlrender.resources.weighted_cache import WeightedCacheStats
+    from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
+
+    from .cache import WeightedCacheStats
 
     ImageInput: TypeAlias = ImageResourceInput | TakumiImageResource
 else:
@@ -74,7 +70,11 @@ def _tracked(
         @wraps(func)
         async def _wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
             extension = cast("TakumiExtension", args[0])
-            async with track_render(operation, backend=RenderBackend.TAKUMI):
+            with observe_operation(
+                extension._observer,
+                operation,
+                {"render.backend": "takumi"},
+            ):
                 extension._state._ensure_open()
                 return await func(*args, **kwargs)
 
@@ -185,6 +185,11 @@ class TakumiExtension:
     """
 
     _state: TakumiRuntimeState
+    _observer: OperationObserver = field(
+        default_factory=NoopOperationObserver,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def registered_font_families(self) -> tuple[str, ...]:
@@ -212,6 +217,7 @@ class TakumiExtension:
         )
         document = await materialize_takumi_document(
             prepared,
+            resources=self._state.resources,
             stylesheets=stylesheets,
             images=cast("Sequence[object] | None", images),
         )
@@ -374,6 +380,7 @@ class TakumiExtension:
         )
         document = await materialize_takumi_document(
             prepared,
+            resources=self._state.resources,
             stylesheets=stylesheets,
             images=cast("Sequence[object] | None", images),
         )
@@ -468,6 +475,7 @@ class TakumiExtension:
         )
         document = await materialize_takumi_document(
             prepared,
+            resources=self._state.resources,
             stylesheets=stylesheets,
             images=cast("Sequence[object] | None", images),
         )
@@ -861,98 +869,8 @@ class TakumiExtension:
             cache_policy=cache_policy,
         )
 
-    @_tracked("takumi.extension.render_template")
-    async def render_template(
-        self,
-        template_path: str | Path,
-        template_name: str,
-        variables: Mapping[str, object],
-        *,
-        filters: Mapping[str, FilterCallable] | None = None,
-        stylesheets: Sequence[str] = (),
-        images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = None,
-        format: StaticImageFormat = "png",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
-    ) -> bytes:
-        prepared = await prepare_template(
-            template_path,
-            template_name,
-            variables,
-            filters=filters,
-        )
-        return await self.render_html(
-            prepared,
-            stylesheets=stylesheets,
-            images=images,
-            width=width,
-            height=height,
-            format=format,
-            quality=quality,
-            lossless=lossless,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
-        )
-
-    @_tracked("takumi.extension.render_svg_template")
-    async def render_svg_template(
-        self,
-        template_path: str | Path,
-        template_name: str,
-        variables: Mapping[str, object],
-        *,
-        filters: Mapping[str, FilterCallable] | None = None,
-        stylesheets: Sequence[str] = (),
-        images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        font_size: float = 16.0,
-        time_ms: int = 0,
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
-    ) -> str:
-        prepared = await prepare_template(
-            template_path,
-            template_name,
-            variables,
-            filters=filters,
-        )
-        return await self.render_svg_html(
-            prepared,
-            stylesheets=stylesheets,
-            images=images,
-            width=width,
-            height=height,
-            font_size=font_size,
-            time_ms=time_ms,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
-        )
-
-
-TAKUMI_EXTENSION = BackendExtension("takumi.v1", TakumiExtension)
-
 
 __all__ = [
-    "TAKUMI_EXTENSION",
     "TakumiCompiledDocument",
     "TakumiExtension",
     "TakumiImageResource",

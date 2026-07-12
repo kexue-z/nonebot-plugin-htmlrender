@@ -1,13 +1,18 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import anyio
+from anyio.lowlevel import checkpoint
 from pydantic import ValidationError
 import pytest
 
-from nonebot_plugin_htmlrender.adapters._backend import BackendAvailability
+from nonebot_plugin_htmlrender.adapters.takumi import (
+    capabilities as capabilities_module,
+)
 from nonebot_plugin_htmlrender.adapters.takumi import provider as provider_module
+from nonebot_plugin_htmlrender.adapters.takumi.capabilities import TAKUMI_CAPABILITIES
 from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
 from nonebot_plugin_htmlrender.adapters.takumi.errors import (
     TakumiRuntimeError,
@@ -17,18 +22,30 @@ from nonebot_plugin_htmlrender.adapters.takumi.provider import (
     PROVIDER,
     TakumiProvider,
 )
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
-from nonebot_plugin_htmlrender.providers.sdk import ProviderDependencies
+from nonebot_plugin_htmlrender.providers.sdk import (
+    ProviderAvailability,
+    ProviderDependencies,
+)
 from nonebot_plugin_htmlrender.rendering import (
     ProviderExecutionError,
     ProviderLifecycleError,
+    ResourcePolicy,
     UnsupportedRequirement,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
+    from nonebot_plugin_htmlrender.resources.ports import (
+        LocalAccessPolicy,
+        ResourceReader,
+        WorkerExecutor,
+    )
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
     from tests.adapters.conftest import RecordingOperationObserver
 
 PREPARED = PreparedHtml(html="<p>prepared</p>")
@@ -47,16 +64,22 @@ def _install_runtime_fakes(
     mocker: MockerFixture,
     *,
     render_result: bytes = b"png-bytes",
-) -> tuple[list[_FakeState], list[tuple[_FakeState, PreparedHtml, RasterOptions]]]:
+) -> tuple[
+    list[_FakeState],
+    list[tuple[_FakeState, PreparedHtml, RasterOptions, ResourceResolveMode]],
+]:
     created: list[_FakeState] = []
-    rendered: list[tuple[_FakeState, PreparedHtml, RasterOptions]] = []
+    rendered: list[
+        tuple[_FakeState, PreparedHtml, RasterOptions, ResourceResolveMode]
+    ] = []
 
     async def fake_create_runtime_state(
         config: TakumiConfig,
         *,
+        resources: ResourceService,
         cache_observer: object | None = None,
     ) -> _FakeState:
-        del config, cache_observer
+        del config, resources, cache_observer
         await anyio.sleep(0.01)
         state = _FakeState()
         created.append(state)
@@ -73,8 +96,10 @@ def _install_runtime_fakes(
         state: _FakeState,
         prepared: PreparedHtml,
         options: RasterOptions,
+        *,
+        resolve_mode: ResourceResolveMode = ResourceResolveMode.AUTO,
     ) -> bytes:
-        rendered.append((state, prepared, options))
+        rendered.append((state, prepared, options, resolve_mode))
         return render_result
 
     mocker.patch.object(
@@ -91,10 +116,21 @@ def _install_runtime_fakes(
     return created, rendered
 
 
-def _dependencies(observer: RecordingOperationObserver) -> ProviderDependencies:
+def _dependencies(
+    observer: RecordingOperationObserver,
+    *,
+    strategy: ResourceStrategy | None = None,
+) -> ProviderDependencies:
+    dependency = object()
+    resources = SimpleNamespace(strategy=strategy or ResourceStrategy())
     return ProviderDependencies(
         operation_observer=observer,
         cache_observer=NoopCacheObserver(),
+        worker_executor=cast("WorkerExecutor", dependency),
+        resource_reader=cast("ResourceReader", dependency),
+        local_access_policy=cast("LocalAccessPolicy", dependency),
+        resource_service=cast("ResourceService", resources),
+        asset_publisher=None,
     )
 
 
@@ -109,8 +145,8 @@ def test_parse_settings_validates_via_pydantic() -> None:
 
 def test_availability_maps_backend_result(mocker: MockerFixture) -> None:
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.takumi.render.is_takumi_backend_available",
-        return_value=BackendAvailability(available=False, reason="missing"),
+        "nonebot_plugin_htmlrender.adapters.takumi.render.takumi_availability",
+        return_value=ProviderAvailability(available=False, reason="missing"),
     )
 
     result = PROVIDER.availability(TakumiConfig())
@@ -123,7 +159,10 @@ def test_compose_rejects_foreign_settings(
     operation_observer: RecordingOperationObserver,
 ) -> None:
     with pytest.raises(ProviderExecutionError, match="parse_settings"):
-        PROVIDER.compose(object(), _dependencies(operation_observer))
+        PROVIDER.compose(
+            cast("TakumiConfig", object()),
+            _dependencies(operation_observer),
+        )
 
 
 def test_bootstrap_requirements_empty() -> None:
@@ -153,6 +192,39 @@ async def test_executor_lazily_starts_and_reuses_runtime(
     assert "takumi.open_runtime" in names
     assert "render.startup" in names
     assert names.count("takumi.rasterize_html") == 2
+
+
+@pytest.mark.parametrize(
+    ("policy", "default", "expected"),
+    [
+        (None, ResourceResolveMode.AUTO, ResourceResolveMode.AUTO),
+        (None, ResourceResolveMode.STRICT, ResourceResolveMode.STRICT),
+        (ResourcePolicy.OFF, ResourceResolveMode.STRICT, ResourceResolveMode.OFF),
+        (ResourcePolicy.AUTO, ResourceResolveMode.STRICT, ResourceResolveMode.AUTO),
+        (ResourcePolicy.STRICT, ResourceResolveMode.OFF, ResourceResolveMode.STRICT),
+    ],
+)
+async def test_executor_resolves_per_call_policy_against_provider_strategy(
+    mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
+    policy: ResourcePolicy | None,
+    default: ResourceResolveMode,
+    expected: ResourceResolveMode,
+) -> None:
+    _, rendered = _install_runtime_fakes(mocker)
+    bindings = TakumiProvider().compose(
+        TakumiConfig(),
+        _dependencies(
+            operation_observer,
+            strategy=ResourceStrategy(resolve_mode=default),
+        ),
+    )
+    executor = bindings.prepared_html_executor
+    assert executor is not None
+
+    await executor.execute(PREPARED, OPTIONS, resource_policy=policy)
+
+    assert rendered[-1][3] is expected
 
 
 async def test_executor_rebuilds_after_runtime_death(
@@ -213,16 +285,22 @@ async def test_native_errors_translate_into_stable_model(
         state: object,
         prepared: object,
         options: object,
+        **kwargs: object,
     ) -> bytes:
-        del state, prepared, options
+        del state, prepared, options, kwargs
         raise TakumiUnsupportedError("no scripts")
 
     mocker.patch.object(provider_module, "takumi_rasterize_html", unsupported)
     with pytest.raises(UnsupportedRequirement, match="no scripts"):
         await executor.execute(PREPARED, OPTIONS)
 
-    async def broken(state: object, prepared: object, options: object) -> bytes:
-        del state, prepared, options
+    async def broken(
+        state: object,
+        prepared: object,
+        options: object,
+        **kwargs: object,
+    ) -> bytes:
+        del state, prepared, options, kwargs
         raise TakumiRuntimeError("native panic")
 
     mocker.patch.object(provider_module, "takumi_rasterize_html", broken)
@@ -242,8 +320,13 @@ async def test_execution_timeout_maps_to_provider_error(
     executor = bindings.prepared_html_executor
     assert executor is not None
 
-    async def slow(state: object, prepared: object, options: object) -> bytes:
-        del state, prepared, options
+    async def slow(
+        state: object,
+        prepared: object,
+        options: object,
+        **kwargs: object,
+    ) -> bytes:
+        del state, prepared, options, kwargs
         await anyio.sleep(5)
         return b""
 
@@ -262,9 +345,10 @@ async def test_startup_failure_translates_and_allows_retry(
     async def flaky_create(
         config: TakumiConfig,
         *,
+        resources: ResourceService,
         cache_observer: object | None = None,
     ) -> _FakeState:
-        del config, cache_observer
+        del config, resources, cache_observer
         attempts.append(1)
         if len(attempts) == 1:
             raise TakumiRuntimeError("native init failed")
@@ -305,6 +389,36 @@ async def test_aclose_closes_runtime_and_is_idempotent(
     assert created[0].closed is True
     assert operation_observer.names().count("render.shutdown") == 1
     assert "takumi.close_runtime" in operation_observer.names()
+
+
+async def test_typed_extension_holds_an_operation_lease_until_context_exit(
+    mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
+) -> None:
+    created, _ = _install_runtime_fakes(mocker)
+    mocker.patch.object(
+        capabilities_module,
+        "require_runtime_state",
+        side_effect=lambda state: state,
+    )
+    bindings = TakumiProvider().compose(
+        TakumiConfig(),
+        _dependencies(operation_observer),
+    )
+    catalog = bindings.provider_capabilities
+    assert catalog is not None
+    capability = catalog.require(TAKUMI_CAPABILITIES)
+
+    async with (
+        anyio.create_task_group() as task_group,
+        capability.extension() as extension,
+    ):
+        assert extension._observer is operation_observer
+        task_group.start_soon(bindings.lifecycle.aclose)
+        await checkpoint()
+        assert created[0].closed is False
+
+    assert created[0].closed is True
 
 
 async def test_probe_runs_minimal_render(

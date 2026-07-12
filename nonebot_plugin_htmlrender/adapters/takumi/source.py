@@ -5,6 +5,7 @@ from html import unescape
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urljoin
 
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedHtml,
@@ -35,6 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nonebot_plugin_htmlrender.preparation.references import HtmlReferenceSnapshot
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 
 @dataclass(frozen=True, slots=True)
@@ -182,7 +184,8 @@ def _validate_stylesheet(stylesheet: PreparedStylesheet, *, field: str) -> None:
     if "font-face" in at_rules:
         raise TakumiUnsupportedError(
             f"{field} contains @font-face, which Takumi cannot load; register font "
-            "bytes through the Takumi extension or render_takumi.fonts."
+            "bytes through the Takumi extension or "
+            "render.provider_config.fonts."
         )
 
 
@@ -226,10 +229,12 @@ def _inspect_document(
 async def materialize_takumi_document(
     prepared: PreparedHtml,
     *,
+    resources: ResourceService,
     stylesheets: Sequence[str] = (),
     images: Sequence[object] | None = None,
+    resolve_mode: ResourceResolveMode | None = None,
 ) -> TakumiDocument:
-    """Materialize local references before applying Takumi native constraints."""
+    """Apply the effective resource mode before native Takumi validation."""
 
     _, document_base = _inspect_document(prepared)
     _, candidates = _merge_image_candidates(
@@ -254,13 +259,25 @@ async def materialize_takumi_document(
         )
     for index, stylesheet in enumerate(staged.stylesheets):
         _validate_stylesheet(stylesheet, field=f"stylesheets[{index}]")
+    mode = resolve_mode or resources.strategy.resolve_mode
+    if mode is ResourceResolveMode.OFF:
+        return prepare_takumi_document(
+            staged,
+            images=images,
+            strict=False,
+        )
     try:
-        materialized = await materialize_local_assets(staged, strict=True)
+        materialized = await materialize_local_assets(
+            staged,
+            resources=resources,
+            strict=mode is ResourceResolveMode.STRICT,
+        )
     except AssetMaterializationError as error:
         raise TakumiResourceError(str(error)) from error
     return prepare_takumi_document(
         materialized,
         images=images,
+        strict=mode is ResourceResolveMode.STRICT,
     )
 
 
@@ -269,6 +286,7 @@ def prepare_takumi_document(
     *,
     stylesheets: Sequence[str] = (),
     images: Sequence[object] | None = None,
+    strict: bool = True,
 ) -> TakumiDocument:
     """Validate and adapt one backend-neutral document for Takumi 0.2.0."""
 
@@ -328,7 +346,7 @@ def prepare_takumi_document(
             )
         selected.setdefault(reference, resource)
 
-    if unresolved:
+    if unresolved and strict:
         unique = tuple(dict.fromkeys(unresolved))
         preview = ", ".join(repr(value) for value in unique[:3])
         suffix = " ..." if len(unique) > 3 else ""

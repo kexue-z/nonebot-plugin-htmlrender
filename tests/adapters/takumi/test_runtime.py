@@ -13,6 +13,7 @@ from anyio.to_thread import run_sync as run_sync_in_worker
 import pytest
 
 from nonebot_plugin_htmlrender.adapters.takumi import (
+    FileCachePolicy,
     TakumiBackendError,
     TakumiConfig,
     TakumiFontConfig,
@@ -22,7 +23,7 @@ from nonebot_plugin_htmlrender.adapters.takumi import (
 )
 from nonebot_plugin_htmlrender.adapters.takumi import runtime as takumi_runtime
 from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
-from nonebot_plugin_htmlrender.resources import FileCachePolicy
+from tests.adapters.takumi.helpers import resource_service
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -129,6 +130,7 @@ def _state(
             compiled_cache_max_entries=cache_entries,
             compiled_cache_max_bytes=cache_bytes,
         ),
+        resources=resource_service(),
     )
 
 
@@ -494,17 +496,20 @@ async def test_font_file_cache_defaults_and_per_font_override(
             ),
         ]
     )
-    read = mocker.patch.object(
-        takumi_runtime,
-        "read_resource_bytes",
-        new=mocker.AsyncMock(return_value=b"font"),
+    resources = mocker.Mock()
+    resources.read_bytes = mocker.AsyncMock(return_value=b"font")
+
+    payloads = await takumi_runtime._load_font_payloads(
+        config.fonts,
+        config=config,
+        resources=resources,
     )
 
-    payloads = await takumi_runtime._load_font_payloads(config.fonts, config=config)
-
     assert payloads == (b"font", b"font")
-    policies = {call.kwargs["policy"] for call in read.await_args_list}
-    assert policies == {FileCachePolicy.REVALIDATE, FileCachePolicy.IMMUTABLE}
+    refresh_values = {
+        call.kwargs["refresh"] for call in resources.read_bytes.await_args_list
+    }
+    assert refresh_values == {True, False}
 
 
 @pytest.mark.anyio
@@ -517,11 +522,9 @@ async def test_dynamic_fonts_are_idempotent_and_changed_content_requires_rebuild
     renderer = _FakeRenderer()
     state = _state(renderer)
     font_path = tmp_path / "font.ttf"
-    read = mocker.patch.object(
-        takumi_runtime,
-        "read_resource_bytes",
-        new=mocker.AsyncMock(side_effect=[b"same", b"same", b"changed"]),
-    )
+    resources = mocker.Mock()
+    resources.read_bytes = mocker.AsyncMock(side_effect=[b"same", b"same", b"changed"])
+    state.resources = resources
 
     first = await state.register_font_file(
         font_path,
@@ -543,7 +546,7 @@ async def test_dynamic_fonts_are_idempotent_and_changed_content_requires_rebuild
             cache_policy=FileCachePolicy.REVALIDATE,
         )
     assert len(renderer.font_registrations) == 1
-    assert read.await_count == 3
+    assert resources.read_bytes.await_count == 3
 
 
 @pytest.mark.anyio

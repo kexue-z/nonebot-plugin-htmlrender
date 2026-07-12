@@ -1,14 +1,20 @@
 from __future__ import annotations
 
+from enum import Enum
 from os import cpu_count
 from pathlib import Path
 from typing import Literal
 
-from nonebot import get_plugin_config
 from nonebot.compat import field_validator
 from pydantic import BaseModel, ConfigDict, Field
 
-from nonebot_plugin_htmlrender.resources import FileCachePolicy
+
+class FileCachePolicy(str, Enum):
+    """Validation policy for user-provided Takumi font files."""
+
+    IMMUTABLE = "immutable"
+    REVALIDATE = "revalidate"
+
 
 GenericFontFamily = Literal[
     "serif",
@@ -80,7 +86,7 @@ class TakumiHtmlOptionsConfig(BaseModel):
 
 
 class TakumiConfig(BaseModel):
-    """Takumi backend configuration under the ``render_takumi`` namespace."""
+    """Takumi backend configuration under ``render.provider_config``."""
 
     load_default_fonts: bool = True
     fonts: list[TakumiFontConfig] = Field(default_factory=list)
@@ -117,21 +123,10 @@ class TakumiConfig(BaseModel):
         return value
 
 
-class TakumiPluginConfig(BaseModel):
-    """NoneBot configuration namespace for the Takumi backend."""
-
-    render_takumi: TakumiConfig = Field(default_factory=TakumiConfig)
-
-
-def get_takumi_config() -> TakumiConfig:
-    return get_plugin_config(TakumiPluginConfig).render_takumi
-
-
 __all__ = [
+    "FileCachePolicy",
     "GenericFontFamily",
     "TakumiConfig",
     "TakumiFontConfig",
     "TakumiHtmlOptionsConfig",
-    "TakumiPluginConfig",
-    "get_takumi_config",
 ]

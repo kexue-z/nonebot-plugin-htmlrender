@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, Protocol
 from typing_extensions import NotRequired, TypeAlias, TypedDict
 
 if TYPE_CHECKING:
@@ -18,13 +18,22 @@ if TYPE_CHECKING:
         ViewportSize,
     )
 
-    from nonebot_plugin_htmlrender.resources import ResourceResolver
-
     from .models import RenderConfig
 
 
 PathLike: TypeAlias = str | Path
 EnvValue: TypeAlias = str | float | bool
+
+
+class ResourceResolver(Protocol):
+    """Legacy template resolver shape accepted by render keyword types."""
+
+    async def resolve(
+        self,
+        value: object,
+        *,
+        template_base: Path | None = None,
+    ) -> object: ...
 
 
 class ClientCertificate(TypedDict, total=False):

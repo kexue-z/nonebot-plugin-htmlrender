@@ -9,6 +9,7 @@ from .source import materialize_takumi_document
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from nonebot_plugin_htmlrender.consts import ResourceResolveMode
     from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
 
     from .types import StaticImageFormat, TakumiImageInput
@@ -51,13 +52,16 @@ async def render_prepared_html(
     lang: str | None = None,
     font_families: Sequence[str] | None = None,
     keyframes: object | None = None,
+    resolve_mode: ResourceResolveMode | None = None,
 ) -> bytes:
     """Execute a backend-neutral prepared document with Takumi."""
     ratio = validate_device_pixel_ratio(device_pixel_ratio)
     document = await materialize_takumi_document(
         prepared,
+        resources=state.resources,
         stylesheets=stylesheets,
         images=images,
+        resolve_mode=resolve_mode,
     )
     native_options = render_defaults(state, images=document.images)
     native_options.update(
@@ -96,6 +100,8 @@ async def rasterize_html(
     state: TakumiRuntimeState,
     prepared: PreparedHtml,
     options: RasterOptions,
+    *,
+    resolve_mode: ResourceResolveMode | None = None,
 ) -> bytes:
     return await render_prepared_html(
         state,
@@ -105,6 +111,7 @@ async def rasterize_html(
         image_format=options.format,
         quality=options.quality,
         device_pixel_ratio=options.device_pixel_ratio,
+        resolve_mode=resolve_mode,
     )
 
 

@@ -8,11 +8,21 @@ resolved objects through constructor injection instead.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Generic, TypeVar, final
+from typing import Generic, TypeVar, cast, final
 
 from .errors import CapabilityUnavailable
 
 T = TypeVar("T")
+
+
+def _matches_interface(key: CapabilityKey[T], value: object) -> bool:
+    try:
+        return isinstance(value, key.interface)
+    except TypeError as error:
+        raise TypeError(
+            f"Capability `{key.name}` interface must be a concrete class, ABC, "
+            "or @runtime_checkable Protocol."
+        ) from error
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +46,7 @@ class CapabilityCatalog:
         """Return a new catalog that additionally exposes ``value``."""
         if key.name in self._values:
             raise ValueError(f"Capability `{key.name}` is already registered.")
-        if not isinstance(value, key.interface):
+        if not _matches_interface(key, value):
             raise TypeError(
                 f"Capability `{key.name}` expects {key.interface.__qualname__}, "
                 f"got {type(value).__qualname__}."
@@ -49,7 +59,7 @@ class CapabilityCatalog:
         value = self._values.get(key.name)
         if value is None:
             return None
-        if not isinstance(value, key.interface):
+        if not _matches_interface(key, value):
             raise CapabilityUnavailable(
                 key.name,
                 detail=(
@@ -57,7 +67,7 @@ class CapabilityCatalog:
                     f"not {key.interface.__qualname__}."
                 ),
             )
-        return value
+        return cast("T", value)
 
     def require(self, key: CapabilityKey[T]) -> T:
         value = self.get(key)

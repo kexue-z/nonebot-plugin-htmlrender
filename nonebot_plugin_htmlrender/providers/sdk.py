@@ -12,7 +12,7 @@ generics over dynamically discovered classes.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -23,14 +23,35 @@ if TYPE_CHECKING:
         OperationObserver,
         PreparedHtmlExecutor,
     )
-    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
+    from nonebot_plugin_htmlrender.resources.ports import (
+        AssetPublisher,
+        LocalAccessPolicy,
+        ResourceReader,
+        WorkerExecutor,
+    )
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 EngineId: TypeAlias = str
+SettingsT = TypeVar("SettingsT")
 
 ENTRY_POINT_GROUP = "nonebot_plugin_htmlrender.providers"
 
 RESERVED_PROVIDER_IDS: frozenset[EngineId] = frozenset({"playwright", "takumi"})
+
+__all__ = [
+    "ENTRY_POINT_GROUP",
+    "RESERVED_PROVIDER_IDS",
+    "EngineBindings",
+    "EngineId",
+    "EngineProvider",
+    "PluginRequirement",
+    "ProviderAvailability",
+    "ProviderDependencies",
+    "ResourceStrategy",
+]
 
 
 @dataclass(frozen=True, slots=True)
@@ -59,6 +80,11 @@ class ProviderDependencies:
 
     operation_observer: OperationObserver
     cache_observer: CacheObserver
+    worker_executor: WorkerExecutor
+    resource_reader: ResourceReader
+    local_access_policy: LocalAccessPolicy
+    resource_service: ResourceService
+    asset_publisher: AssetPublisher | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -77,29 +103,25 @@ class EngineBindings:
 
 
 @runtime_checkable
-class EngineProvider(Protocol):
+class EngineProvider(Protocol[SettingsT]):
     """A render engine packaged for discovery and composition."""
 
     @property
     def id(self) -> EngineId: ...
 
-    def parse_settings(self, raw: Mapping[str, object]) -> object: ...
+    def parse_settings(self, raw: Mapping[str, object]) -> SettingsT: ...
 
-    def availability(self, settings: object) -> ProviderAvailability: ...
+    def availability(self, settings: SettingsT) -> ProviderAvailability: ...
 
     def bootstrap_requirements(
         self,
-        settings: object,
+        settings: SettingsT,
     ) -> tuple[PluginRequirement, ...]: ...
 
-    def resource_configuration(
-        self,
-        settings: object,
-        base: ResourceConfig,
-    ) -> ResourceConfig: ...
+    def resource_strategy(self, settings: SettingsT) -> ResourceStrategy: ...
 
     def compose(
         self,
-        settings: object,
+        settings: SettingsT,
         dependencies: ProviderDependencies,
     ) -> EngineBindings: ...

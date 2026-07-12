@@ -22,18 +22,18 @@ import zlib
 from nonebot_plugin_htmlrender.providers import (
     EngineBindings,
     EngineId,
+    EngineProvider,
     PluginRequirement,
     ProviderAvailability,
     ProviderDependencies,
+    ResourceStrategy,
 )
-from nonebot_plugin_htmlrender.rendering import ProviderExecutionError
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
     from nonebot_plugin_htmlrender.rendering import ResourcePolicy
-    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
 
 
 @dataclass(frozen=True)
@@ -102,55 +102,42 @@ class EchoProvider:
 
     id: EngineId = "echo"
 
-    def parse_settings(self, raw: Mapping[str, object]) -> object:
+    def parse_settings(self, raw: Mapping[str, object]) -> EchoSettings:
         color = raw.get("color", "#000000")
         if not isinstance(color, str):
             raise ValueError("provider_config.color must be a string")
         _parse_color(color)
         return EchoSettings(color=color)
 
-    def availability(self, settings: object) -> ProviderAvailability:
-        self._narrow(settings)
+    def availability(self, settings: EchoSettings) -> ProviderAvailability:
+        del settings
         return ProviderAvailability(available=True)
 
     def bootstrap_requirements(
         self,
-        settings: object,
+        settings: EchoSettings,
     ) -> tuple[PluginRequirement, ...]:
-        self._narrow(settings)
+        del settings
         return ()
 
-    def resource_configuration(
-        self,
-        settings: object,
-        base: ResourceConfig,
-    ) -> ResourceConfig:
-        self._narrow(settings)
-        return base
+    def resource_strategy(self, settings: EchoSettings) -> ResourceStrategy:
+        del settings
+        return ResourceStrategy()
 
     def compose(
         self,
-        settings: object,
+        settings: EchoSettings,
         dependencies: ProviderDependencies,
     ) -> EngineBindings:
         del dependencies
-        parsed = self._narrow(settings)
         return EngineBindings(
             lifecycle=_EchoLifecycle(),
-            prepared_html_executor=_EchoExecutor(parsed),
+            prepared_html_executor=_EchoExecutor(settings),
             description="Echo constant-pixel engine",
             observation_attributes={"render.backend": "echo"},
         )
 
-    @staticmethod
-    def _narrow(settings: object) -> EchoSettings:
-        if not isinstance(settings, EchoSettings):
-            raise ProviderExecutionError(
-                "Echo provider received settings not produced by parse_settings()."
-            )
-        return settings
 
-
-PROVIDER = EchoProvider()
+PROVIDER: EngineProvider[EchoSettings] = EchoProvider()
 
 __all__ = ["PROVIDER", "EchoProvider", "EchoSettings"]

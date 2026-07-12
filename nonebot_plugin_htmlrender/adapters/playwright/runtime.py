@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
@@ -7,7 +9,7 @@ from pathlib import Path
 import platform
 import shutil
 import sys
-from typing import TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict, cast
 
 from nonebot.log import logger
 import nonebot_plugin_localstore as store
@@ -15,7 +17,8 @@ import playwright
 
 from nonebot_plugin_htmlrender.consts import BrowserEngine
 
-from .config import get_playwright_config
+if TYPE_CHECKING:
+    from .config import PlaywrightConfig
 
 
 class _BrowserEntry(TypedDict, total=False):
@@ -45,9 +48,9 @@ _PLAYWRIGHT_RUNTIME_STATE_FILE = "playwright-runtime.json"
 _MAX_RUNTIME_STATE_ENTRIES = 20
 
 
-def get_playwright_storage_path() -> Path:
+def get_playwright_storage_path(config: PlaywrightConfig) -> Path:
     """获取 Playwright 浏览器存储路径。"""
-    configured = get_playwright_config().storage_path
+    configured = config.storage_path
     if configured is not None:
         return Path(configured).expanduser()
     return Path(store.get_plugin_data_dir()).expanduser()
@@ -157,9 +160,9 @@ def _runtime_state_path() -> Path:
     return data_dir / _PLAYWRIGHT_RUNTIME_STATE_FILE
 
 
-def _iter_browser_cache_paths() -> list[Path]:
+def _iter_browser_cache_paths(storage_path: Path) -> list[Path]:
     """列出所有浏览器缓存路径候选。"""
-    candidates = [get_playwright_storage_path()]
+    candidates = [storage_path]
     legacy_cache_path = get_legacy_playwright_cache_path()
     if legacy_cache_path is not None:
         candidates.append(legacy_cache_path)
@@ -185,11 +188,13 @@ def _browser_cache_snapshot(
     engine: BrowserEngine,
     expected_directory_groups: tuple[tuple[str, ...], ...],
     metadata: dict[str, dict[str, str]],
+    *,
+    storage_path: Path,
 ) -> dict[str, object]:
     """构建浏览器缓存状态快照。"""
     paths: list[dict[str, object]] = []
     available = False
-    for base_path in _iter_browser_cache_paths():
+    for base_path in _iter_browser_cache_paths(storage_path):
         installed_directories = _installed_browser_directories(base_path, engine)
         matched = tuple(
             next(
@@ -236,7 +241,7 @@ def _venv_info() -> dict[str, str]:
     }
 
 
-def build_playwright_runtime_snapshot() -> _RuntimeSnapshot:
+def build_playwright_runtime_snapshot(config: PlaywrightConfig) -> _RuntimeSnapshot:
     """构建当前 Playwright 运行时环境的完整快照。"""
     browser_data = _load_playwright_browsers_json()
     metadata = _browser_metadata_by_name(browser_data)
@@ -249,6 +254,7 @@ def build_playwright_runtime_snapshot() -> _RuntimeSnapshot:
                 engine,
                 _expected_browser_directory_groups(engine, browser_data),
                 metadata,
+                storage_path=get_playwright_storage_path(config),
             )
             for engine in BrowserEngine
         },
@@ -295,6 +301,8 @@ def _engine_states_from(
 def _warn_runtime_snapshot_mismatch(
     previous: _RuntimeSnapshot | None,
     current: _RuntimeSnapshot,
+    *,
+    configured_engine: BrowserEngine,
 ) -> None:
     """比较前后运行时快照并记录版本变更警告。"""
     current_version = current.get("playwright_version")
@@ -309,7 +317,6 @@ def _warn_runtime_snapshot_mismatch(
     previous_engines = _engine_states_from(previous)
     current_engines = _engine_states_from(current)
 
-    configured_engine = get_playwright_config().engine
     for engine in BrowserEngine:
         engine_state = current_engines.get(engine.value, {})
         if engine is configured_engine and not engine_state.get("available", False):
@@ -330,12 +337,16 @@ def _warn_runtime_snapshot_mismatch(
             )
 
 
-def record_playwright_runtime_state() -> None:
+def record_playwright_runtime_state(config: PlaywrightConfig) -> None:
     """记录当前 Playwright 运行时状态到 JSON 文件。"""
-    current = build_playwright_runtime_snapshot()
+    current = build_playwright_runtime_snapshot(config)
     history = _load_runtime_state_history()
     previous = _latest_snapshot_from_history(history)
-    _warn_runtime_snapshot_mismatch(previous, current)
+    _warn_runtime_snapshot_mismatch(
+        previous,
+        current,
+        configured_engine=config.engine,
+    )
 
     timestamp = datetime.now(tz=timezone.utc).isoformat()
     history[timestamp] = current
@@ -351,7 +362,11 @@ def record_playwright_runtime_state() -> None:
         fp.write("\n")
 
 
-def has_installed_browser(engine: BrowserEngine) -> bool:
+def has_installed_browser(
+    engine: BrowserEngine,
+    *,
+    storage_path: Path,
+) -> bool:
     """检查指定引擎的 Playwright 浏览器是否已安装。
 
     Args:
@@ -367,7 +382,7 @@ def has_installed_browser(engine: BrowserEngine) -> bool:
         )
         return False
 
-    for base_path in _iter_browser_cache_paths():
+    for base_path in _iter_browser_cache_paths(storage_path):
         if not base_path.exists():
             continue
         if all(
@@ -378,19 +393,17 @@ def has_installed_browser(engine: BrowserEngine) -> bool:
     return False
 
 
-def prepare_playwright_env_vars() -> None:
+def prepare_playwright_env_vars(config: PlaywrightConfig) -> None:
     """设置 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
-    cfg = get_playwright_config()
-    if not cfg.executable_path:
-        storage_path = os.path.abspath(str(get_playwright_storage_path()))
+    if not config.executable_path:
+        storage_path = os.path.abspath(str(get_playwright_storage_path(config)))
         os.environ["PLAYWRIGHT_BROWSERS_PATH"] = storage_path
         logger.debug(f'Setting PLAYWRIGHT_BROWSERS_PATH="{storage_path}"')
 
 
-def clear_playwright_env_vars() -> None:
+def clear_playwright_env_vars(config: PlaywrightConfig) -> None:
     """清除 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
-    cfg = get_playwright_config()
-    if not cfg.executable_path and "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
+    if not config.executable_path and "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
         playwright_path = os.environ.pop("PLAYWRIGHT_BROWSERS_PATH")
         logger.debug(f'PLAYWRIGHT_BROWSERS_PATH="{playwright_path}" removed')
 
@@ -400,14 +413,18 @@ def _normalize_cache_path(path: Path) -> Path:
     return path.expanduser().resolve()
 
 
-def reconcile_legacy_playwright_cache(*, cleanup: bool) -> None:
+def reconcile_legacy_playwright_cache(
+    config: PlaywrightConfig,
+    *,
+    cleanup: bool,
+) -> None:
     """检查旧版 Playwright 缓存目录，并按显式策略决定是否删除。"""
     cache_path = get_legacy_playwright_cache_path()
     if cache_path is None:
         return
 
     normalized_cache_path = _normalize_cache_path(cache_path)
-    normalized_storage_path = _normalize_cache_path(get_playwright_storage_path())
+    normalized_storage_path = _normalize_cache_path(get_playwright_storage_path(config))
     if normalized_cache_path == normalized_storage_path:
         return
 
@@ -434,6 +451,6 @@ def reconcile_legacy_playwright_cache(*, cleanup: bool) -> None:
             logger.error(f"Failed to delete Playwright: {e}")
 
 
-def clean_playwright_cache(*, cleanup: bool) -> None:
+def clean_playwright_cache(config: PlaywrightConfig, *, cleanup: bool) -> None:
     """已弃用：请改用 ``reconcile_legacy_playwright_cache``。"""
-    reconcile_legacy_playwright_cache(cleanup=cleanup)
+    reconcile_legacy_playwright_cache(config, cleanup=cleanup)

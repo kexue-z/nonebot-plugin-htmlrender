@@ -5,10 +5,9 @@ from __future__ import annotations
 from contextlib import contextmanager
 from typing import TYPE_CHECKING, final
 
-from nonebot_plugin_htmlrender.adapters._backend import RenderRuntime, RenderSession
 from nonebot_plugin_htmlrender.adapters._lease import (
-    LeasedBackendLifecycle,
-    LeasedPreparedHtmlExecutor,
+    ExecutionLeaseProvider,
+    PreparedHtmlLeaseExecutor,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
     TAKUMI_CAPABILITIES,
@@ -29,7 +28,6 @@ from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
     create_runtime_state,
     require_runtime_state,
 )
-from nonebot_plugin_htmlrender.consts import RenderBackend
 from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 from nonebot_plugin_htmlrender.providers.sdk import (
     EngineBindings,
@@ -46,16 +44,23 @@ from nonebot_plugin_htmlrender.rendering.errors import (
     UnsupportedRequirement,
 )
 from nonebot_plugin_htmlrender.rendering.observers import observe_operation
+from nonebot_plugin_htmlrender.rendering.requests import (
+    effective_resource_resolve_mode,
+)
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Iterator, Mapping
+    from collections.abc import Iterator, Mapping
 
+    from nonebot_plugin_htmlrender.consts import ResourceResolveMode
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
     from nonebot_plugin_htmlrender.providers.sdk import PluginRequirement
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
-    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+    from .runtime import TakumiRuntimeState
 
 _OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "takumi"}
 _PROBE_HTML = '<div style="width:1px;height:1px"></div>'
@@ -83,16 +88,9 @@ def _translate(
         raise runtime_error(f"Takumi {operation} failed: {error}") from error
 
 
-async def _noop_close() -> None:
-    return None
-
-
 @final
-class _TakumiRuntimeBackend:
-    """Legacy-shaped backend running against injected settings and observers."""
-
-    backend: RenderBackend = RenderBackend.TAKUMI
-    capabilities = frozenset()
+class TakumiEngine:
+    """Own one native Takumi runtime using injected settings and observers."""
 
     def __init__(
         self,
@@ -100,74 +98,62 @@ class _TakumiRuntimeBackend:
         config: TakumiConfig,
         operation_observer: OperationObserver,
         cache_observer: CacheObserver,
+        resources: ResourceService,
     ) -> None:
         self._config = config
         self._operation_observer = operation_observer
         self._cache_observer = cache_observer
+        self._resources = resources
 
-    def startup_steps(self) -> tuple[Callable[[], Awaitable[None]], ...]:
-        return ()
-
-    async def create_runtime(self) -> RenderRuntime:
+    async def create_lease(self) -> TakumiRuntimeState:
         with observe_operation(
             self._operation_observer,
             "takumi.open_runtime",
             _OBSERVATION_ATTRIBUTES,
         ):
-            state = await create_runtime_state(
+            return await create_runtime_state(
                 self._config,
+                resources=self._resources,
                 cache_observer=self._cache_observer,
             )
 
-        observer = self._operation_observer
-
-        async def _aclose() -> None:
-            with observe_operation(
-                observer,
-                "takumi.close_runtime",
-                _OBSERVATION_ATTRIBUTES,
-            ):
-                await state.aclose()
-
-        return RenderRuntime(
-            backend=self.backend,
-            handle=state,
-            _aclose=_aclose,
-        )
-
-    async def create_session(
-        self,
-        runtime: RenderRuntime,
-        **kwargs: object,
-    ) -> RenderSession:
-        del kwargs
-        state = require_runtime_state(runtime.handle)
-        return RenderSession(runtime=runtime, handle=state, _aclose=_noop_close)
-
-    def is_alive(self, session: RenderSession) -> bool:
-        if session.handle is not session.runtime.handle:
-            return False
+    def is_alive(self, state: TakumiRuntimeState) -> bool:
         try:
-            require_runtime_state(session.handle)
+            require_runtime_state(state)
         except TakumiRuntimeError:
             return False
         return True
 
+    async def close_lease(self, state: TakumiRuntimeState) -> None:
+        with observe_operation(
+            self._operation_observer,
+            "takumi.close_runtime",
+            _OBSERVATION_ATTRIBUTES,
+        ):
+            await state.aclose()
+
 
 async def _rasterize(
-    session: RenderSession,
+    state: TakumiRuntimeState,
     prepared: PreparedHtml,
     options: RasterOptions,
     resource_policy: ResourcePolicy | None,
+    *,
+    default_resolve_mode: ResourceResolveMode,
 ) -> bytes:
-    # Takumi materializes documents strictly regardless of the per-call policy.
-    del resource_policy
-    state = require_runtime_state(session.handle)
-    return await takumi_rasterize_html(state, prepared, options)
+    return await takumi_rasterize_html(
+        require_runtime_state(state),
+        prepared,
+        options,
+        resolve_mode=effective_resource_resolve_mode(
+            resource_policy,
+            default_resolve_mode,
+        ),
+    )
 
 
-async def _probe(session: RenderSession) -> None:
-    state = require_runtime_state(session.handle)
+async def _probe(state: TakumiRuntimeState) -> None:
+    state = require_runtime_state(state)
     await takumi_rasterize_html(
         state,
         prepare_html(_PROBE_HTML),
@@ -181,54 +167,67 @@ class TakumiProvider:
 
     id: EngineId = "takumi"
 
-    def parse_settings(self, raw: Mapping[str, object]) -> object:
+    def parse_settings(self, raw: Mapping[str, object]) -> TakumiConfig:
         return TakumiConfig.model_validate(dict(raw))
 
-    def availability(self, settings: object) -> ProviderAvailability:
+    def availability(self, settings: TakumiConfig) -> ProviderAvailability:
         self._narrow(settings)
         from nonebot_plugin_htmlrender.adapters.takumi.render import (  # noqa: PLC0415
-            is_takumi_backend_available,
+            takumi_availability,
         )
 
-        result = is_takumi_backend_available()
-        return ProviderAvailability(available=result.available, reason=result.reason)
+        return takumi_availability()
 
     def bootstrap_requirements(
         self,
-        settings: object,
+        settings: TakumiConfig,
     ) -> tuple[PluginRequirement, ...]:
         self._narrow(settings)
         return ()
 
-    def resource_configuration(
-        self,
-        settings: object,
-        base: ResourceConfig,
-    ) -> ResourceConfig:
+    def resource_strategy(self, settings: TakumiConfig) -> ResourceStrategy:
         self._narrow(settings)
-        return base
+        return ResourceStrategy()
 
     def compose(
         self,
-        settings: object,
+        settings: TakumiConfig,
         dependencies: ProviderDependencies,
     ) -> EngineBindings:
         config = self._narrow(settings)
-        backend = _TakumiRuntimeBackend(
+        engine = TakumiEngine(
             config=config,
             operation_observer=dependencies.operation_observer,
             cache_observer=dependencies.cache_observer,
+            resources=dependencies.resource_service,
         )
-        lifecycle = LeasedBackendLifecycle(
-            backend=backend,
+        leases = ExecutionLeaseProvider(
+            create=engine.create_lease,
+            is_alive=engine.is_alive,
+            close=engine.close_lease,
             observer=dependencies.operation_observer,
             translate=_translate,
             observation_attributes=_OBSERVATION_ATTRIBUTES,
             probe=_probe,
         )
-        executor = LeasedPreparedHtmlExecutor(
-            lifecycle=lifecycle,
-            rasterize=_rasterize,
+
+        async def rasterize(
+            state: TakumiRuntimeState,
+            prepared: PreparedHtml,
+            options: RasterOptions,
+            resource_policy: ResourcePolicy | None,
+        ) -> bytes:
+            return await _rasterize(
+                state,
+                prepared,
+                options,
+                resource_policy,
+                default_resolve_mode=dependencies.resource_service.strategy.resolve_mode,
+            )
+
+        executor = PreparedHtmlLeaseExecutor(
+            leases=leases,
+            rasterize=rasterize,
             translate=_translate,
             observer=dependencies.operation_observer,
             operation="takumi.rasterize_html",
@@ -236,10 +235,10 @@ class TakumiProvider:
         )
         capabilities = CapabilityCatalog().with_capability(
             TAKUMI_CAPABILITIES,
-            TakumiCapabilities(lifecycle),
+            TakumiCapabilities(leases, dependencies.operation_observer),
         )
         return EngineBindings(
-            lifecycle=lifecycle,
+            lifecycle=leases,
             prepared_html_executor=executor,
             provider_capabilities=capabilities,
             description="Takumi native HTML renderer",

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from importlib.metadata import version
 import struct
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import anyio
 import pytest
@@ -13,23 +13,14 @@ from nonebot_plugin_htmlrender.adapters.takumi import TakumiConfig, TakumiRuntim
 from nonebot_plugin_htmlrender.adapters.takumi.api import (
     TakumiExtension,
 )
-from nonebot_plugin_htmlrender.adapters.takumi.operations import (
-    rasterize_html,
-)
 from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
     create_runtime_state,
 )
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
-    RasterOptions,
     prepare_html,
-    prepare_markdown,
-    prepare_template,
-    prepare_text,
 )
-
-if TYPE_CHECKING:
-    from pathlib import Path
+from tests.adapters.takumi.helpers import resource_service
 
 
 def _png_size(data: bytes) -> tuple[int, int]:
@@ -55,7 +46,7 @@ def test_exact_takumi_version_is_installed() -> None:
 
 @pytest.mark.anyio
 async def test_native_stylesheet_error_is_translated() -> None:
-    state = await create_runtime_state(TakumiConfig())
+    state = await create_runtime_state(TakumiConfig(), resources=resource_service())
     try:
         with pytest.raises(TakumiRuntimeError, match="compile") as exc_info:
             await state.compile_stylesheet("}", lossy=False)
@@ -66,7 +57,7 @@ async def test_native_stylesheet_error_is_translated() -> None:
 
 @pytest.mark.anyio
 async def test_html_node_compiled_measure_and_svg_capabilities() -> None:
-    state = await create_runtime_state(TakumiConfig())
+    state = await create_runtime_state(TakumiConfig(), resources=resource_service())
     try:
         extension = TakumiExtension(state)
         html = (
@@ -122,7 +113,7 @@ async def test_native_css_media_at_rule_keeps_conditional_behavior() -> None:
 
     from PIL import Image  # noqa: PLC0415
 
-    state = await create_runtime_state(TakumiConfig())
+    state = await create_runtime_state(TakumiConfig(), resources=resource_service())
     try:
         extension = TakumiExtension(state)
         html = (
@@ -166,7 +157,10 @@ async def test_native_renderer_handles_bounded_concurrent_documents() -> None:
         (32, 64, 128),
     )
     results: list[bytes | None] = [None] * len(colors)
-    state = await create_runtime_state(TakumiConfig(max_concurrency=4))
+    state = await create_runtime_state(
+        TakumiConfig(max_concurrency=4),
+        resources=resource_service(),
+    )
     try:
         extension = TakumiExtension(state)
 
@@ -201,7 +195,7 @@ async def test_static_formats_and_prepared_asset_cross_native_boundary() -> None
 
     from PIL import Image  # noqa: PLC0415
 
-    state = await create_runtime_state(TakumiConfig())
+    state = await create_runtime_state(TakumiConfig(), resources=resource_service())
     try:
         extension = TakumiExtension(state)
         png = await extension.render_node(_node(), width=48, height=24)
@@ -281,7 +275,7 @@ async def test_static_formats_and_prepared_asset_cross_native_boundary() -> None
 async def test_animation_sequence_and_raw_frame_encoding() -> None:
     from takumi_py import AnimationScene, RawAnimationFrame  # noqa: PLC0415
 
-    state = await create_runtime_state(TakumiConfig())
+    state = await create_runtime_state(TakumiConfig(), resources=resource_service())
     try:
         extension = TakumiExtension(state)
         scenes = [
@@ -329,46 +323,5 @@ async def test_animation_sequence_and_raw_frame_encoding() -> None:
         )
         encoded = await extension.encode_frames([frame], format="gif")
         assert encoded.startswith((b"GIF87a", b"GIF89a"))
-    finally:
-        await state.aclose()
-
-
-@pytest.mark.anyio
-async def test_shared_text_markdown_and_template_preparation(
-    tmp_path: Path,
-) -> None:
-    state = await create_runtime_state(TakumiConfig())
-    try:
-        text_prepared = await prepare_text("你好 <tag> & text")
-        text = await rasterize_html(
-            state,
-            text_prepared,
-            RasterOptions(width=240, device_pixel_ratio=1.0),
-        )
-        markdown_prepared = await prepare_markdown("# 标题\n\n`<tag>`")
-        markdown = await rasterize_html(
-            state,
-            markdown_prepared,
-            RasterOptions(width=360, device_pixel_ratio=1.0),
-        )
-
-        (tmp_path / "card.html").write_text(
-            '<div style="width:80px;height:30px;background:#fff">{{ value }}</div>',
-            encoding="utf-8",
-        )
-        template_prepared = await prepare_template(
-            str(tmp_path),
-            "card.html",
-            {"value": "<unsafe> & Unicode 字符"},
-        )
-        template = await rasterize_html(
-            state,
-            template_prepared,
-            RasterOptions(width=500, device_pixel_ratio=1.0),
-        )
-
-        assert text.startswith(b"\x89PNG")
-        assert markdown.startswith(b"\x89PNG")
-        assert template.startswith(b"\x89PNG")
     finally:
         await state.aclose()

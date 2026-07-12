@@ -5,21 +5,13 @@ from __future__ import annotations
 import importlib.util
 from pathlib import Path
 import sys
-from typing import TYPE_CHECKING
-
-import pytest
+from typing import Any
 
 from nonebot_plugin_htmlrender.bootstrap.composition import prepare_runtime
 from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
 from nonebot_plugin_htmlrender.providers.sdk import EngineProvider
 from nonebot_plugin_htmlrender.rendering import RenderHtmlRequest
-from nonebot_plugin_htmlrender.resources.config import (
-    get_resource_config,
-    register_resource_config_provider,
-)
-
-if TYPE_CHECKING:
-    from collections.abc import Iterator
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 _EXAMPLE_MODULE = (
     Path(__file__).resolve().parents[2]
@@ -33,15 +25,7 @@ _EXAMPLE_MODULE = (
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
 
 
-@pytest.fixture(autouse=True)
-def _restore_resource_config() -> Iterator[None]:
-    previous = register_resource_config_provider(None)
-    register_resource_config_provider(previous)
-    yield
-    register_resource_config_provider(previous)
-
-
-def _load_example_provider() -> EngineProvider:
+def _load_example_provider() -> EngineProvider[Any]:
     spec = importlib.util.spec_from_file_location(
         "htmlrender_echo_provider",
         _EXAMPLE_MODULE,
@@ -81,4 +65,4 @@ async def test_echo_provider_composes_and_renders() -> None:
 
     payload = bytes(artifact)
     assert payload[: len(_PNG_MAGIC)] == _PNG_MAGIC
-    assert get_resource_config() is not None
+    assert application.resources.strategy == ResourceStrategy()

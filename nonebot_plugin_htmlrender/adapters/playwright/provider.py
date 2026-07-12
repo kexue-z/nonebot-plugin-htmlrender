@@ -7,25 +7,14 @@ Browser modules are imported lazily so that loading the plugin with
 from __future__ import annotations
 
 from contextlib import contextmanager
-from dataclasses import replace
 from typing import TYPE_CHECKING, final
 
 from nonebot_plugin_htmlrender.adapters._lease import (
-    LeasedBackendLifecycle,
-    LeasedPreparedHtmlExecutor,
+    ExecutionLeaseProvider,
+    PreparedHtmlLeaseExecutor,
 )
-from nonebot_plugin_htmlrender.adapters.playwright.config import (
-    PlaywrightConfig,
-    register_playwright_config_provider,
-)
-from nonebot_plugin_htmlrender.consts import (
-    LocalLocalResourcePolicy,
-    RemoteLocalResourcePolicy,
-    ResourceResolveMode,
-)
-from nonebot_plugin_htmlrender.preparation.materialize import (
-    AssetMaterializationError,
-)
+from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
+from nonebot_plugin_htmlrender.consts import RemoteLocalResourcePolicy
 from nonebot_plugin_htmlrender.providers.sdk import (
     EngineBindings,
     EngineId,
@@ -37,20 +26,23 @@ from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderExecutionError,
     RenderingError,
-    ResourceResolutionError,
 )
-from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
-from nonebot_plugin_htmlrender.resources.resolve import ResourceResolveError
+from nonebot_plugin_htmlrender.rendering.requests import (
+    ResourcePolicy,
+    effective_resource_resolve_mode,
+)
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from nonebot_plugin_htmlrender.adapters._backend import RenderSession
+    from nonebot_plugin_htmlrender.adapters.playwright.render import PlaywrightLease
     from nonebot_plugin_htmlrender.preparation.models import (
         PreparedHtml,
         RasterOptions,
     )
-    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
+    from nonebot_plugin_htmlrender.resources.ports import AssetPublisher
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 _OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "playwright"}
 
@@ -65,28 +57,18 @@ def _translate(
         yield
     except RenderingError:
         raise
-    except AssetMaterializationError as error:
-        raise ResourceResolutionError(str(error)) from error
-    except ResourceResolveError as error:
-        raise ResourceResolutionError(str(error)) from error
     except Exception as error:
         raise runtime_error(f"Playwright {operation} failed: {error}") from error
 
 
-def _strict_assets(policy: ResourcePolicy | None) -> bool | None:
-    """Map the neutral per-call policy onto the browser asset pipeline."""
-    if policy is None or policy is ResourcePolicy.STRICT:
-        return True
-    if policy is ResourcePolicy.AUTO:
-        return False
-    return None
-
-
 async def _rasterize(
-    session: RenderSession,
+    lease: PlaywrightLease,
     prepared: PreparedHtml,
     options: RasterOptions,
     resource_policy: ResourcePolicy | None,
+    *,
+    resources: ResourceService,
+    asset_publisher: AssetPublisher | None,
 ) -> bytes:
     from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
@@ -120,28 +102,34 @@ async def _rasterize(
         prepared,
         content=ContentConfig(html=prepared.html),
         render=render,
-        session=session,
-        strict_assets=_strict_assets(resource_policy),
+        lease=lease,
+        resources=resources,
+        asset_publisher=asset_publisher,
+        resolve_mode=effective_resource_resolve_mode(
+            resource_policy,
+            resources.strategy.resolve_mode,
+        ),
         telemetry_op="playwright.html_render.rasterize_html",
     )
 
 
-async def _probe(session: RenderSession) -> None:
+async def _probe(lease: PlaywrightLease) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
         open_page_context,
     )
 
-    async with open_page_context(session=session):
+    async with open_page_context(lease=lease):
         return
 
 
 def _uses_filehost(config: PlaywrightConfig) -> bool:
-    if config.resource_resolve_mode == ResourceResolveMode.OFF:
-        return False
-    return (
-        config.remote_local_resource_policy == RemoteLocalResourcePolicy.FILEHOST
-        or config.local_local_resource_policy == LocalLocalResourcePolicy.FILEHOST
+    is_remote = bool(config.connect_ws.endpoint or config.connect_cdp.endpoint)
+    policy = (
+        config.remote_local_resource_policy
+        if is_remote
+        else config.local_local_resource_policy
     )
+    return policy.value == RemoteLocalResourcePolicy.FILEHOST.value
 
 
 @final
@@ -150,21 +138,20 @@ class PlaywrightProvider:
 
     id: EngineId = "playwright"
 
-    def parse_settings(self, raw: Mapping[str, object]) -> object:
+    def parse_settings(self, raw: Mapping[str, object]) -> PlaywrightConfig:
         return PlaywrightConfig.model_validate(dict(raw))
 
-    def availability(self, settings: object) -> ProviderAvailability:
+    def availability(self, settings: PlaywrightConfig) -> ProviderAvailability:
         config = self._narrow(settings)
-        from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
-            is_playwright_backend_available,
+        from nonebot_plugin_htmlrender.adapters.playwright.availability import (  # noqa: PLC0415
+            playwright_availability,
         )
 
-        result = is_playwright_backend_available(config)
-        return ProviderAvailability(available=result.available, reason=result.reason)
+        return playwright_availability(config)
 
     def bootstrap_requirements(
         self,
-        settings: object,
+        settings: PlaywrightConfig,
     ) -> tuple[PluginRequirement, ...]:
         config = self._narrow(settings)
         if _uses_filehost(config):
@@ -176,71 +163,73 @@ class PlaywrightProvider:
             )
         return ()
 
-    def resource_configuration(
-        self,
-        settings: object,
-        base: ResourceConfig,
-    ) -> ResourceConfig:
+    def resource_strategy(self, settings: PlaywrightConfig) -> ResourceStrategy:
         config = self._narrow(settings)
-        return replace(
-            base,
-            is_remote_mode=bool(
-                config.connect_ws.endpoint or config.connect_cdp.endpoint
-            ),
-            resource_resolve_mode=config.resource_resolve_mode,
-            remote_local_resource_policy=config.remote_local_resource_policy,
-            local_local_resource_policy=config.local_local_resource_policy,
-            filehost_cache_ttl_seconds=config.filehost_cache_ttl_seconds,
-            filehost_prewarm_enabled=config.filehost_prewarm_enabled,
-            filehost_prewarm_max_files=config.filehost_prewarm_max_files,
-            filehost_prewarm_paths=tuple(config.filehost_prewarm_paths),
-            filehost_prewarm_extensions=tuple(config.filehost_prewarm_extensions),
-            filehost_request_header_name=config.filehost_request_header_name,
-            filehost_request_header_value=config.filehost_request_header_value,
-            filehost_request_header_salt=config.filehost_request_header_salt,
+        return ResourceStrategy(
+            is_remote=bool(config.connect_ws.endpoint or config.connect_cdp.endpoint),
+            resolve_mode=config.resource_resolve_mode,
+            remote_local_policy=config.remote_local_resource_policy,
+            local_local_policy=config.local_local_resource_policy,
         )
 
     def compose(
         self,
-        settings: object,
+        settings: PlaywrightConfig,
         dependencies: ProviderDependencies,
     ) -> EngineBindings:
         config = self._narrow(settings)
-        # The browser runtime modules still read module-level configuration;
-        # route those reads to the composed settings until the physical
-        # migration absorbs them into this adapter.
-        register_playwright_config_provider(lambda: config)
 
         from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (  # noqa: PLC0415
             PLAYWRIGHT_CAPABILITIES,
             PlaywrightCapabilities,
         )
         from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
-            PlaywrightBackend,
+            PlaywrightEngine,
         )
 
-        lifecycle = LeasedBackendLifecycle(
-            backend=PlaywrightBackend(),
+        engine = PlaywrightEngine(
+            config,
+            operation_observer=dependencies.operation_observer,
+        )
+        leases = ExecutionLeaseProvider(
+            create=engine.create_lease,
+            is_alive=engine.is_alive,
+            close=engine.close_lease,
             observer=dependencies.operation_observer,
             translate=_translate,
             observation_attributes=_OBSERVATION_ATTRIBUTES,
             probe=_probe,
         )
-        executor = LeasedPreparedHtmlExecutor(
-            lifecycle=lifecycle,
-            rasterize=_rasterize,
+
+        async def rasterize(
+            lease: PlaywrightLease,
+            prepared: PreparedHtml,
+            options: RasterOptions,
+            resource_policy: ResourcePolicy | None,
+        ) -> bytes:
+            return await _rasterize(
+                lease,
+                prepared,
+                options,
+                resource_policy,
+                resources=dependencies.resource_service,
+                asset_publisher=dependencies.asset_publisher,
+            )
+
+        executor = PreparedHtmlLeaseExecutor(
+            leases=leases,
+            rasterize=rasterize,
             translate=_translate,
             observer=dependencies.operation_observer,
-            # playwright operations already emit the render span themselves.
-            operation=None,
+            operation="playwright.html_render.rasterize_html",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
         capabilities = CapabilityCatalog().with_capability(
             PLAYWRIGHT_CAPABILITIES,
-            PlaywrightCapabilities(lifecycle),
+            PlaywrightCapabilities(leases, dependencies.operation_observer),
         )
         return EngineBindings(
-            lifecycle=lifecycle,
+            lifecycle=leases,
             prepared_html_executor=executor,
             provider_capabilities=capabilities,
             description="Playwright browser engine",

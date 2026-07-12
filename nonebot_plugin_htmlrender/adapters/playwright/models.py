@@ -5,6 +5,8 @@ import warnings
 from nonebot.compat import field_validator, model_validator
 from pydantic import BaseModel, ConfigDict, Field
 
+from nonebot_plugin_htmlrender.rendering.errors import InvalidRenderRequest
+
 from .types import PageContextKwargs
 
 if TYPE_CHECKING:
@@ -249,12 +251,14 @@ def _build_screenshot_config(
             wait_before_screenshot=wait_before_screenshot,
         )
 
-    return PngScreenshotOptions(
-        device_scale_factor=device_scale_factor,
-        timeout=screenshot_timeout if screenshot_timeout is not None else 30_000,
-        full_page=full_page,
-        wait_before_screenshot=wait_before_screenshot,
-    )
+    if image_type == "png":
+        return PngScreenshotOptions(
+            device_scale_factor=device_scale_factor,
+            timeout=screenshot_timeout if screenshot_timeout is not None else 30_000,
+            full_page=full_page,
+            wait_before_screenshot=wait_before_screenshot,
+        )
+    raise InvalidRenderRequest(f"Unsupported Playwright image format: {image_type!r}")
 
 
 def _page_context_kwargs(render: RenderConfig) -> PageContextKwargs:

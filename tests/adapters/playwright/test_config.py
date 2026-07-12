@@ -69,7 +69,10 @@ def test_playwright_config_rejects_multiple_remote_modes() -> None:
         RemoteWSConfig,
     )
 
-    with pytest.raises(ValueError, match="only one remote mode can be enabled"):
+    with pytest.raises(
+        ValueError,
+        match=r"render\.provider_config\.connect_ws\.endpoint",
+    ):
         PlaywrightConfig(
             connect_ws=RemoteWSConfig(endpoint="ws://localhost:3000/ws"),
             connect_cdp=RemoteCDPConfig(endpoint="http://localhost:9222"),
@@ -83,7 +86,7 @@ def test_playwright_config_rejects_non_chromium_cdp() -> None:
     )
     from nonebot_plugin_htmlrender.consts import BrowserEngine  # noqa: PLC0415
 
-    with pytest.raises(ValueError, match="CDP connection requires"):
+    with pytest.raises(ValueError, match=r"render\.provider_config\.engine"):
         PlaywrightConfig(
             engine=BrowserEngine.WEBKIT,
             connect_cdp=RemoteCDPConfig(endpoint="http://localhost:9222"),
@@ -111,60 +114,13 @@ def test_playwright_config_accepts_resource_resolution_options() -> None:
     assert cfg.local_local_resource_policy is LocalLocalResourcePolicy.FILE
 
 
-def test_playwright_config_normalizes_filehost_request_header_salt() -> None:
+def test_playwright_config_rejects_moved_filehost_options() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
 
-    defaulted = PlaywrightConfig.model_validate({"filehost_request_header_salt": "   "})
-    assert (
-        defaulted.filehost_request_header_salt
-        == "nonebot-plugin-htmlrender:filehost:guard:v1"
-    )
-
-    custom = PlaywrightConfig.model_validate(
-        {"filehost_request_header_salt": "custom-salt"}
-    )
-    assert custom.filehost_request_header_salt == "custom-salt"
-
-
-def test_playwright_config_normalizes_filehost_prewarm_fields() -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
-        PlaywrightConfig,
-    )
-
-    cfg = PlaywrightConfig.model_validate(
-        {
-            "filehost_prewarm_paths": "assets",
-            "filehost_prewarm_extensions": "css, png, .woff2, ",
-        }
-    )
-
-    assert len(cfg.filehost_prewarm_paths) == 1
-    assert str(cfg.filehost_prewarm_paths[0]) == "assets"
-    assert cfg.filehost_prewarm_extensions == [".css", ".png", ".woff2"]
-
-
-def test_playwright_config_normalizes_filehost_header_fields() -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
-        PlaywrightConfig,
-    )
-
-    cfg = PlaywrightConfig.model_validate(
-        {
-            "filehost_request_header_name": "   ",
-            "filehost_request_header_value": "   ",
-        }
-    )
-    assert cfg.filehost_request_header_name == "X-HTMLRender-Filehost-Request"
-    assert cfg.filehost_request_header_value is None
-
-    cfg2 = PlaywrightConfig.model_validate(
-        {
-            "filehost_prewarm_paths": "assets2",
-        }
-    )
-    assert len(cfg2.filehost_prewarm_paths) == 1
+    with pytest.raises(ValueError, match="filehost_cache_ttl_seconds"):
+        PlaywrightConfig.model_validate({"filehost_cache_ttl_seconds": 60})
 
 
 def test_playwright_config_rejects_invalid_engine_and_channel() -> None:

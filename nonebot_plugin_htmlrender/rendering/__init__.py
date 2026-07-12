@@ -6,6 +6,7 @@ from .capabilities import CapabilityCatalog as CapabilityCatalog
 from .capabilities import CapabilityKey as CapabilityKey
 from .errors import CapabilityUnavailable as CapabilityUnavailable
 from .errors import InvalidRenderRequest as InvalidRenderRequest
+from .errors import PreparationError as PreparationError
 from .errors import ProviderExecutionError as ProviderExecutionError
 from .errors import ProviderLifecycleError as ProviderLifecycleError
 from .errors import ProviderNotConfigured as ProviderNotConfigured
@@ -41,6 +42,7 @@ __all__ = [
     "NoopCacheObserver",
     "NoopOperationObserver",
     "OperationObserver",
+    "PreparationError",
     "PreparedHtmlExecutor",
     "ProviderExecutionError",
     "ProviderLifecycleError",

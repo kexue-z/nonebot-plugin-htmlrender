@@ -9,6 +9,7 @@ from .sdk import EngineProvider as EngineProvider
 from .sdk import PluginRequirement as PluginRequirement
 from .sdk import ProviderAvailability as ProviderAvailability
 from .sdk import ProviderDependencies as ProviderDependencies
+from .sdk import ResourceStrategy as ResourceStrategy
 
 __all__ = [
     "ENTRY_POINT_GROUP",
@@ -19,5 +20,6 @@ __all__ = [
     "PluginRequirement",
     "ProviderAvailability",
     "ProviderDependencies",
+    "ResourceStrategy",
     "resolve_provider",
 ]

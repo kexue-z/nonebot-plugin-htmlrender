@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityUnavailable,
     InvalidRenderRequest,
+    PreparationError,
     ProviderExecutionError,
     ProviderLifecycleError,
     ProviderNotConfigured,
@@ -48,6 +51,7 @@ def test_rendered_html_stringifies_to_content() -> None:
 def test_error_taxonomy_roots_at_rendering_error() -> None:
     for error_type in (
         InvalidRenderRequest,
+        PreparationError,
         CapabilityUnavailable,
         UnsupportedRequirement,
         ProviderNotConfigured,
@@ -72,6 +76,7 @@ def test_template_request_requires_template_name() -> None:
         RenderTemplateRequest(template_path="templates", template_name="")
 
 
-def test_timeout_must_be_positive() -> None:
+@pytest.mark.parametrize("timeout", [0.0, -1.0, math.nan, math.inf, -math.inf])
+def test_timeout_must_be_finite_and_positive(timeout: float) -> None:
     with pytest.raises(InvalidRenderRequest, match="timeout_seconds"):
-        RenderHtmlRequest(html="<p>hi</p>", timeout_seconds=0)
+        RenderHtmlRequest(html="<p>hi</p>", timeout_seconds=timeout)

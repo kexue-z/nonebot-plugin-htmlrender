@@ -1,60 +1,61 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 from playwright.async_api import Error as PlaywrightError
 from pydantic import ValidationError
 import pytest
 
-from nonebot_plugin_htmlrender.adapters._backend import (
-    BackendAvailability,
-    RenderRuntime,
-    RenderSession,
-)
 from nonebot_plugin_htmlrender.adapters.playwright import provider as provider_module
-from nonebot_plugin_htmlrender.adapters.playwright.config import (
-    PlaywrightConfig,
-    get_playwright_config,
-    register_playwright_config_provider,
-)
+from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
 from nonebot_plugin_htmlrender.adapters.playwright.provider import (
     PROVIDER,
     PlaywrightProvider,
 )
-from nonebot_plugin_htmlrender.consts import RenderBackend
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.materialize import (
     AssetMaterializationError,
 )
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
-from nonebot_plugin_htmlrender.providers.sdk import ProviderDependencies
+from nonebot_plugin_htmlrender.providers.sdk import (
+    ProviderAvailability,
+    ProviderDependencies,
+)
 from nonebot_plugin_htmlrender.rendering import (
     ProviderExecutionError,
     ResourcePolicy,
     ResourceResolutionError,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
-
     from pytest_mock import MockerFixture
 
+    from nonebot_plugin_htmlrender.adapters.playwright.render import PlaywrightLease
+    from nonebot_plugin_htmlrender.resources.ports import (
+        LocalAccessPolicy,
+        ResourceReader,
+        WorkerExecutor,
+    )
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
     from tests.adapters.conftest import RecordingOperationObserver
 
 PREPARED = PreparedHtml(html="<p>prepared</p>")
 
 
-@pytest.fixture(autouse=True)
-def _reset_config_provider() -> Iterator[None]:
-    previous = register_playwright_config_provider(None)
-    yield
-    register_playwright_config_provider(previous)
-
-
 def _dependencies(observer: RecordingOperationObserver) -> ProviderDependencies:
+    dependency = object()
+    resources = SimpleNamespace(strategy=ResourceStrategy())
     return ProviderDependencies(
         operation_observer=observer,
         cache_observer=NoopCacheObserver(),
+        worker_executor=cast("WorkerExecutor", dependency),
+        resource_reader=cast("ResourceReader", dependency),
+        local_access_policy=cast("LocalAccessPolicy", dependency),
+        resource_service=cast("ResourceService", resources),
+        asset_publisher=None,
     )
 
 
@@ -70,14 +71,12 @@ def test_parse_settings_validates_via_pydantic() -> None:
 def test_availability_uses_parsed_settings(mocker: MockerFixture) -> None:
     seen: list[PlaywrightConfig] = []
 
-    def fake_available(cfg: PlaywrightConfig | None = None) -> BackendAvailability:
-        assert cfg is not None
+    def fake_available(cfg: PlaywrightConfig) -> ProviderAvailability:
         seen.append(cfg)
-        return BackendAvailability(available=False, reason="nope")
+        return ProviderAvailability(available=False, reason="nope")
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render."
-        "is_playwright_backend_available",
+        "nonebot_plugin_htmlrender.adapters.playwright.availability.playwright_availability",
         fake_available,
     )
     config = PlaywrightConfig()
@@ -87,6 +86,20 @@ def test_availability_uses_parsed_settings(mocker: MockerFixture) -> None:
     assert result.available is False
     assert result.reason == "nope"
     assert seen == [config]
+
+
+def test_availability_reports_missing_playwright_extra(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.availability._playwright_is_installed",
+        return_value=False,
+    )
+
+    result = PROVIDER.availability(PlaywrightConfig())
+
+    assert result.available is False
+    assert "[playwright]" in (result.reason or "")
 
 
 def test_bootstrap_requirements_reflect_filehost_policy() -> None:
@@ -99,16 +112,17 @@ def test_bootstrap_requirements_reflect_filehost_policy() -> None:
     requirements = PROVIDER.bootstrap_requirements(filehost)
     assert [item.plugin_name for item in requirements] == ["nonebot_plugin_filehost"]
 
-    disabled = PlaywrightConfig.model_validate(
+    default_off = PlaywrightConfig.model_validate(
         {
             "local_local_resource_policy": "filehost",
             "resource_resolve_mode": "off",
         }
     )
-    assert PROVIDER.bootstrap_requirements(disabled) == ()
+    requirements = PROVIDER.bootstrap_requirements(default_off)
+    assert [item.plugin_name for item in requirements] == ["nonebot_plugin_filehost"]
 
 
-def test_compose_routes_config_reads_to_settings(
+def test_compose_uses_constructor_injected_settings(
     operation_observer: RecordingOperationObserver,
 ) -> None:
     config = PlaywrightConfig.model_validate({"skip_browser_install": True})
@@ -117,30 +131,67 @@ def test_compose_routes_config_reads_to_settings(
 
     assert bindings.prepared_html_executor is not None
     assert bindings.lifecycle is not None
-    assert get_playwright_config() is config
+    assert bindings.provider_capabilities is not None
+
+
+async def test_standard_raster_uses_injected_operation_observer(
+    mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
+) -> None:
+    lease = object()
+
+    class FakeEngine:
+        def __init__(
+            self,
+            config: PlaywrightConfig,
+            *,
+            operation_observer: object,
+        ) -> None:
+            del config
+            assert operation_observer is not None
+
+        async def create_lease(self) -> object:
+            return lease
+
+        @staticmethod
+        def is_alive(value: object) -> bool:
+            return value is lease
+
+        @staticmethod
+        async def close_lease(value: object) -> None:
+            assert value is lease
+
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.render.PlaywrightEngine",
+        FakeEngine,
+    )
+    rasterize = mocker.patch.object(
+        provider_module,
+        "_rasterize",
+        new=mocker.AsyncMock(return_value=b"image"),
+    )
+    bindings = PlaywrightProvider().compose(
+        PlaywrightConfig(),
+        _dependencies(operation_observer),
+    )
+    executor = bindings.prepared_html_executor
+    assert executor is not None
+
+    result = await executor.execute(PREPARED, RasterOptions())
+
+    assert result == b"image"
+    rasterize.assert_awaited_once()
+    assert "playwright.html_render.rasterize_html" in operation_observer.names()
 
 
 def test_compose_rejects_foreign_settings(
     operation_observer: RecordingOperationObserver,
 ) -> None:
     with pytest.raises(ProviderExecutionError, match="parse_settings"):
-        PROVIDER.compose(object(), _dependencies(operation_observer))
-
-
-@pytest.mark.parametrize(
-    ("policy", "expected"),
-    [
-        (None, True),
-        (ResourcePolicy.STRICT, True),
-        (ResourcePolicy.AUTO, False),
-        (ResourcePolicy.OFF, None),
-    ],
-)
-def test_strict_assets_mapping(
-    policy: ResourcePolicy | None,
-    expected: bool | None,  # noqa: FBT001 -- pytest passes params by name
-) -> None:
-    assert provider_module._strict_assets(policy) == expected
+        PROVIDER.compose(
+            cast("PlaywrightConfig", object()),
+            _dependencies(operation_observer),
+        )
 
 
 async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
@@ -159,27 +210,29 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
         fake_render_prepared_html,
     )
 
-    async def _noop() -> None:
-        return None
-
-    runtime = RenderRuntime(
-        backend=RenderBackend.PLAYWRIGHT,
-        handle=object(),
-        _aclose=_noop,
+    lease = cast("PlaywrightLease", object())
+    resources = cast(
+        "ResourceService",
+        SimpleNamespace(
+            strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.STRICT)
+        ),
     )
-    session = RenderSession(runtime=runtime, handle=object(), _aclose=_noop)
 
     result = await provider_module._rasterize(
-        session,
+        lease,
         PREPARED,
         RasterOptions(width=640, height=None, format="jpeg", quality=70),
         ResourcePolicy.AUTO,
+        resources=resources,
+        asset_publisher=None,
     )
 
     assert result == b"img"
     assert captured["prepared"] is PREPARED
-    assert captured["session"] is session
-    assert captured["strict_assets"] is False
+    assert captured["lease"] is lease
+    assert captured["resources"] is resources
+    assert captured["asset_publisher"] is None
+    assert captured["resolve_mode"] is ResourceResolveMode.AUTO
     assert captured["telemetry_op"] == "playwright.html_render.rasterize_html"
     render_config = captured["render"]
     page = getattr(render_config, "page", None)

@@ -1,9 +1,10 @@
 """Page context lifecycle, network helpers, and PNA safety checks."""
 
-from collections.abc import AsyncIterator, Callable
+from __future__ import annotations
+
 from contextlib import asynccontextmanager
 import ipaddress
-from typing import AsyncContextManager, Protocol, runtime_checkable
+from typing import TYPE_CHECKING
 from typing_extensions import Unpack
 from urllib.parse import urlparse, urlsplit, urlunsplit
 
@@ -12,72 +13,24 @@ from nonebot.log import logger
 from playwright.async_api import Browser, Page, Route
 
 from .telemetry import detach_page, instrument_page
-from .types import PageContextKwargs
 
-RenderContextProvider = Callable[..., AsyncContextManager[object]]
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
-_render_context_state: dict[str, RenderContextProvider | None] = {"provider": None}
-
-
-@runtime_checkable
-class SupportsBrowserSession(Protocol):
-    """声明持有浏览器句柄的会话协议。
-
-    用于运行时校验：任意会话只要暴露 ``handle`` 字段并指向 Playwright Browser，
-    即可作为打开页面上下文的来源。
-    """
-
-    handle: object
-
-
-def _as_page(page: object) -> Page:
-    """将对象转为 Playwright Page，非 Page 则抛出异常。"""
-    if isinstance(page, Page):
-        return page
-    raise RuntimeError(
-        "Render context is not a Playwright Page instance."
-    )  # pragma: no cover
-
-
-def register_render_context_provider(provider: RenderContextProvider) -> None:
-    """注册渲染上下文提供器。"""
-    _render_context_state["provider"] = provider
-
-
-def _get_registered_render_context(
-    **kwargs: Unpack[PageContextKwargs],
-) -> AsyncContextManager[object]:
-    """获取已注册的渲染上下文。"""
-    provider = _render_context_state["provider"]
-    if provider is None:
-        raise RuntimeError(
-            "No render context provider is registered. "
-            "Use `nonebot_plugin_htmlrender.render` APIs or pass `session=` explicitly."
-        )
-    return provider(**kwargs)
-
-
-def _get_session_browser(session: SupportsBrowserSession) -> Browser:
-    """从会话中提取 Browser 实例。"""
-    handle = session.handle
-    if isinstance(handle, Browser):
-        return handle
-    raise RuntimeError("Session does not expose a Browser handle.")  # pragma: no cover
+    from .render import PlaywrightLease
+    from .types import PageContextKwargs
 
 
 @asynccontextmanager
 async def open_page_context(
     *,
-    session: SupportsBrowserSession | None = None,
+    lease: PlaywrightLease,
     **kwargs: Unpack[PageContextKwargs],
 ) -> AsyncIterator[Page]:
-    """打开页面上下文，支持传入会话或使用已注册的提供器。"""
-    if session is None:
-        async with _get_registered_render_context(**kwargs) as context:
-            yield _as_page(context)
-        return
-
-    browser = _get_session_browser(session)
+    """Open one page from an explicitly leased Playwright browser."""
+    browser = lease.browser
+    if not isinstance(browser, Browser):
+        raise RuntimeError("Playwright lease does not expose a Browser.")
     page = await browser.new_page(**kwargs)
     instrument_page(page, page_name="render_context")
     try:
@@ -255,10 +208,7 @@ async def install_filehost_request_route(
 
 
 __all__ = [
-    "RenderContextProvider",
-    "SupportsBrowserSession",
     "check_remote_pna_context",
     "install_filehost_request_route",
     "open_page_context",
-    "register_render_context_provider",
 ]

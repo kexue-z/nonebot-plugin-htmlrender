@@ -12,13 +12,10 @@ from typing import TYPE_CHECKING, TypeGuard, TypeVar, cast
 import anyio
 from anyio.to_thread import run_sync
 
-from nonebot_plugin_htmlrender.resources import FileCachePolicy, read_resource_bytes
-from nonebot_plugin_htmlrender.resources.weighted_cache import (
-    SyncWeightedSingleflightLRU,
-    WeightedCacheStats,
-)
-from nonebot_plugin_htmlrender.utils.telemetry import TelemetryCacheObserver
+from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 
+from .cache import SyncWeightedSingleflightLRU, WeightedCacheStats
+from .config import FileCachePolicy
 from .errors import TakumiInputError, TakumiRuntimeError
 from .source import normalize_image_input
 from .validation import (
@@ -32,6 +29,7 @@ if TYPE_CHECKING:
     from takumi_py import FontResourceInput
 
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
     from .config import GenericFontFamily, TakumiConfig, TakumiFontConfig
     from .types import NativeCompiledHtml, NativeRenderer, TakumiImageResource
@@ -235,6 +233,7 @@ class TakumiRuntimeState:
     renderer: NativeRenderer | None
     limiter: anyio.CapacityLimiter
     config: TakumiConfig
+    resources: ResourceService
     registered_font_families: tuple[str, ...] = ()
     cache_observer: CacheObserver | None = None
     _compiled: SyncWeightedSingleflightLRU[tuple[object, ...], object] = field(
@@ -273,7 +272,7 @@ class TakumiRuntimeState:
         observer = (
             self.cache_observer
             if self.cache_observer is not None
-            else TelemetryCacheObserver()
+            else NoopCacheObserver()
         )
         self._compiled = SyncWeightedSingleflightLRU(
             max_entries=self.config.compiled_cache_max_entries,
@@ -570,7 +569,10 @@ class TakumiRuntimeState:
         cache_policy: FileCachePolicy,
     ) -> tuple[str, ...]:
         self._ensure_open()
-        payload = await read_resource_bytes(path, policy=cache_policy)
+        payload = await self.resources.read_bytes(
+            path,
+            refresh=cache_policy is FileCachePolicy.REVALIDATE,
+        )
         spec = _validate_font_spec(
             _FontSpec(
                 data=payload,
@@ -655,13 +657,15 @@ async def _load_font_payloads(
     fonts: Sequence[TakumiFontConfig],
     *,
     config: TakumiConfig,
+    resources: ResourceService,
 ) -> tuple[bytes, ...]:
     payloads: list[bytes | None] = [None] * len(fonts)
 
     async def _read_one(index: int, font: TakumiFontConfig) -> None:
-        payloads[index] = await read_resource_bytes(
+        policy = font.cache_policy or config.font_cache_policy
+        payloads[index] = await resources.read_bytes(
             font.path,
-            policy=font.cache_policy or config.font_cache_policy,
+            refresh=policy is FileCachePolicy.REVALIDATE,
         )
 
     async with anyio.create_task_group() as task_group:
@@ -768,13 +772,18 @@ def render_defaults(
 async def create_runtime_state(
     config: TakumiConfig,
     *,
+    resources: ResourceService,
     cache_observer: CacheObserver | None = None,
 ) -> TakumiRuntimeState:
     """Create one renderer and register revalidated font bytes exactly once."""
 
     limiter = anyio.CapacityLimiter(config.max_concurrency)
     fonts = tuple(config.fonts)
-    payloads = await _load_font_payloads(fonts, config=config) if fonts else ()
+    payloads = (
+        await _load_font_payloads(fonts, config=config, resources=resources)
+        if fonts
+        else ()
+    )
     specs = tuple(
         _validate_font_spec(
             _FontSpec(
@@ -831,6 +840,7 @@ async def create_runtime_state(
         renderer=renderer,
         limiter=limiter,
         config=config.model_copy(deep=True),
+        resources=resources,
         registered_font_families=registered_families,
         cache_observer=cache_observer,
     )

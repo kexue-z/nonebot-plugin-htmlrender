@@ -1,16 +1,61 @@
+from __future__ import annotations
+
 from dataclasses import dataclass, field
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING, cast
 
 import anyio
 import pytest
-from pytest_mock import MockerFixture
+
+from nonebot_plugin_htmlrender.adapters.resources.reader import (
+    AnyioWorkerExecutor,
+    CompositeResourceReader,
+    ConfiguredLocalAccessPolicy,
+)
+from nonebot_plugin_htmlrender.consts import (
+    LocalLocalResourcePolicy,
+    RemoteLocalResourcePolicy,
+    ResourceResolveMode,
+)
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from pytest_mock import MockerFixture
+
+    from nonebot_plugin_htmlrender.adapters.playwright.render import PlaywrightLease
 
 
 @dataclass(slots=True)
-class _SessionStub:
+class _LeaseStub:
     mode: str
-    handle: object = field(default_factory=object)
+    browser: object = field(default_factory=object)
+
+
+def _lease(mode: str, *, browser: object | None = None) -> PlaywrightLease:
+    return cast(
+        "PlaywrightLease",
+        _LeaseStub(mode=mode, browser=object() if browser is None else browser),
+    )
+
+
+def _resources(
+    *,
+    remote_policy: RemoteLocalResourcePolicy = RemoteLocalResourcePolicy.MEMORY,
+    local_policy: LocalLocalResourcePolicy = LocalLocalResourcePolicy.FILE,
+    resolve_mode: ResourceResolveMode = ResourceResolveMode.AUTO,
+) -> ResourceService:
+    return ResourceService(
+        reader=CompositeResourceReader(AnyioWorkerExecutor()),
+        local_access=ConfiguredLocalAccessPolicy(allowed_roots=(), allow_any=True),
+        strategy=ResourceStrategy(
+            resolve_mode=resolve_mode,
+            remote_local_policy=remote_policy,
+            local_local_policy=local_policy,
+        ),
+    )
 
 
 def _write_font_stylesheet(root: Path) -> Path:
@@ -78,14 +123,7 @@ async def test_remote_http_navigation_is_resource_fallback_for_both_url_fields(
         "_execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
-    mocker.patch.object(
-        operations,
-        "get_playwright_config",
-        return_value=SimpleNamespace(
-            remote_local_resource_policy="memory",
-            local_local_resource_policy="file",
-        ),
-    )
+    resources = _resources()
     prepared = prepare_html('<img src="avatar.png">')
 
     for page in (direct, legacy):
@@ -94,8 +132,10 @@ async def test_remote_http_navigation_is_resource_fallback_for_both_url_fields(
                 prepared,
                 content=ContentConfig(html=prepared.html),
                 render=RenderConfig(page=page),
-                session=_SessionStub(mode="remote_ws"),
-                strict_assets=True,
+                lease=_lease("remote_ws"),
+                resources=resources,
+                asset_publisher=None,
+                resolve_mode=ResourceResolveMode.STRICT,
             )
             == b"image"
         )
@@ -138,10 +178,6 @@ async def test_remote_prepared_render_routes_local_assets_without_file_navigatio
         return_value=context_manager,
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=mocker.Mock(remote_local_resource_policy="memory"),
-    )
-    mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.operations.log_page_telemetry",
         new=mocker.AsyncMock(),
     )
@@ -150,8 +186,10 @@ async def test_remote_prepared_render_routes_local_assets_without_file_navigatio
         prepared,
         content=ContentConfig(html=prepared.html),
         render=render,
-        session=_SessionStub(mode="remote_ws"),
-        strict_assets=True,
+        lease=_lease("remote_ws"),
+        resources=_resources(),
+        asset_publisher=None,
+        resolve_mode=ResourceResolveMode.STRICT,
     )
 
     assert result == b"image"
@@ -184,10 +222,6 @@ async def test_remote_passthrough_preserves_shared_file_navigation(
         "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=mocker.Mock(remote_local_resource_policy="passthrough"),
-    )
 
     result = await render_prepared_html(
         prepared,
@@ -195,7 +229,9 @@ async def test_remote_passthrough_preserves_shared_file_navigation(
         render=RenderConfig(
             page=PageConfig(document_url="file:///shared/card/document.html")
         ),
-        session=_SessionStub(mode="remote_ws"),
+        lease=_lease("remote_ws"),
+        resources=_resources(remote_policy=RemoteLocalResourcePolicy.PASSTHROUGH),
+        asset_publisher=None,
     )
 
     assert result == b"image"
@@ -238,19 +274,17 @@ async def test_direct_file_policies_canonicalize_relative_document_base(
         "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=SimpleNamespace(
-            remote_local_resource_policy="passthrough",
-            local_local_resource_policy="file",
-        ),
+    resources = _resources(
+        remote_policy=RemoteLocalResourcePolicy.PASSTHROUGH,
     )
 
     result = await render_prepared_html(
         prepared,
         content=ContentConfig(html=prepared.html),
         render=RenderConfig(page=PageConfig()),
-        session=_SessionStub(mode=mode),
+        lease=_lease(mode),
+        resources=resources,
+        asset_publisher=None,
     )
 
     assert result == b"image"
@@ -287,18 +321,16 @@ async def test_remote_error_policy_rejects_local_resources_before_page_open(
         "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"unexpected"),
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=mocker.Mock(remote_local_resource_policy="error"),
-    )
 
     with pytest.raises(AssetMaterializationError, match="not allowed"):
         await render_prepared_html(
             prepared,
             content=ContentConfig(html=prepared.html),
             render=RenderConfig(),
-            session=_SessionStub(mode="remote_ws"),
-            strict_assets=False,
+            lease=_lease("remote_ws"),
+            resources=_resources(remote_policy=RemoteLocalResourcePolicy.ERROR),
+            asset_publisher=None,
+            resolve_mode=ResourceResolveMode.AUTO,
         )
 
     execute.assert_not_awaited()
@@ -325,10 +357,6 @@ async def test_remote_error_policy_accepts_http_fallback_with_relative_base(
         "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=mocker.Mock(remote_local_resource_policy="error"),
-    )
 
     result = await render_prepared_html(
         prepared,
@@ -336,8 +364,10 @@ async def test_remote_error_policy_accepts_http_fallback_with_relative_base(
         render=RenderConfig(
             page=PageConfig(document_url="https://render.example/cards/card.html")
         ),
-        session=_SessionStub(mode="remote_ws"),
-        strict_assets=True,
+        lease=_lease("remote_ws"),
+        resources=_resources(remote_policy=RemoteLocalResourcePolicy.ERROR),
+        asset_publisher=None,
+        resolve_mode=ResourceResolveMode.STRICT,
     )
 
     assert result == b"image"
@@ -369,43 +399,115 @@ async def test_remote_filehost_policy_publishes_materialized_assets(
         "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
         new=mocker.AsyncMock(return_value=b"image"),
     )
-    publish = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.resolve_filehost_url",
-        new=mocker.AsyncMock(return_value="http://filehost/filehost/avatar"),
+    publisher = mocker.Mock()
+    publisher.create_lease.return_value = "lease"
+    publisher.request_headers.return_value = {}
+    publisher.publish = mocker.AsyncMock(return_value="http://filehost/filehost/avatar")
+    publisher.release = mocker.AsyncMock()
+
+    result = await render_prepared_html(
+        prepared,
+        content=ContentConfig(html=prepared.html),
+        render=RenderConfig(),
+        lease=_lease("remote_ws"),
+        resources=_resources(
+            remote_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+        asset_publisher=publisher,
+        resolve_mode=ResourceResolveMode.STRICT,
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=mocker.Mock(remote_local_resource_policy="filehost"),
+
+    assert result == b"image"
+    publisher.publish.assert_awaited_once_with(
+        b"avatar",
+        lease_id="lease",
+        suffix=".png",
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.create_filehost_lease",
-        return_value="lease",
+    publisher.release.assert_awaited_once_with("lease")
+    call = execute.await_args
+    assert call is not None
+    plan = call.args[0]
+    assert "http://filehost/filehost/avatar" in plan.html
+    assert plan.asset_routes == ()
+
+
+@pytest.mark.anyio
+async def test_resolve_mode_off_bypasses_filehost_without_a_publisher(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
+        ContentConfig,
+        RenderConfig,
     )
-    release = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.release_filehost_lease",
-        new=mocker.AsyncMock(),
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
+        render_prepared_html,
+    )
+    from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
+
+    prepared = prepare_html(
+        '<img src="avatar.png">',
+        base_url="file:///shared/card/",
+    )
+    execute = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
+        new=mocker.AsyncMock(return_value=b"image"),
     )
 
     result = await render_prepared_html(
         prepared,
         content=ContentConfig(html=prepared.html),
         render=RenderConfig(),
-        session=_SessionStub(mode="remote_ws"),
-        strict_assets=True,
+        lease=_lease("remote_ws"),
+        resources=_resources(
+            remote_policy=RemoteLocalResourcePolicy.FILEHOST,
+            resolve_mode=ResourceResolveMode.OFF,
+        ),
+        asset_publisher=None,
     )
 
     assert result == b"image"
-    publish.assert_awaited_once_with(
-        b"avatar",
-        lease_id="lease",
-        suffix=".png",
-    )
-    release.assert_awaited_once_with("lease")
-    call = execute.await_args
-    assert call is not None
-    plan = call.args[0]
-    assert "http://filehost/filehost/avatar" in plan.html
+    assert execute.await_args is not None
+    plan = execute.await_args.args[0]
+    assert plan.base_href == "file:///shared/card/"
     assert plan.asset_routes == ()
+    assert execute.await_args.kwargs["local_resource_policy"] == "passthrough"
+
+
+@pytest.mark.anyio
+async def test_per_call_off_does_not_touch_composed_filehost_publisher(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
+        ContentConfig,
+        RenderConfig,
+    )
+    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
+        render_prepared_html,
+    )
+    from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
+
+    prepared = prepare_html(
+        '<img src="avatar.png">',
+        base_url="file:///shared/card/",
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
+        new=mocker.AsyncMock(return_value=b"image"),
+    )
+    publisher = mocker.Mock()
+
+    result = await render_prepared_html(
+        prepared,
+        content=ContentConfig(html=prepared.html),
+        render=RenderConfig(),
+        lease=_lease("remote_ws"),
+        resources=_resources(remote_policy=RemoteLocalResourcePolicy.FILEHOST),
+        asset_publisher=publisher,
+        resolve_mode=ResourceResolveMode.OFF,
+    )
+
+    assert result == b"image"
+    assert publisher.mock_calls == []
 
 
 @pytest.mark.anyio
@@ -437,23 +539,14 @@ async def test_filehost_render_releases_owned_lease_under_cancellation(
         await anyio.sleep_forever()
         raise AssertionError("unreachable")
 
-    mocker.patch.object(
-        operations,
-        "get_playwright_config",
-        return_value=SimpleNamespace(remote_local_resource_policy="filehost"),
-    )
-    mocker.patch.object(operations, "create_filehost_lease", return_value="lease")
-    mocker.patch.object(
-        operations,
-        "resolve_filehost_url",
-        new=mocker.AsyncMock(return_value="https://filehost.example/avatar.png"),
+    publisher = mocker.Mock()
+    publisher.create_lease.return_value = "lease"
+    publisher.request_headers.return_value = {}
+    publisher.publish = mocker.AsyncMock(
+        return_value="https://filehost.example/avatar.png"
     )
     mocker.patch.object(operations, "_execute_browser_load_plan", side_effect=execute)
-    release = mocker.patch.object(
-        operations,
-        "release_filehost_lease",
-        new=mocker.AsyncMock(),
-    )
+    publisher.release = mocker.AsyncMock()
 
     async def render() -> None:
         nonlocal owner_scope
@@ -463,7 +556,11 @@ async def test_filehost_render_releases_owned_lease_under_cancellation(
                 prepared,
                 content=ContentConfig(html=prepared.html),
                 render=RenderConfig(),
-                session=_SessionStub(mode="remote_ws"),
+                lease=_lease("remote_ws"),
+                resources=_resources(
+                    remote_policy=RemoteLocalResourcePolicy.FILEHOST,
+                ),
+                asset_publisher=publisher,
             )
 
     async with anyio.create_task_group() as task_group:
@@ -473,7 +570,7 @@ async def test_filehost_render_releases_owned_lease_under_cancellation(
             raise RuntimeError("render cancellation scope was not initialized")
         owner_scope.cancel()
 
-    release.assert_awaited_once_with("lease")
+    publisher.release.assert_awaited_once_with("lease")
 
 
 @pytest.mark.anyio
@@ -513,16 +610,18 @@ async def test_filehost_asset_graph_preserves_css_and_font_suffixes(
         assert lease_id == "lease"
         return f"http://filehost/filehost/{len(payload)}{suffix or ''}"
 
-    publish_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.resolve_filehost_url",
-        new=mocker.AsyncMock(side_effect=publish),
-    )
+    publisher = mocker.Mock()
+    publisher.publish = mocker.AsyncMock(side_effect=publish)
 
-    urls = await _publish_prepared_assets(prepared, lease_id="lease")
+    urls = await _publish_prepared_assets(
+        prepared,
+        publisher=publisher,
+        lease_id="lease",
+    )
 
     assert urls[font.source].endswith(".woff2")
     assert urls[stylesheet.source].endswith(".css")
-    calls = publish_mock.await_args_list
+    calls = publisher.publish.await_args_list
     assert calls[0].kwargs["suffix"] == ".woff2"
     assert calls[1].kwargs["suffix"] == ".css"
     assert urls[font.source].encode() in calls[1].args[0]
@@ -540,12 +639,20 @@ async def test_local_file_policy_keeps_stylesheet_io_in_browser(
     from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
         render_prepared_html,
     )
-    from nonebot_plugin_htmlrender.preparation import prepare_text  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.preparation import (  # noqa: PLC0415
+        PreparedStylesheet,
+        prepare_html,
+    )
 
     stylesheet = _write_font_stylesheet(tmp_path)
-    prepared = await prepare_text(
-        "ok",
-        css_path=str(stylesheet),
+    prepared = prepare_html(
+        "<p>ok</p>",
+        stylesheets=(
+            PreparedStylesheet(
+                css=stylesheet.read_text(encoding="utf-8"),
+                base_url=stylesheet.as_uri(),
+            ),
+        ),
     )
     execute = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.operations._execute_browser_load_plan",
@@ -555,16 +662,14 @@ async def test_local_file_policy_keeps_stylesheet_io_in_browser(
         "nonebot_plugin_htmlrender.adapters.playwright.operations.materialize_local_assets",
         new=mocker.AsyncMock(),
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.get_playwright_config",
-        return_value=mocker.Mock(local_local_resource_policy="file"),
-    )
 
     result = await render_prepared_html(
         prepared,
         content=ContentConfig(html=prepared.html),
         render=RenderConfig(),
-        session=_SessionStub(mode="local_pw"),
+        lease=_lease("local_pw"),
+        resources=_resources(),
+        asset_publisher=None,
     )
 
     assert result == b"image"
@@ -670,12 +775,12 @@ async def test_capture_html_element_uses_direct_operation_api(
         page_kwargs={"device_scale_factor": 2.0},
         goto_kwargs={"timeout": 4_000},
         screenshot_kwargs={"type": "jpeg", "quality": 80},
-        session=object(),  # pyright: ignore[reportArgumentType]  # ty: ignore[invalid-argument-type]
+        lease=_lease("local_pw"),
     )
 
     assert result == b"element-image"
     assert open_page_context_mock.call_count == 1
-    assert open_page_context_mock.call_args.kwargs["session"] is not None
+    assert open_page_context_mock.call_args.kwargs["lease"] is not None
     assert open_page_context_mock.call_args.kwargs["device_scale_factor"] == 2.0
     page.goto.assert_awaited_once_with("https://example.com", timeout=4_000)
     page.locator.assert_called_once_with("#target")
@@ -686,38 +791,13 @@ async def test_capture_html_element_uses_direct_operation_api(
     )
 
 
-def test_registered_render_context_provider_errors_without_registration() -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright import _page  # noqa: PLC0415
-
-    original = _page._render_context_state["provider"]
-    _page._render_context_state["provider"] = None
-    try:
-        with pytest.raises(
-            RuntimeError, match="No render context provider is registered"
-        ):
-            _page._get_registered_render_context()
-    finally:
-        _page._render_context_state["provider"] = original
-
-
 @pytest.mark.anyio
-async def test_open_page_context_provider_and_session_paths(
+async def test_open_page_context_uses_explicit_lease(
     mocker: MockerFixture,
 ) -> None:
-    from contextlib import asynccontextmanager  # noqa: PLC0415
+    from playwright.async_api import Browser  # noqa: PLC0415
 
     from nonebot_plugin_htmlrender.adapters.playwright import _page  # noqa: PLC0415
-
-    @asynccontextmanager
-    async def _provider(**kwargs: object):  # noqa: ARG001
-        yield object()
-
-    mocker.patch.object(_page, "_as_page", side_effect=lambda page: page)
-    _page.register_render_context_provider(_provider)
-    async with _page.open_page_context() as page:
-        assert page is not None
-
-    from playwright.async_api import Browser  # noqa: PLC0415
 
     page = mocker.AsyncMock()
     browser = mocker.AsyncMock(spec=Browser)
@@ -728,9 +808,9 @@ async def test_open_page_context_provider_and_session_paths(
     detach = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright._page.detach_page"
     )
-    session = SimpleNamespace(handle=browser)
+    lease = _lease("local_pw", browser=browser)
     async with _page.open_page_context(
-        session=session,  # pyright: ignore[reportArgumentType]
+        lease=lease,
         viewport={"width": 1, "height": 1},
     ) as page2:
         assert page2 is page
@@ -749,15 +829,14 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
         telemetry,
     )
 
-    telemetry._collectors.clear()
     error_page = mocker.AsyncMock()
     error_page.on = mocker.MagicMock()
     error_browser = mocker.AsyncMock(spec=Browser)
     error_browser.new_page.return_value = error_page
-    error_session = _SessionStub(mode="local_pw", handle=error_browser)
+    error_lease = _lease("local_pw", browser=error_browser)
 
     with pytest.raises(RuntimeError, match="render failed"):
-        async with _page.open_page_context(session=error_session) as opened:
+        async with _page.open_page_context(lease=error_lease) as opened:
             assert telemetry.get_page_collector(opened) is not None
             raise RuntimeError("render failed")
     assert telemetry.get_page_collector(error_page) is None
@@ -767,7 +846,7 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
     cancelled_page.on = mocker.MagicMock()
     cancelled_browser = mocker.AsyncMock(spec=Browser)
     cancelled_browser.new_page.return_value = cancelled_page
-    cancelled_session = _SessionStub(mode="local_pw", handle=cancelled_browser)
+    cancelled_lease = _lease("local_pw", browser=cancelled_browser)
     started = anyio.Event()
     owner_scope: anyio.CancelScope | None = None
 
@@ -775,7 +854,7 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
         nonlocal owner_scope
         with anyio.CancelScope() as scope:
             owner_scope = scope
-            async with _page.open_page_context(session=cancelled_session) as opened:
+            async with _page.open_page_context(lease=cancelled_lease) as opened:
                 assert telemetry.get_page_collector(opened) is not None
                 started.set()
                 await anyio.sleep_forever()

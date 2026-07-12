@@ -6,6 +6,11 @@ from typing import TYPE_CHECKING, final
 
 import pytest
 
+from nonebot_plugin_htmlrender.adapters.resources import (
+    AnyioWorkerExecutor,
+    CompositeResourceReader,
+    ConfiguredLocalAccessPolicy,
+)
 from nonebot_plugin_htmlrender.providers import discovery
 from nonebot_plugin_htmlrender.providers.sdk import (
     EngineBindings,
@@ -20,13 +25,13 @@ from nonebot_plugin_htmlrender.rendering import (
     ProviderUnavailable,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
     from pytest_mock import MockerFixture
-
-    from nonebot_plugin_htmlrender.resources.config import ResourceConfig
 
 
 class FakeProvider:
@@ -47,13 +52,9 @@ class FakeProvider:
         del settings
         return ()
 
-    def resource_configuration(
-        self,
-        settings: object,
-        base: ResourceConfig,
-    ) -> ResourceConfig:
+    def resource_strategy(self, settings: object) -> ResourceStrategy:
         del settings
-        return base
+        return ResourceStrategy()
 
     def compose(
         self,
@@ -196,10 +197,27 @@ def test_reserved_id_loads_first_party_module(
 
 
 def test_provider_dependencies_shape() -> None:
+    worker = AnyioWorkerExecutor()
+    reader = CompositeResourceReader(worker)
+    local_access = ConfiguredLocalAccessPolicy(allowed_roots=(), allow_any=False)
+    resources = ResourceService(
+        reader=reader,
+        local_access=local_access,
+        strategy=ResourceStrategy(),
+    )
     dependencies = ProviderDependencies(
         operation_observer=NoopOperationObserver(),
         cache_observer=NoopCacheObserver(),
+        worker_executor=worker,
+        resource_reader=reader,
+        local_access_policy=local_access,
+        resource_service=resources,
+        asset_publisher=None,
     )
 
     assert dependencies.operation_observer is not None
     assert dependencies.cache_observer is not None
+    assert dependencies.resource_reader is reader
+    assert dependencies.local_access_policy is local_access
+    assert dependencies.resource_service is resources
+    assert dependencies.asset_publisher is None

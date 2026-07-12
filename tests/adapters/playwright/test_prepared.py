@@ -11,11 +11,18 @@ from nonebot_plugin_htmlrender.adapters.playwright.prepared import (
     install_browser_asset_routes,
     materialize_prepared_html,
 )
+from nonebot_plugin_htmlrender.adapters.resources.reader import (
+    AnyioWorkerExecutor,
+    CompositeResourceReader,
+    ConfiguredLocalAccessPolicy,
+)
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedStylesheet,
     prepare_html,
 )
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -27,6 +34,14 @@ if TYPE_CHECKING:
 def _asset_url(payload: bytes) -> str:
     return (
         f"https://htmlrender.invalid/.htmlrender/assets/{sha256(payload).hexdigest()}"
+    )
+
+
+def _resources() -> ResourceService:
+    return ResourceService(
+        reader=CompositeResourceReader(AnyioWorkerExecutor()),
+        local_access=ConfiguredLocalAccessPolicy(allowed_roots=(), allow_any=True),
+        strategy=ResourceStrategy(),
     )
 
 
@@ -249,7 +264,9 @@ async def test_browser_load_plan_rewrites_recursive_stylesheet_routes(
         base_url=document.as_uri(),
     )
 
-    plan = build_browser_load_plan(await materialize_local_assets(prepared))
+    plan = build_browser_load_plan(
+        await materialize_local_assets(prepared, resources=_resources())
+    )
     routes = {route.asset.source: route for route in plan.asset_routes}
 
     assert site.as_uri() in routes

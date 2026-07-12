@@ -1,27 +1,28 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
 from nonebot_plugin_htmlrender.adapters.takumi import (
-    TAKUMI_EXTENSION,
     TakumiConfig,
     TakumiExtension,
 )
+from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
+    TAKUMI_CAPABILITIES,
+    TakumiCapabilities,
+)
 from nonebot_plugin_htmlrender.adapters.takumi.render import (
-    is_takumi_backend_available,
+    takumi_availability,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
-from nonebot_plugin_htmlrender.consts import RenderBackend
+from tests.adapters.takumi.helpers import resource_service
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
-
     from pytest_mock import MockerFixture
 
     from nonebot_plugin_htmlrender.adapters.takumi.types import NativeRenderer
+    from tests.adapters.conftest import RecordingOperationObserver
 
 
 class _Renderer:
@@ -37,12 +38,13 @@ def _state() -> TakumiRuntimeState:
         renderer=cast("NativeRenderer", _Renderer()),
         limiter=anyio.CapacityLimiter(1),
         config=TakumiConfig(),
+        resources=resource_service(),
     )
 
 
-def test_extension_token_identity() -> None:
-    assert TAKUMI_EXTENSION.name == "takumi.v1"
-    assert TAKUMI_EXTENSION.interface is TakumiExtension
+def test_capability_key_identity() -> None:
+    assert TAKUMI_CAPABILITIES.name == "takumi.capabilities"
+    assert TAKUMI_CAPABILITIES.interface is TakumiCapabilities
 
 
 @pytest.mark.parametrize(
@@ -69,7 +71,7 @@ def test_availability_checks_exact_native_version(
         "nonebot_plugin_htmlrender.adapters.takumi.render.version",
         return_value=installed_version,
     )
-    status = is_takumi_backend_available()
+    status = takumi_availability()
     assert status.available is available
     if reason is not None:
         assert reason in (status.reason or "")
@@ -77,31 +79,9 @@ def test_availability_checks_exact_native_version(
 
 async def test_extension_telemetry_covers_success_and_error_without_content(
     mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
 ) -> None:
-    events: list[tuple[str, str, object]] = []
-
-    @asynccontextmanager
-    async def fake_track(
-        op: str,
-        *,
-        backend: RenderBackend,
-        **kwargs: Any,
-    ) -> AsyncIterator[None]:
-        events.append(("enter", op, backend))
-        assert kwargs == {}
-        try:
-            yield
-        except Exception as error:
-            events.append(("error", op, type(error)))
-            raise
-        finally:
-            events.append(("exit", op, backend))
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.takumi.api.track_render",
-        side_effect=fake_track,
-    )
-    extension = TakumiExtension(_state())
+    extension = TakumiExtension(_state(), operation_observer)
     assert (
         await extension.render_node(
             {"type": "container"},
@@ -110,10 +90,11 @@ async def test_extension_telemetry_covers_success_and_error_without_content(
         )
         == b"node"
     )
-    assert events[:2] == [
-        ("enter", "takumi.extension.render_node", RenderBackend.TAKUMI),
-        ("exit", "takumi.extension.render_node", RenderBackend.TAKUMI),
-    ]
+    assert operation_observer.operations[-1] == (
+        "takumi.extension.render_node",
+        {"render.backend": "takumi"},
+        "success",
+    )
 
     error = ValueError("native failure")
     state = _state()
@@ -123,13 +104,13 @@ async def test_extension_telemetry_covers_success_and_error_without_content(
         new=mocker.AsyncMock(side_effect=error),
     )
     with pytest.raises(ValueError, match="native failure"):
-        await TakumiExtension(state).render_svg_node(
+        await TakumiExtension(state, operation_observer).render_svg_node(
             {"type": "container"},
             width=10,
             height=10,
         )
-    assert events[-3:] == [
-        ("enter", "takumi.extension.render_svg_node", RenderBackend.TAKUMI),
-        ("error", "takumi.extension.render_svg_node", ValueError),
-        ("exit", "takumi.extension.render_svg_node", RenderBackend.TAKUMI),
-    ]
+    assert operation_observer.operations[-1] == (
+        "takumi.extension.render_svg_node",
+        {"render.backend": "takumi"},
+        "error",
+    )

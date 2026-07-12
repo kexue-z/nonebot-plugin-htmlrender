@@ -16,14 +16,19 @@ from nonebot_plugin_htmlrender.adapters.takumi.source import (
     normalize_image_input,
     prepare_takumi_document,
 )
+from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedStylesheet,
     prepare_html,
 )
+from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from tests.adapters.takumi.helpers import resource_service
 
 if TYPE_CHECKING:
     from pathlib import Path
+
+    from pytest_mock import MockerFixture
 
 
 def test_prepared_document_preserves_html_and_stylesheet_order() -> None:
@@ -219,6 +224,7 @@ async def test_explicit_images_satisfy_materialization_before_local_io(
 
     document = await materialize_takumi_document(
         prepared,
+        resources=resource_service(),
         images=(
             TakumiImageResource("provided.png", b"relative"),
             TakumiImageResource("memory:avatar", b"memory"),
@@ -229,6 +235,60 @@ async def test_explicit_images_satisfy_materialization_before_local_io(
         TakumiImageResource("provided.png", b"relative"),
         TakumiImageResource("memory:avatar", b"memory"),
     )
+
+
+@pytest.mark.anyio
+async def test_resolve_mode_off_skips_local_materialization(
+    mocker: MockerFixture,
+    tmp_path: Path,
+) -> None:
+    from nonebot_plugin_htmlrender.adapters.takumi import source  # noqa: PLC0415
+
+    prepared = prepare_html(
+        '<img src="missing.png">',
+        base_url=(tmp_path / "document.html").as_uri(),
+    )
+    materialize = mocker.patch.object(
+        source,
+        "materialize_local_assets",
+        new=mocker.AsyncMock(),
+    )
+
+    document = await materialize_takumi_document(
+        prepared,
+        resources=resource_service(
+            strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.OFF)
+        ),
+    )
+
+    assert document.images == ()
+    materialize.assert_not_awaited()
+
+
+@pytest.mark.anyio
+async def test_auto_tolerates_but_strict_rejects_missing_local_resource(
+    tmp_path: Path,
+) -> None:
+    prepared = prepare_html(
+        '<img src="missing.png">',
+        base_url=(tmp_path / "document.html").as_uri(),
+    )
+
+    automatic = await materialize_takumi_document(
+        prepared,
+        resources=resource_service(
+            strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.AUTO)
+        ),
+    )
+
+    assert automatic.images == ()
+    with pytest.raises(TakumiResourceError, match=r"missing\.png"):
+        await materialize_takumi_document(
+            prepared,
+            resources=resource_service(
+                strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.STRICT)
+            ),
+        )
 
 
 def test_adapter_upstream_tuple_and_promised_duck_images_are_supported() -> None:

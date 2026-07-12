@@ -13,6 +13,9 @@ from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
+    from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+from tests.adapters.takumi.helpers import resource_service
 
 
 @dataclass
@@ -24,6 +27,7 @@ class _FakeConfig:
 @dataclass
 class _FakeState:
     config: _FakeConfig = field(default_factory=_FakeConfig)
+    resources: ResourceService = field(default_factory=resource_service)
     calls: list[tuple[str, str, tuple[str, ...], dict[str, object]]] = field(
         default_factory=list
     )

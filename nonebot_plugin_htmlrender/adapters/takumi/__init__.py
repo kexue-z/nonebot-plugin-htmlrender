@@ -1,11 +1,11 @@
 from .api import (
-    TAKUMI_EXTENSION as TAKUMI_EXTENSION,
-)
-from .api import (
     TakumiCompiledDocument as TakumiCompiledDocument,
 )
 from .api import (
     TakumiExtension as TakumiExtension,
+)
+from .config import (
+    FileCachePolicy as FileCachePolicy,
 )
 from .config import (
     TakumiConfig as TakumiConfig,
@@ -33,7 +33,7 @@ from .types import (
 )
 
 __all__ = [
-    "TAKUMI_EXTENSION",
+    "FileCachePolicy",
     "TakumiBackendError",
     "TakumiCompiledDocument",
     "TakumiConfig",

@@ -3,20 +3,20 @@ from __future__ import annotations
 from importlib.metadata import PackageNotFoundError, version
 from importlib.util import find_spec
 
-from nonebot_plugin_htmlrender.adapters._backend import BackendAvailability
+from nonebot_plugin_htmlrender.providers.sdk import ProviderAvailability
 
 _SUPPORTED_TAKUMI_VERSION = "0.2.0"
 
 
-def is_takumi_backend_available() -> BackendAvailability:
+def takumi_availability() -> ProviderAvailability:
     try:
         if find_spec("takumi_py") is None:
-            return BackendAvailability(
+            return ProviderAvailability(
                 available=False,
                 reason="Optional dependency `takumi-py==0.2.0` is not installed.",
             )
     except (ImportError, ValueError) as error:
-        return BackendAvailability(
+        return ProviderAvailability(
             available=False,
             reason=f"Cannot locate takumi_py: {error}",
         )
@@ -24,12 +24,12 @@ def is_takumi_backend_available() -> BackendAvailability:
     try:
         installed_version = version("takumi-py")
     except PackageNotFoundError:
-        return BackendAvailability(
+        return ProviderAvailability(
             available=False,
             reason="Distribution metadata for `takumi-py` is unavailable.",
         )
     if installed_version != _SUPPORTED_TAKUMI_VERSION:
-        return BackendAvailability(
+        return ProviderAvailability(
             available=False,
             reason=(
                 f"Unsupported takumi-py version {installed_version!r}; "
@@ -37,7 +37,7 @@ def is_takumi_backend_available() -> BackendAvailability:
             ),
         )
 
-    return BackendAvailability(available=True)
+    return ProviderAvailability(available=True)
 
 
-__all__ = ["is_takumi_backend_available"]
+__all__ = ["takumi_availability"]

@@ -8,6 +8,7 @@ from pytest_mock import MockerFixture
 def test_instrument_page_registers_and_detaches_collector(
     mocker: MockerFixture,
 ) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright import telemetry  # noqa: PLC0415
     from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
         detach_page,
         get_page_collector,
@@ -15,6 +16,8 @@ def test_instrument_page_registers_and_detaches_collector(
     )
 
     page = mocker.MagicMock()
+
+    assert not hasattr(telemetry, "_collectors")
 
     collector = instrument_page(page, page_name="render-page")
 
@@ -31,6 +34,26 @@ def test_instrument_page_registers_and_detaches_collector(
 
     detach_page(page)
     assert get_page_collector(page) is None
+
+
+def test_page_collectors_are_owned_by_each_page(mocker: MockerFixture) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright.telemetry import (  # noqa: PLC0415
+        detach_page,
+        get_page_collector,
+        instrument_page,
+    )
+
+    first_page = mocker.MagicMock()
+    second_page = mocker.MagicMock()
+    first = instrument_page(first_page, page_name="first")
+    second = instrument_page(second_page, page_name="second")
+
+    assert get_page_collector(first_page) is first
+    assert get_page_collector(second_page) is second
+
+    detach_page(first_page)
+    assert get_page_collector(first_page) is None
+    assert get_page_collector(second_page) is second
 
 
 def test_page_telemetry_collector_tracks_request_response_and_failed(

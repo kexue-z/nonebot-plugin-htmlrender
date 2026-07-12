@@ -1,14 +1,16 @@
-"""Shared lease-based lifecycle over the legacy backend runtimes.
+"""Typed lease lifecycle shared by engine adapters.
 
-Interim machinery: it wraps the legacy ``Backend`` runtime/session objects
-behind the ``ApplicationLifecycle`` and ``PreparedHtmlExecutor`` ports until
-the physical adapter migration absorbs the backend modules. Application code
-never sees runtime or session handles; executors acquire leases themselves.
+The lifecycle owns one provider-local lease value.  Concrete adapters decide
+what that value contains and how it is created, checked, probed, and closed;
+the shared machinery only supplies lazy construction, singleflight rebuilds,
+bounded teardown, observation, and stable error translation.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, final
+from contextlib import asynccontextmanager
+from enum import Enum, auto
+from typing import TYPE_CHECKING, Generic, TypeVar, final
 
 import anyio
 from nonebot.log import logger
@@ -20,14 +22,9 @@ from nonebot_plugin_htmlrender.rendering.errors import (
 from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable, Mapping
+    from collections.abc import AsyncIterator, Awaitable, Callable, Mapping
     from contextlib import AbstractContextManager
 
-    from nonebot_plugin_htmlrender.adapters._backend import (
-        Backend,
-        RenderRuntime,
-        RenderSession,
-    )
     from nonebot_plugin_htmlrender.preparation.models import (
         PreparedHtml,
         RasterOptions,
@@ -36,143 +33,210 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
 
+LeaseT = TypeVar("LeaseT")
+
+if TYPE_CHECKING:
     TranslateFactory = Callable[
         [str, type[RenderingError]],
         AbstractContextManager[None],
     ]
-    ProbeFn = Callable[[RenderSession], Awaitable[None]]
-    RasterizeFn = Callable[
-        [RenderSession, PreparedHtml, RasterOptions, "ResourcePolicy | None"],
+    CreateLeaseFn = Callable[[], Awaitable[LeaseT]]
+    LeaseAliveFn = Callable[[LeaseT], bool]
+    CloseLeaseFn = Callable[[LeaseT], Awaitable[None]]
+    ProbeLeaseFn = Callable[[LeaseT], Awaitable[None]]
+    RasterizeLeaseFn = Callable[
+        [LeaseT, PreparedHtml, RasterOptions, "ResourcePolicy | None"],
         Awaitable[bytes],
     ]
 
 _TEARDOWN_TIMEOUT_SECONDS = 30.0
+_DRAIN_TIMEOUT_SECONDS = 30.0
+
+
+class _LeaseProviderState(Enum):
+    OPEN = auto()
+    CLOSING = auto()
+    CLOSED = auto()
 
 
 @final
-class LeasedBackendLifecycle:
-    """Owns the runtime/session pair and rebuilds it when the engine dies."""
+class ExecutionLeaseProvider(Generic[LeaseT]):
+    """Lazily own one runtime and lease it to bounded operations."""
 
     def __init__(
         self,
         *,
-        backend: Backend,
+        create: CreateLeaseFn[LeaseT],
+        is_alive: LeaseAliveFn[LeaseT],
+        close: CloseLeaseFn[LeaseT],
         observer: OperationObserver,
         translate: TranslateFactory,
         observation_attributes: Mapping[str, str],
-        probe: ProbeFn | None = None,
+        probe: ProbeLeaseFn[LeaseT] | None = None,
     ) -> None:
-        self._backend = backend
+        self._create = create
+        self._is_alive = is_alive
+        self._close = close
         self._observer = observer
         self._translate = translate
         self._attributes = dict(observation_attributes)
         self._probe_fn = probe
-        self._runtime: RenderRuntime | None = None
-        self._session: RenderSession | None = None
+        self._lease: LeaseT | None = None
         self._lock = anyio.Lock()
+        self._state = _LeaseProviderState.OPEN
+        self._active_operations = 0
+        self._drained = anyio.Event()
+        self._drained.set()
+        self._closed = anyio.Event()
 
     def _attrs(self, **extra: str) -> dict[str, str]:
         return {**self._attributes, **extra}
 
-    def _session_alive(self, session: RenderSession | None) -> bool:
-        if session is None:
+    def _lease_alive(self, lease: LeaseT | None) -> bool:
+        if lease is None:
             return False
         try:
-            return self._backend.is_alive(session)
+            return self._is_alive(lease)
         except Exception:
             return False
 
-    async def lease(self) -> RenderSession:
-        """Return a live session, lazily (re)building the runtime."""
-        session = self._session
-        if session is not None and self._session_alive(session):
-            with observe_operation(
-                self._observer,
-                "render.get_render",
-                self._attrs(**{"render.cache_hit": "true"}),
-            ):
-                return session
-        async with self._lock:
-            session = self._session
-            if session is not None and self._session_alive(session):
+    def _ensure_open(self) -> None:
+        if self._state is not _LeaseProviderState.OPEN:
+            raise ProviderLifecycleError(
+                "Execution lease provider is closing or closed; build a new "
+                "composition to render again."
+            )
+
+    def _begin_operation(self) -> None:
+        self._ensure_open()
+        if self._active_operations == 0:
+            self._drained = anyio.Event()
+        self._active_operations += 1
+
+    def _end_operation(self) -> None:
+        self._active_operations -= 1
+        if self._active_operations == 0:
+            self._drained.set()
+
+    @asynccontextmanager
+    async def lease(self) -> AsyncIterator[LeaseT]:
+        """Lease a live runtime for the complete duration of one operation."""
+        lease = await self._acquire()
+        try:
+            yield lease
+        finally:
+            self._end_operation()
+
+    async def _acquire(self) -> LeaseT:
+        self._ensure_open()
+        await self._lock.acquire()
+        try:
+            self._ensure_open()
+            lease = self._lease
+            if lease is not None and self._lease_alive(lease):
                 with observe_operation(
                     self._observer,
                     "render.get_render",
                     self._attrs(**{"render.cache_hit": "true"}),
                 ):
-                    return session
+                    self._begin_operation()
+                    return lease
             with observe_operation(
                 self._observer,
                 "render.get_render",
                 self._attrs(**{"render.cache_hit": "false"}),
             ):
-                return await self._restart_locked()
+                lease = await self._restart_locked()
+            self._begin_operation()
+            return lease
+        finally:
+            self._lock.release()
 
-    async def _restart_locked(self) -> RenderSession:
+    async def _restart_locked(self) -> LeaseT:
+        if self._lease is not None and self._active_operations > 0:
+            drained = self._drained
+            await drained.wait()
+            self._ensure_open()
         await self._teardown_locked()
+        self._ensure_open()
         with (
             observe_operation(self._observer, "render.startup", self._attrs()),
             self._translate("startup", ProviderLifecycleError),
         ):
-            for step in self._backend.startup_steps():
-                await step()
-            runtime = await self._backend.create_runtime()
-            try:
-                session = await self._backend.create_session(runtime)
-            except BaseException:
-                await self._close_handle(runtime)
-                raise
-        self._runtime = runtime
-        self._session = session
-        return session
+            lease = await self._create()
+        if self._state is not _LeaseProviderState.OPEN:
+            await self._close_lease(lease)
+            self._ensure_open()
+        self._lease = lease
+        return lease
 
     async def startup(self) -> None:
-        async with self._lock:
-            if self._session_alive(self._session):
+        self._ensure_open()
+        await self._lock.acquire()
+        try:
+            self._ensure_open()
+            if self._lease_alive(self._lease):
                 return
             await self._restart_locked()
+        finally:
+            self._lock.release()
 
     async def probe(self) -> None:
-        session = await self.lease()
-        if self._probe_fn is None:
-            return
-        with self._translate("probe", ProviderLifecycleError):
-            await self._probe_fn(session)
+        async with self.lease() as lease:
+            if self._probe_fn is None:
+                return
+            with self._translate("probe", ProviderLifecycleError):
+                await self._probe_fn(lease)
 
     async def aclose(self) -> None:
-        async with self._lock:
-            session = self._session
-            runtime = self._runtime
-            self._session = None
-            self._runtime = None
-            if session is None and runtime is None:
-                return
-            with observe_operation(
-                self._observer,
-                "render.shutdown",
-                self._attrs(),
-            ):
-                await self._close_handle(session)
-                await self._close_handle(runtime)
+        if self._state is _LeaseProviderState.CLOSED:
+            return
+        if self._state is _LeaseProviderState.CLOSING:
+            with anyio.CancelScope(shield=True):
+                with anyio.move_on_after(
+                    _DRAIN_TIMEOUT_SECONDS + _TEARDOWN_TIMEOUT_SECONDS
+                ):
+                    await self._closed.wait()
+            return
+
+        self._state = _LeaseProviderState.CLOSING
+        lease = self._lease
+        self._lease = None
+        drained = self._drained
+        with anyio.CancelScope(shield=True):
+            try:
+                if self._active_operations > 0:
+                    with anyio.move_on_after(_DRAIN_TIMEOUT_SECONDS) as scope:
+                        await drained.wait()
+                    if scope.cancel_called:
+                        logger.opt(colors=True).warning(
+                            "<d>[htmlrender.adapters]</d> Waiting for render "
+                            "operations to drain exceeded the bounded wait of "
+                            "{timeout}s; closing the runtime.",
+                            timeout=_DRAIN_TIMEOUT_SECONDS,
+                        )
+                if lease is not None:
+                    with observe_operation(
+                        self._observer,
+                        "render.shutdown",
+                        self._attrs(),
+                    ):
+                        await self._close_lease(lease)
+            finally:
+                self._state = _LeaseProviderState.CLOSED
+                self._closed.set()
 
     async def _teardown_locked(self) -> None:
-        session = self._session
-        runtime = self._runtime
-        self._session = None
-        self._runtime = None
-        await self._close_handle(session)
-        await self._close_handle(runtime)
+        lease = self._lease
+        self._lease = None
+        if lease is not None:
+            await self._close_lease(lease)
 
-    async def _close_handle(
-        self,
-        handle: RenderRuntime | RenderSession | None,
-    ) -> None:
-        if handle is None:
-            return
+    async def _close_lease(self, lease: LeaseT) -> None:
         with anyio.CancelScope(shield=True):
             try:
                 with anyio.move_on_after(_TEARDOWN_TIMEOUT_SECONDS) as scope:
-                    await handle.aclose()
+                    await self._close(lease)
             except Exception as error:
                 logger.opt(colors=True).warning(
                     "<d>[htmlrender.adapters]</d> Error while closing render "
@@ -189,20 +253,20 @@ class LeasedBackendLifecycle:
 
 
 @final
-class LeasedPreparedHtmlExecutor:
-    """Executes prepared documents against a leased backend session."""
+class PreparedHtmlLeaseExecutor(Generic[LeaseT]):
+    """Execute prepared documents against a provider-local typed lease."""
 
     def __init__(
         self,
         *,
-        lifecycle: LeasedBackendLifecycle,
-        rasterize: RasterizeFn,
+        leases: ExecutionLeaseProvider[LeaseT],
+        rasterize: RasterizeLeaseFn[LeaseT],
         translate: TranslateFactory,
         observer: OperationObserver,
         operation: str | None,
         observation_attributes: Mapping[str, str],
     ) -> None:
-        self._lifecycle = lifecycle
+        self._leases = leases
         self._rasterize = rasterize
         self._translate = translate
         self._observer = observer
@@ -217,57 +281,57 @@ class LeasedPreparedHtmlExecutor:
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
     ) -> bytes:
-        session = await self._lifecycle.lease()
-        if self._operation is None:
-            return await self._run(
-                session,
-                prepared,
-                options,
-                resource_policy,
-                timeout_seconds,
-            )
-        with observe_operation(
-            self._observer,
-            self._operation,
-            dict(self._attributes),
-        ):
-            return await self._run(
-                session,
-                prepared,
-                options,
-                resource_policy,
-                timeout_seconds,
-            )
+        if timeout_seconds is None:
+            return await self._execute(prepared, options, resource_policy)
+        try:
+            with anyio.fail_after(timeout_seconds):
+                return await self._execute(prepared, options, resource_policy)
+        except TimeoutError as error:
+            raise ProviderExecutionError(
+                f"Render operation timed out after {timeout_seconds} seconds."
+            ) from error
 
-    async def _run(
+    async def _execute(
         self,
-        session: RenderSession,
         prepared: PreparedHtml,
         options: RasterOptions,
         resource_policy: ResourcePolicy | None,
-        timeout_seconds: float | None,
     ) -> bytes:
-        operation = self._operation or "render"
-        with self._translate(operation, ProviderExecutionError):
-            if timeout_seconds is None:
-                return await self._rasterize(
-                    session,
+        async with self._leases.lease() as lease:
+            if self._operation is None:
+                return await self._run(
+                    lease,
                     prepared,
                     options,
                     resource_policy,
                 )
-            try:
-                with anyio.fail_after(timeout_seconds):
-                    return await self._rasterize(
-                        session,
-                        prepared,
-                        options,
-                        resource_policy,
-                    )
-            except TimeoutError as error:
-                raise ProviderExecutionError(
-                    f"Render operation timed out after {timeout_seconds} seconds."
-                ) from error
+            with observe_operation(
+                self._observer,
+                self._operation,
+                dict(self._attributes),
+            ):
+                return await self._run(
+                    lease,
+                    prepared,
+                    options,
+                    resource_policy,
+                )
+
+    async def _run(
+        self,
+        lease: LeaseT,
+        prepared: PreparedHtml,
+        options: RasterOptions,
+        resource_policy: ResourcePolicy | None,
+    ) -> bytes:
+        operation = self._operation or "render"
+        with self._translate(operation, ProviderExecutionError):
+            return await self._rasterize(
+                lease,
+                prepared,
+                options,
+                resource_policy,
+            )
 
 
-__all__ = ["LeasedBackendLifecycle", "LeasedPreparedHtmlExecutor"]
+__all__ = ["ExecutionLeaseProvider", "PreparedHtmlLeaseExecutor"]
