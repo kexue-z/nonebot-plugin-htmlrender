@@ -20,7 +20,7 @@ tags:
 | Coverage           | `.github/workflows/coverage.yml`        | Python 版本 + CPU 架构覆盖率矩阵                                         | push master、pull request、手动触发      |
 | Docs               | `.github/workflows/docs.yml`            | master 推送时严格构建文档                                                 | push master（文档路径）、手动触发        |
 | Docs PR Preview    | `.github/workflows/docs-pr-preview.yml` | PR 文档预览部署与关闭清理                                                | pull request open/sync/close（文档路径） |
-| Publish (TestPyPI) | `.github/workflows/publish-test.yml`    | PR 注入 dev 版本号发到 TestPyPI 并在 PR 评论安装命令                     | pull request、手动触发                   |
+| Publish (TestPyPI) | `.github/workflows-disabled/publish-test.yml` | 保留 TestPyPI 发布实现，当前挂起                                     | 无                                       |
 | Auto Tag           | `.github/workflows/auto-tag.yml`        | PR 合并到 master 后读取 `pyproject.toml` 版本号自动打 tag 并触发 Publish | pull request closed on master            |
 | Publish            | `.github/workflows/publish.yml`         | 构建分发包、PyPI、GitHub Release，并在成功后部署版本化文档                | tag push、手动触发                       |
 
@@ -91,12 +91,9 @@ https://<owner>.github.io/<repo>/pr-preview/pr-<NUMBER>/
 
 ## Publish (TestPyPI)
 
-`Publish (TestPyPI)` workflow 在 PR 上为同仓库分支构建一份带唯一 dev 后缀的包，发布到 TestPyPI，便于评审者快速安装验证。
+TestPyPI 发布当前挂起。完整 workflow 保留在 `.github/workflows-disabled/publish-test.yml`，不位于 GitHub Actions 注册目录，因此没有 PR 或手动触发入口。
 
-- 触发：`pull_request` 的 `opened` / `synchronize` / `reopened` 与 `workflow_dispatch`；
-- fork PR 跳过：trusted publishing 需要 `id-token: write`，fork 不可用；
-- 版本注入：以 `pyproject.toml` 中的当前版本为 base，附加 UTC 时间戳后缀，例如 `0.7.0.dev20260509120000`，保证 TestPyPI 单调递增不撞包；
-- 发布完成后用 `marocchino/sticky-pull-request-comment` 在 PR 上贴一条固定评论，给出装包命令。
+保留实现仍会以 `pyproject.toml` 的当前版本为 base，附加 UTC 时间戳 dev 后缀，构建 wheel 与 sdist，并通过 trusted publishing 上传 TestPyPI。恢复时需将文件移回 `.github/workflows/`，再明确配置所需触发器；不能只修改文档或 environment。
 
 ```bash
 pip install -i https://test.pypi.org/simple/ \
@@ -104,7 +101,7 @@ pip install -i https://test.pypi.org/simple/ \
   nonebot-plugin-htmlrender==<dev-version>
 ```
 
-`environment: testpypi` 与 `https://test.pypi.org/legacy/` 仓库 URL 已在 workflow 中固化。需要在 TestPyPI 与 GitHub 仓库的 `testpypi` environment 上各自完成一次 trusted publisher 配置。
+`environment: testpypi` 与 `https://test.pypi.org/legacy/` 仓库 URL 仍保留在挂起的 workflow 中。
 
 ## Auto Tag
 
@@ -172,5 +169,5 @@ pip install -i https://test.pypi.org/simple/ \
 - 对打包失败，下载 `package-dist` 与 `package-build-logs`；
 - 对正式发布失败，下载 `publish-build-logs`；
 - 对正式发布后的文档部署失败，下载 `release-docs-build-logs`；
-- 对 TestPyPI 发布失败，下载 `publish-test-build-logs` 与 `artifact-testpypi`；
+- TestPyPI workflow 恢复后若发布失败，下载 `publish-test-build-logs` 与 `artifact-testpypi`；
 - 对 Auto Tag 失败（tag 推送或 publish dispatch 失败），查看 job 日志中的 `gh` 命令输出。
