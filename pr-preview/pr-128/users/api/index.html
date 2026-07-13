@@ -3010,6 +3010,13 @@
 </tbody>
 </table>
 <p><strong>返回值：</strong> <code>bytes</code> — 图片二进制数据</p>
+<div class="admonition warning">
+<p class="admonition-title">Markdown 中的原始 HTML 会进入页面</p>
+<p><code>render_markdown</code> 会保留 Markdown 中的原始 HTML，并将转换结果作为 HTML
+片段插入页面；它不是 HTML 消毒器。若内容来自不可信用户或模型输出，调用方
+应先按业务需要做标签、属性和 URL 白名单清洗，或在不需要富文本时改用
+<code>render_text</code>。详见<a href="../security/">安全须知</a>。</p>
+</div>
 <hr />
 <h3 id="render_html"><code>render_html</code><a class="headerlink" href="#render_html" title="Permanent link">&para;</a></h3>
 <p>将原始 HTML 渲染为图片。支持传入字符串或 <code>HtmlRenderRequest</code> 对象。</p>
