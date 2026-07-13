@@ -225,6 +225,8 @@ async def test_render_markdown_injects_math_assets(mocker: MockerFixture) -> Non
     assert ".katex" in render_request.content.html
     assert "document.body.getElementsByTagName" in render_request.content.html
     assert "inline-equation" in render_request.content.html
+    assert "<script defer>" in render_request.content.html
+    assert "&lt;script" not in render_request.content.html
 
 
 @pytest.mark.anyio

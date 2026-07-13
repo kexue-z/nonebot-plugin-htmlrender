@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta charset="utf-8">
     <style type="text/css">
-        {{ css }}
+        {{ css | safe }}
     </style>
     <style>
         .markdown-body {
@@ -26,7 +26,7 @@
 
 <body>
     <article class="markdown-body">
-        {{ md }}
+        {{ md | safe }}
     </article>
 </body>
-{{ extra }}
+{{ extra | safe }}

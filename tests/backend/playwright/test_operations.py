@@ -265,7 +265,8 @@ async def test_render_text_uses_custom_css_file(
     )
 
     css_path = tmp_path / "custom.css"
-    css_path.write_text("body { color: red; }", encoding="utf-8")
+    custom_css = 'body { background: url("image.png?v=1&x=2"); }'
+    css_path.write_text(custom_css, encoding="utf-8")
 
     render_html_mock = mocker.patch(
         "nonebot_plugin_htmlrender.backend.playwright.operations.render_html",
@@ -273,7 +274,7 @@ async def test_render_text_uses_custom_css_file(
     )
 
     result = await render_text(
-        "hello world",
+        "<script>alert('unsafe')</script>",
         css_path=str(css_path),
         width=420,
         image_type="jpeg",
@@ -286,8 +287,11 @@ async def test_render_text_uses_custom_css_file(
     assert result == b"text-image"
     assert render_html_mock.await_args is not None
     request = render_html_mock.await_args.args[0]
-    assert "hello world" in request.content.html
-    assert "body { color: red; }" in request.content.html
+    assert (
+        "&lt;script&gt;alert(&#39;unsafe&#39;)&lt;/script&gt;" in request.content.html
+    )
+    assert "<script>alert('unsafe')</script>" not in request.content.html
+    assert custom_css in request.content.html
     assert request.render.page.base_url == css_path.resolve().as_uri()
     assert request.render.page.viewport.width == 420
     assert isinstance(request.render.screenshot, JpegScreenshotOptions)
@@ -305,9 +309,15 @@ async def test_render_markdown_reads_md_path_and_custom_css(
     )
 
     md_path = tmp_path / "sample.md"
-    md_path.write_text("# Title\n\nParagraph", encoding="utf-8")
+    md_path.write_text(
+        "# Title\n\nParagraph\n\n<blockquote><p>Thinking</p></blockquote>",
+        encoding="utf-8",
+    )
     css_path = tmp_path / "markdown.css"
-    css_path.write_text(".markdown-body { color: green; }", encoding="utf-8")
+    custom_css = (
+        '.markdown-body { color: green; background: url("image.png?v=1&x=2"); }'
+    )
+    css_path.write_text(custom_css, encoding="utf-8")
 
     render_html_mock = mocker.patch(
         "nonebot_plugin_htmlrender.backend.playwright.operations.render_html",
@@ -324,9 +334,13 @@ async def test_render_markdown_reads_md_path_and_custom_css(
     assert result == b"markdown-image"
     assert render_html_mock.await_args is not None
     request = render_html_mock.await_args.args[0]
-    assert "&lt;h1&gt;Title&lt;/h1&gt;" in request.content.html
-    assert "&lt;p&gt;Paragraph&lt;/p&gt;" in request.content.html
-    assert ".markdown-body { color: green; }" in request.content.html
+    assert "<h1>Title</h1>" in request.content.html
+    assert "<p>Paragraph</p>" in request.content.html
+    assert "<blockquote><p>Thinking</p></blockquote>" in request.content.html
+    assert "&lt;h1&gt;" not in request.content.html
+    assert "&lt;p&gt;" not in request.content.html
+    assert custom_css in request.content.html
+    assert "&amp;" not in request.content.html
     assert request.render.page.base_url == css_path.resolve().as_uri()
     assert request.render.page.viewport.width == 360
 
