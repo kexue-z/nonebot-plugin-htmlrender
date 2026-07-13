@@ -67,6 +67,7 @@ tags:
 
 === "迁移旧项目"
 
+    - [v0.7.2 迁移说明](migration-v072.md)：远程 Playwright 的 Markdown 渲染修复
     - [旧版本迁移指南](migration.md)：从旧 API、旧配置和历史行为迁移到新路径
 
 ## 新项目建议

@@ -18,11 +18,11 @@ on:
         type: boolean
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  deploy:
-    name: Build & Deploy Docs
+  build:
+    name: Build Docs
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
@@ -68,38 +68,3 @@ jobs:
           path: ${{ env.DOCS_LOG }}
           if-no-files-found: warn
           retention-days: 14
-
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Configure authenticated origin
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-      - name: Get project version
-        id: version
-        run: |
-          VERSION=$(uv version --short)
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Deploy versioned docs
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          uv run mike deploy --push --update-aliases "${VERSION}" latest
-
-      - name: Set default version
-        run: |
-          uv run mike set-default --push latest
-
-      - name: Show docs url
-        env:
-          DOCS_OWNER: ${{ github.repository_owner }}
-          DOCS_REPO: ${{ github.event.repository.name }}
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          echo "Docs deployed: https://${DOCS_OWNER}.github.io/${DOCS_REPO}/${VERSION}/"

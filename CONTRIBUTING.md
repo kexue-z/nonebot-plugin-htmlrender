@@ -46,14 +46,11 @@ If docs were changed:
 make docs-build
 ```
 
-## PR Previews
+## PR Documentation Preview
 
-When opening a PR from a branch in this repository (not a fork), the following previews are produced automatically:
+When opening a PR from a branch in this repository (not a fork), documentation changes under `docs/**`, `mkdocs.yml`, or `README.md` are deployed automatically. A sticky comment shows the preview URL under `pr-preview/pr-<NUMBER>/` of the Pages site. The preview is removed automatically when the PR is closed.
 
-- **TestPyPI build**: each push to the PR is published to TestPyPI under a dev-suffixed version. A sticky comment on the PR shows the install command.
-- **Docs preview** (only when `docs/**`, `mkdocs.yml`, or `README.md` change): a sticky comment on the PR shows the preview URL under `pr-preview/pr-<NUMBER>/` of the Pages site. The preview is removed automatically when the PR is closed.
-
-PRs from forks skip both because the workflow tokens cannot write to gh-pages or use TestPyPI trusted publishing.
+PRs from forks skip the deployment because the workflow token cannot write to `gh-pages`. TestPyPI publishing is currently suspended for all PRs.
 
 ## Commit Message Format
 

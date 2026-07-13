@@ -15,7 +15,8 @@ tags:
 
 ## 工作原理
 
-- 推送到 `master` 分支且涉及文档相关路径时，Docs workflow 自动读取 `pyproject.toml` 中的版本号，通过 `mike deploy` 发布到 `gh-pages` 分支
+- 推送到 `master` 分支且涉及文档相关路径时，Docs workflow 只执行严格构建，阻止无效文档进入主分支
+- Publish workflow 完成 PyPI 发布和 GitHub Release 后，才读取 tag 对应版本并通过 `mike deploy` 发布到 `gh-pages` 分支
 - 版本以子目录形式存在，例如 `docs.example.com/0.7.0/`、`docs.example.com/0.8.0/`
 - `latest` 别名始终指向最新版本，根路径自动重定向到 `latest`
 - 旧版本页面顶部会显示过期提醒横幅
@@ -26,9 +27,10 @@ PR 阶段的文档预览由独立的 `Docs PR Preview` workflow 部署到 `gh-pa
 
 发版时不需要手动打 tag。维护者只需在 PR 中改好 `pyproject.toml` 的 `project.version` 后合并到 `master`：
 
-1. 合并到 `master` 触发 `Docs` workflow，将新版本通过 `mike` 部署为版本化文档；
-2. 同时触发 `Auto Tag` workflow，读取版本号自动创建 `v<version>` tag；
-3. `Auto Tag` 通过 `gh workflow run` 调起 `Publish`，完成 PyPI 发布与 GitHub Release。
+1. 合并到 `master` 后，`Auto Tag` workflow 读取版本号并创建 `v<version>` tag；
+2. `Auto Tag` 通过 `gh workflow run` 调起 `Publish`；
+3. `Publish` 检出 tag，校验 tag、包版本和 `master` 祖先关系，再完成 PyPI 发布与 GitHub Release；
+4. 只有前述发布成功后，Publish 的文档 job 才通过 `mike` 部署版本化文档并更新 `latest`。
 
 完整 workflow 触发条件与排障入口见 [CI Actions](ci-actions.md)。
 
@@ -37,7 +39,7 @@ mike deploy --push --update-aliases <version> latest
 mike set-default --push latest
 ```
 
-版本号从 `pyproject.toml` 的 `project.version` 字段读取。
+版本号从 tag 对应提交的 `pyproject.toml` 中读取，且必须与 `v<version>` tag 完全一致。
 
 ## 本地操作
 

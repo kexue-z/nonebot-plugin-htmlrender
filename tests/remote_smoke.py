@@ -63,6 +63,7 @@ async def _main() -> None:
 
     from nonebot_plugin_htmlrender import (  # noqa: PLC0415
         render_html,
+        render_markdown,
         render_template,
         resolve_template_vars,
         shutdown_render,
@@ -92,6 +93,11 @@ async def _main() -> None:
             template_path="about:blank",
         )
         print(f"remote smoke html passed, image bytes: {len(image_bytes)}")  # noqa: T201
+
+        markdown_bytes = await render_markdown("# remote markdown smoke")
+        print(  # noqa: T201
+            f"remote smoke markdown passed, image bytes: {len(markdown_bytes)}"
+        )
 
         resolved = await resolve_template_vars(
             {"avatar": _IMAGE_FILE},

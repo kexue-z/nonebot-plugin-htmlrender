@@ -18,11 +18,11 @@ tags:
 | ------------------ | --------------------------------------- | ------------------------------------------------------------------------ | ---------------------------------------- |
 | CI                 | `.github/workflows/ci.yml`              | lint、类型检查、打包校验、远程浏览器 smoke                               | push master、pull request、手动触发      |
 | Coverage           | `.github/workflows/coverage.yml`        | Python 版本 + CPU 架构覆盖率矩阵                                         | push master、pull request、手动触发      |
-| Docs               | `.github/workflows/docs.yml`            | master 推送时构建文档并执行版本化部署                                    | push master（文档路径）、手动触发        |
+| Docs               | `.github/workflows/docs.yml`            | master 推送时严格构建文档                                                 | push master（文档路径）、手动触发        |
 | Docs PR Preview    | `.github/workflows/docs-pr-preview.yml` | PR 文档预览部署与关闭清理                                                | pull request open/sync/close（文档路径） |
-| Publish (TestPyPI) | `.github/workflows/publish-test.yml`    | PR 注入 dev 版本号发到 TestPyPI 并在 PR 评论安装命令                     | pull request、手动触发                   |
+| Publish (TestPyPI) | `.github/workflows-disabled/publish-test.yml` | 保留 TestPyPI 发布实现，当前挂起                                     | 无                                       |
 | Auto Tag           | `.github/workflows/auto-tag.yml`        | PR 合并到 master 后读取 `pyproject.toml` 版本号自动打 tag 并触发 Publish | pull request closed on master            |
-| Publish            | `.github/workflows/publish.yml`         | 构建分发包、PyPI trusted publishing、GitHub Release                      | tag push、手动触发                       |
+| Publish            | `.github/workflows/publish.yml`         | 构建分发包、PyPI、GitHub Release，并在成功后部署版本化文档                | tag push、手动触发                       |
 
 ## CI
 
@@ -63,15 +63,13 @@ pytest-py<python-version>-<arch>.log
 - `README.md`
 - `.github/workflows/docs.yml`
 
-它会执行严格文档构建并通过 `mike` 部署到 `gh-pages`：
+它只执行严格文档构建：
 
 ```bash
 uv run zensical build --strict
-uv run mike deploy --push --update-aliases <version> latest
-uv run mike set-default --push latest
 ```
 
-版本号从 `pyproject.toml` 的 `project.version` 字段读取。多版本管理细节见 [文档版本管理](versioning.md)。
+版本化部署由 Publish workflow 在正式发布成功后执行，避免未发布版本提前成为 `latest`。多版本管理细节见 [文档版本管理](versioning.md)。
 
 非 master 分支或 PR 上的文档预览由 `Docs PR Preview` 负责，不再走分支名预览。
 
@@ -93,12 +91,9 @@ https://<owner>.github.io/<repo>/pr-preview/pr-<NUMBER>/
 
 ## Publish (TestPyPI)
 
-`Publish (TestPyPI)` workflow 在 PR 上为同仓库分支构建一份带唯一 dev 后缀的包，发布到 TestPyPI，便于评审者快速安装验证。
+TestPyPI 发布当前挂起。完整 workflow 保留在 `.github/workflows-disabled/publish-test.yml`，不位于 GitHub Actions 注册目录，因此没有 PR 或手动触发入口。
 
-- 触发：`pull_request` 的 `opened` / `synchronize` / `reopened` 与 `workflow_dispatch`；
-- fork PR 跳过：trusted publishing 需要 `id-token: write`，fork 不可用；
-- 版本注入：以 `pyproject.toml` 中的当前版本为 base，附加 UTC 时间戳后缀，例如 `0.7.0.dev20260509120000`，保证 TestPyPI 单调递增不撞包；
-- 发布完成后用 `marocchino/sticky-pull-request-comment` 在 PR 上贴一条固定评论，给出装包命令。
+保留实现仍会以 `pyproject.toml` 的当前版本为 base，附加 UTC 时间戳 dev 后缀，构建 wheel 与 sdist，并通过 trusted publishing 上传 TestPyPI。恢复时需将文件移回 `.github/workflows/`，再明确配置所需触发器；不能只修改文档或 environment。
 
 ```bash
 pip install -i https://test.pypi.org/simple/ \
@@ -106,7 +101,7 @@ pip install -i https://test.pypi.org/simple/ \
   nonebot-plugin-htmlrender==<dev-version>
 ```
 
-`environment: testpypi` 与 `https://test.pypi.org/legacy/` 仓库 URL 已在 workflow 中固化。需要在 TestPyPI 与 GitHub 仓库的 `testpypi` environment 上各自完成一次 trusted publisher 配置。
+`environment: testpypi` 与 `https://test.pypi.org/legacy/` 仓库 URL 仍保留在挂起的 workflow 中。
 
 ## Auto Tag
 
@@ -126,17 +121,21 @@ pip install -i https://test.pypi.org/simple/ \
 
 `Publish` workflow 负责正式发布产物：
 
-1. **校验 commit 在 master 历史上**：`git merge-base --is-ancestor` 校验，挡住误从其他分支推 tag 的发布；
+1. 解析并检出待发布 tag；
+1. 校验 tag 指向 `master` 历史、tag 名与包版本完全一致；
 1. 使用 `uv build` 构建 wheel 与 sdist；
 1. 上传构建产物和构建日志 artifact；
 1. 通过 PyPI trusted publishing 发布；
 1. 根据 tag 或 `release_tag` 输入创建 GitHub Release。
+1. GitHub Release 创建成功后严格构建 tag 对应文档，通过 `mike` 部署该版本并更新 `latest`。
 
 触发方式：
 
 - 由 `Auto Tag` 通过 `workflow_dispatch` 自动调起（推荐路径）；
 - 也可以维护者手动 push 一个 tag 到 master 上的 commit；
 - 也可以手动 `workflow_dispatch` 并提供 `release_tag` 输入。
+
+无论通过哪种方式触发，Publish 都从 tag 检出源码，不会用 dispatch 所在分支的工作树替代发布内容。Mike 部署是发布的后置 job；PyPI 或 GitHub Release 失败时不会运行。
 
 ## 本地对应命令
 
@@ -169,5 +168,6 @@ pip install -i https://test.pypi.org/simple/ \
 - 对文档构建失败，下载 `docs-build-logs`；
 - 对打包失败，下载 `package-dist` 与 `package-build-logs`；
 - 对正式发布失败，下载 `publish-build-logs`；
-- 对 TestPyPI 发布失败，下载 `publish-test-build-logs` 与 `artifact-testpypi`；
+- 对正式发布后的文档部署失败，下载 `release-docs-build-logs`；
+- TestPyPI workflow 恢复后若发布失败，下载 `publish-test-build-logs` 与 `artifact-testpypi`；
 - 对 Auto Tag 失败（tag 推送或 publish dispatch 失败），查看 job 日志中的 `gh` 命令输出。

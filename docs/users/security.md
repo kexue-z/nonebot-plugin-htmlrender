@@ -19,6 +19,7 @@ tags:
 | 入口 | 威胁 | 默认行为 | 责任方 |
 | --- | --- | --- | --- |
 | `render_html(...)` | 攻击者构造 HTML/JS 在浏览器进程执行 | 直接装载到 Page | 调用方 |
+| `render_markdown(...)` | Markdown 携带原始 HTML、脚本或外链资源 | 转换后作为 HTML 片段装载到 Page，不做消毒 | 调用方 |
 | `render_template(..., templates=...)` | 模板变量未转义被插入 HTML | Jinja2 `select_autoescape()` 仅对 `.html/.xml` 自动转义 | 调用方 |
 | `capture_html_element(url, ...)` | 任意 URL 被远端浏览器请求 | 直接 `goto(url)` | 调用方 |
 | filehost `/filehost/*` | 浏览器/外部请求读取本地文件 | 路径白名单 + 请求头守卫 | 配置方 |
@@ -35,9 +36,22 @@ tags:
 - 模板内的外链可能拉取攻击者控制的资源；
 - 浏览器进程可对内网发起请求（参考下文 SSRF）。
 
+### Markdown 原始 HTML
+
+`render_markdown` 使用 Python-Markdown 生成 HTML。为了让段落、标题、引用块和
+KaTeX 等转换结果形成真实 DOM，生成的 HTML 片段不会再经过 Jinja2 转义。
+Python-Markdown 会保留输入中的原始 HTML，因此 `render_markdown` **不提供 HTML
+消毒或安全边界**：输入中的 `<script>`、事件处理属性和带外链的元素可能进入页面，
+脚本执行与网络访问风险和 `render_html` 相同。
+
+模型输出也应视为不可信内容。用户可以通过提示词诱导模型输出原始 HTML、脚本或
+指向内网的资源 URL；“内容由模型生成”不能替代输入校验。
+
 建议：
 
-- 业务输入直接走 `render_markdown`（CommonMark 解析过滤大部分原始 HTML）或 `render_template` 配合 Jinja2 变量；
+- 不需要富文本时使用 `render_text`，其文本插槽保持 HTML 转义；
+- 需要 Markdown 时，在调用 `render_markdown` 前按业务需求对原始 HTML 的标签、属性和 URL 做白名单清洗；
+- 不可信数据需要进入自定义布局时，使用 `render_template` 的模板变量，不要拼接模板或 HTML 字符串；
 - 不要拼字符串。`render_template` 默认 `select_autoescape()` 对 `.html/.xml` 后缀模板启用 HTML 转义，模板变量中的 `<` / `>` / `&` 会被转义；
 - 自定义模板后缀（如 `.j2`）时显式开 `autoescape=True`，否则等于零防护；
 - 需要原始 HTML 的字段，明确定义白名单标签集合后再交给模板，不要走 `|safe`。
@@ -53,7 +67,8 @@ env = jinja2.Environment(
 
 ## SSRF 与外部请求
 
-`render_html` / `render_template` / `capture_html_element` 触发的浏览器内网请求不受 NoneBot HTTP 客户端的限制。
+`render_html` / `render_markdown` / `render_template` / `capture_html_element`
+触发的浏览器内网请求不受 NoneBot HTTP 客户端的限制。
 攻击者可以让你的浏览器请求：
 
 - 内网管理界面（`http://10.0.0.1/admin`）；
@@ -172,6 +187,7 @@ await render_template_html(template=user_supplied_template_string)
 部署前快速复核：
 
 - [ ] 渲染入口已与不可信用户输入解耦（用模板变量而非字符串拼接）；
+- [ ] 传给 `render_markdown` 的不可信内容已经过 HTML 标签、属性和 URL 白名单清洗；
 - [ ] 自定义模板后缀时显式开 `autoescape=True`；
 - [ ] 不要使用 `filehost_allow_any_path=true`，除非环境严格隔离；
 - [ ] `filehost_allowed_paths` 显式列出可暴露目录，且不包含 `~`、`/etc`、`/var`、`/srv` 整目录；

@@ -86,6 +86,13 @@ async def render_markdown(
 
 **返回值：** `bytes` — 图片二进制数据
 
+!!! warning "Markdown 中的原始 HTML 会进入页面"
+
+    `render_markdown` 会保留 Markdown 中的原始 HTML，并将转换结果作为 HTML
+    片段插入页面；它不是 HTML 消毒器。若内容来自不可信用户或模型输出，调用方
+    应先按业务需要做标签、属性和 URL 白名单清洗，或在不需要富文本时改用
+    `render_text`。详见[安全须知](security.md)。
+
 ---
 
 ### `render_html`

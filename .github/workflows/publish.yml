@@ -22,6 +22,8 @@ jobs:
     name: Upload release to PyPI
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      release_tag: ${{ steps.release_tag.outputs.tag }}
     environment: release
     permissions:
       # IMPORTANT: this permission is mandatory for trusted publishing
@@ -30,21 +32,46 @@ jobs:
     env:
       BUILD_LOG: publish-build.log
     steps:
+      - name: Resolve Release Tag
+        id: release_tag
+        shell: bash
+        env:
+          RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag }}
+        run: |
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${RELEASE_TAG_INPUT}" ]]; then
+            TAG="${RELEASE_TAG_INPUT}"
+          else
+            echo "::error::No release tag found. Use a tag push or provide workflow_dispatch input 'release_tag'."
+            exit 1
+          fi
+          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
+          echo "Resolved release tag: ${TAG}"
+
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
+          ref: refs/tags/${{ steps.release_tag.outputs.tag }}
           fetch-depth: 0
           persist-credentials: false
 
-      - name: Verify commit is on master
+      - name: Verify tagged commit is on master
         shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
         run: |
           git fetch --no-tags origin master:refs/remotes/origin/master
-          if ! git merge-base --is-ancestor "${GITHUB_SHA}" origin/master; then
-            echo "::error::Commit ${GITHUB_SHA} is not an ancestor of master. Refusing to publish."
+          TAG_COMMIT=$(git rev-list -n 1 "${RELEASE_TAG}")
+          if [[ "$(git rev-parse HEAD)" != "${TAG_COMMIT}" ]]; then
+            echo "::error::Checkout does not match ${RELEASE_TAG}. Refusing to publish."
             exit 1
           fi
-          echo "Commit ${GITHUB_SHA} is on master."
+          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/master; then
+            echo "::error::Tagged commit ${TAG_COMMIT} is not an ancestor of master. Refusing to publish."
+            exit 1
+          fi
+          echo "Tagged commit ${TAG_COMMIT} is on master."
 
       - name: Install the latest version of uv
         uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
@@ -61,6 +88,19 @@ jobs:
           echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
           python --version
           uv --version
+
+      - name: Verify tag matches package version
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+        run: |
+          VERSION=$(uv version --short)
+          EXPECTED_TAG="v${VERSION}"
+          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
+            echo "::error::Release tag ${RELEASE_TAG} does not match package version ${VERSION}. Expected ${EXPECTED_TAG}."
+            exit 1
+          fi
+          echo "Release tag ${RELEASE_TAG} matches package version ${VERSION}."
 
       - name: Sync deps
         run: uv sync
@@ -100,23 +140,6 @@ jobs:
       - name: pypi-publish
         uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
 
-      - name: Resolve Release Tag
-        id: release_tag
-        shell: bash
-        env:
-          RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag }}
-        run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-          elif [[ -n "${RELEASE_TAG_INPUT}" ]]; then
-            TAG="${RELEASE_TAG_INPUT}"
-          else
-            echo "::error::No release tag found. Use a tag push or provide workflow_dispatch input 'release_tag'."
-            exit 1
-          fi
-          echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved release tag: ${TAG}"
-
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -127,3 +150,82 @@ jobs:
             dist/*.tar.gz \
             --title "${RELEASE_TAG}" \
             --generate-notes
+
+  docs-deploy:
+    name: Deploy versioned docs
+    needs: pypi-publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      DOCS_LOG: docs-build.log
+      RELEASE_TAG: ${{ needs.pypi-publish.outputs.release_tag }}
+    steps:
+      - name: Checkout release tag
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          ref: refs/tags/${{ needs.pypi-publish.outputs.release_tag }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        with:
+          python-version: "3.12"
+          enable-cache: false
+
+      - name: Sync docs deps
+        run: uv sync --locked --group docs
+
+      - name: Verify docs version
+        id: version
+        shell: bash
+        run: |
+          VERSION=$(uv version --short)
+          EXPECTED_TAG="v${VERSION}"
+          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
+            echo "::error::Release tag ${RELEASE_TAG} does not match docs version ${VERSION}."
+            exit 1
+          fi
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Build docs
+        run: |
+          set -o pipefail
+          uv run zensical build --strict 2>&1 | tee "${DOCS_LOG}"
+
+      - name: Upload docs build logs
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: release-docs-build-logs
+          path: ${{ env.DOCS_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Configure git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Configure authenticated origin
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+
+      - name: Deploy versioned docs
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          uv run mike deploy --push --update-aliases "${VERSION}" latest
+          uv run mike set-default --push latest
+
+      - name: Show docs URL
+        env:
+          DOCS_OWNER: ${{ github.repository_owner }}
+          DOCS_REPO: ${{ github.event.repository.name }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          echo "Docs deployed: https://${DOCS_OWNER}.github.io/${DOCS_REPO}/${VERSION}/"
