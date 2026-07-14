@@ -59,7 +59,6 @@ require("nonebot_plugin_htmlrender")
 
 from nonebot_plugin_htmlrender import render_markdown
 
-
 async def make_image() -> bytes:
     artifact = await render_markdown(
         "# Status\n\n- Provider ready\n- Typed artifact",
@@ -79,7 +78,6 @@ from pathlib import Path
 from nonebot_plugin_htmlrender import render_template
 
 TEMPLATES = Path(__file__).parent / "templates"
-
 
 async def make_card(name: str) -> bytes:
     artifact = await render_template(

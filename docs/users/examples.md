@@ -40,9 +40,7 @@ from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
     PLAYWRIGHT_CAPABILITIES,
 )
 
-playwright = get_default_application().capabilities.require(
-    PLAYWRIGHT_CAPABILITIES
-)
+playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
 async with playwright.page(viewport={"width": 1280, "height": 800}) as page:
     await page.goto("https://example.com", wait_until="networkidle")
     raw = await page.screenshot(full_page=True, type="png")

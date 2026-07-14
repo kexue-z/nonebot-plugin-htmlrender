@@ -71,10 +71,10 @@ v0.7.2 固定以下语义：
 
 ```python
 # Before: one field carried two meanings
-pages={"base_url": "https://render.example/card"}
+pages = {"base_url": "https://render.example/card"}
 
 # After: navigation is explicit
-pages={"document_url": "https://render.example/card"}
+pages = {"document_url": "https://render.example/card"}
 ```
 
 资源 origin 由 preparation source 或 `prepare_html(..., base_url="https://render.example/assets/")` 放入 `PreparedHtml.base_url`，不再混入 Page 配置。

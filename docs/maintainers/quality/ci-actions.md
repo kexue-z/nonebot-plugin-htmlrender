@@ -10,7 +10,7 @@ tags:
 
 # CI Actions
 
-本页描述 GitHub Actions 的职责和信任边界。测试 profile、Python/架构矩阵与条件 smoke 见 [测试矩阵](testing-matrix.md)，合并规则见 [Pull Request 生命周期](../contributing/pull-requests.md)。
+本页描述 GitHub Actions 的职责和信任边界。测试 profile、Python/架构矩阵与条件 smoke 见 [测试矩阵](testing-matrix.md)，合并规则见 [Pull Request 生命周期](../contributing/pull-requests.md)，远端 Ruleset 与 environment 契约见[仓库治理与保护](repository-governance.md)。
 
 ## 工作流总览
 
@@ -22,10 +22,10 @@ tags:
 | Docs PR Preview Build | `.github/workflows/docs-pr-preview.yml` | 检测文档相关变更，以只读权限严格构建静态站 | PR open/sync/reopen |
 | Docs PR Preview Deploy | `.github/workflows/docs-pr-preview-deploy.yml` | 校验并发布 build artifact，更新 PR 预览评论 | preview build 完成 |
 | Docs PR Preview Cleanup | `.github/workflows/docs-pr-preview-cleanup.yml` | 删除已关闭 PR 的 Pages 预览 | PR closed |
-| Docs | `.github/workflows/docs.yml` | 严格构建并通过 `mike` 部署版本化文档 | push `master` 的文档相关路径、手动 |
+| Docs | `.github/workflows/docs.yml` | 对待发布源码执行严格文档构建，不写 Pages | push `master` 的文档相关路径、手动 |
 | Publish (TestPyPI) | `.github/workflows/publish-test.yml` | 构建唯一 dev version 并 trusted publish 到 TestPyPI | **仅手动** |
 | Auto Tag on Version Change | `.github/workflows/auto-tag.yml` | 汇合同一 master SHA 的 CI/Coverage/Docs/Prek，验证版本递增后 tag 并 dispatch `Publish` | 四条 required workflow 完成 |
-| Publish | `.github/workflows/publish.yml` | 校验 tag/source/version，构建，发布 PyPI，回读 hash 后创建 GitHub Release | `v*` tag、受约束的手动恢复 |
+| Publish | `.github/workflows/publish.yml` | 校验 tag/source/version，发布并回读 PyPI、创建 GitHub Release，最后部署对应 tag 的版本文档 | `v*` tag、受约束的手动恢复 |
 
 ## PR 必需质量层
 
@@ -130,7 +130,11 @@ PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是
 
 ## 正式文档部署
 
-`Docs` 在 `master` 文档相关路径变更时运行。只读 `build` job 先完成 strict build；只有它成功后，具有 `contents: write` 的 `deploy` job 才重新同步锁定的文档环境并调用 `mike`。生产文档和 PR previews 共享 `gh-pages`，deploy 每次从最新远程状态开始，push 冲突时最多重试三次，避免一个预览更新覆盖版本文档。
+`Docs` 在 `master` 文档相关路径变更时只执行 strict build。版本 PR 合并后，它的成功结果作为同一 source SHA 的发布门禁，但不会提前创建正式版本目录或移动 `latest`。
+
+只有 `Publish` 完成 PyPI hash 回读与 GitHub Release 后，`Publish versioned documentation` 才重新检出经过验证的 tag、再次 strict build，并调用 `mike` 写入正式版本目录。这样 `/0.8.0/` 表示该版本已经存在可安装产物，而不是“某个版本 PR 已合并”。
+
+正式版本和 PR previews 仍共享生成物分支 `gh-pages`。不同 PR 的 preview 更新互不取消；正式部署与 preview action 每次从最新远程状态开始，只使用非 force push，并在冲突时有限重试，避免一个 writer 覆盖另一个 writer 已发布的目录。
 
 文档版本语义和独立恢复方式见 [文档版本管理](versioning.md) 与 [发布流程](release-process.md)。
 
@@ -138,7 +142,9 @@ PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是
 
 `Publish (TestPyPI)` 仅供维护者手动运行。它不是 PR workflow，不会自动评论安装命令，也不会给 fork 或同仓库 PR 自动发布 dev package。
 
-`Auto Tag on Version Change` 只在同一 source SHA 的 `CI`、`Coverage`、`Docs`、`Prek` 全部成功后继续。它与 `Publish` 的版本差异检测、tag/source/version 不变量、trusted publishing 权限拆分及部分失败恢复见 [发布流程](release-process.md)。普通 `pyproject.toml` 配置变更在版本未变化时不会发布。发布 workflow 的写权限按 job 收窄，不允许构建步骤同时持有 PyPI OIDC 和仓库写权限。
+`Auto Tag on Version Change` 只在同一 source SHA 的 `CI`、`Coverage`、`Docs`、`Prek` 全部成功后继续。三条通用 required workflow 对 `master` push 使用 source SHA 作为 concurrency key，不会因为后续 PR 很快合并而取消版本提交的门禁；PR 更新仍会取消自身的过期 run。
+
+版本差异检测、tag/source/version 不变量、trusted publishing 权限拆分及部分失败恢复见 [发布流程](release-process.md)。普通 `pyproject.toml` 配置变更在版本未变化时不会发布。发布 workflow 的写权限按 job 收窄，不允许构建步骤同时持有 PyPI OIDC 和仓库写权限。
 
 ## Action 供应链
 
@@ -174,7 +180,8 @@ PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是
 - 远程浏览器失败：下载 `remote-smoke-compose-logs`，区分容器启动、WebSocket 和资源加载错误；
 - 文档预览 build 失败：本地设置同样的 `DOCS_*` preview 环境变量后 strict build；
 - 文档预览 deploy 被拒绝：检查关联 PR 数、PR 当前 head SHA 和 artifact 文件约束；
-- 正式文档失败：构建阶段下载 `docs-build-logs`，部署阶段下载 `docs-deploy-logs`；若是 `gh-pages` push 竞争，重跑 `Docs`；
+- master 文档门禁失败：下载 `docs-build-logs`，本地执行 `make docs-build`；
+- 发布后的版本文档失败：下载 `release-docs-build-log` / `release-docs-deploy-log`；确认 PyPI 与 GitHub Release 已正确后，对同一 tag 重跑 `Publish`，不得从 release 分支手工复制 `site/`；
 - 打包失败：下载 package dist/build logs，并用 `make build-artifacts` 本地重现完整构建与 pinned `twine` 校验；
 - 发布失败：先判断 PyPI 是否已经产生不可逆上传，再核对 PyPI verification 的 filename/hash 结果，并按 [部分失败恢复](release-process.md#partial-failure-recovery)处理；
 - Auto Tag 未创建 tag：先核对同一 `workflow_run.head_sha` 的 CI/Coverage/Docs/Prek 是否全部 completed/success，再检查第一父提交与当前 `project.version`、trusted master SHA 和 tag 指向；禁止直接移动已发布 tag。

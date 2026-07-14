@@ -17,8 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep every trusted master SHA alive: Auto Tag joins the exact push runs.
+  # Pull request updates still replace stale checks for the same PR ref.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ruff:
@@ -180,10 +182,12 @@ jobs:
           path: dist
 
       - name: Verify installed wheel
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
         run: |
           python3 scripts/verify_distribution.py dist \
             --expected-version "$(uv version --short)" \
-            --python "${{ matrix.python-version }}" \
+            --python "${PYTHON_VERSION}" \
             --uv uv \
             --wheel-only-smoke
 

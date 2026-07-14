@@ -14,7 +14,7 @@ tags:
 本页定义仓库的 PR 协作契约。它既适用于外部贡献者，也适用于维护者从仓库内分支发起的变更。
 
 !!! warning "当前没有 Ruleset 强制兜底"
-    截至 2026-07-11，对 `master` 的 GitHub branch protection / Ruleset 审计未发现已启用的强制规则。下述 review、checks 与合并方式是仓库约定，但目前不会全部由 GitHub 自动阻止违规合并。维护者在合并前必须人工核对；如果后续启用 Ruleset，应让规则与本页保持一致。
+    截至 2026-07-14，对 `master` 的 GitHub branch protection / Ruleset 审计未发现已启用的强制规则。下述 review、checks 与合并方式是仓库约定，但目前不会全部由 GitHub 自动阻止违规合并。可导入配置、启用顺序和远端审计方式见[仓库治理与保护](../quality/repository-governance.md)。
 
 ## 1. 准备变更
 
@@ -84,7 +84,7 @@ Ruleset 应绑定不会随矩阵扩展而改名的汇总 job：`CI` 的 `Require
 - 合并前删除 `fixup!`、`WIP`、调试日志等临时内容；
 - 确认 review 未被驳回、分支已更新、所有适用 checks 均为绿色。
 
-只有在一个 PR 中确实存在多个需要长期保留的独立提交边界时，维护者才应例外选择 rebase merge。普通贡献不使用 merge commit，以免把临时分支拓扑带入 `master`。
+Ruleset 启用后只允许 squash merge。不要使用 merge commit 或 rebase merge 把临时分支拓扑、未经合并框验证的提交边界带入 `master`。
 
 ## 6. 合并后
 
@@ -93,15 +93,17 @@ Ruleset 应绑定不会随矩阵扩展而改名的汇总 job：`CI` 的 `Require
 3. 如果 `project.version` 确实变化，继续观察同一 source SHA 的 CI/Coverage/Docs/Prek 汇合门禁、`Auto Tag on Version Change` 与[发布流程](../quality/release-process.md)；仅修改依赖或其他 `pyproject.toml` 配置的普通 PR 会因第一父提交与当前版本相同而跳过发布。
 4. 如果发现回归，优先发起新的修复或 revert PR；不要移动已发布 tag，也不要直接重写 `master` 历史。
 
-## Ruleset 建议基线 { #ruleset-baseline }
+多个 PR 可以连续合并到 `master`。required workflows 会保留每个 master SHA 的运行，Auto Tag 只汇合同一 source SHA；后续合并不会改变已经确定的 release cut。反过来，不要通过提前打 tag、暂停其他分支或把生成后的 Pages 文件提交进 release 分支来制造发布边界。
 
-维护者启用 GitHub Ruleset 时，建议至少配置：
+## Ruleset 基线 { #ruleset-baseline }
+
+仓库维护一份可导入的 `Protect master` Ruleset，完整配置和启用顺序见[仓库治理与保护](../quality/repository-governance.md)。其强制基线为：
 
 - 禁止直接 push 和 force push 到 `master`；
 - 要求 PR、至少一名有效 approval，并在新提交后撤销过期 approval；
 - 要求分支在合并前更新；
 - 将上文四个稳定汇总 job 设为 required status checks；
 - 要求所有 review conversations 已解决；
-- 仅允许 squash merge，或在仓库设置中将其设为默认方式。
+- 只允许 squash merge，并要求线性历史。
 
 Ruleset 中使用的是具体 job 名。工作流重命名 job 后应同步更新 Ruleset，避免门禁静默失效或永久等待不存在的 check。

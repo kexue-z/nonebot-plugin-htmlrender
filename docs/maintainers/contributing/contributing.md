@@ -83,7 +83,7 @@ PR 描述必须包含：
 - 合并前更新到最新 `master`，默认使用 squash merge，合并后删除功能分支。
 
 !!! warning "流程约定尚未由 Ruleset 完整强制"
-    当前仓库审计未发现 `master` 已启用 branch protection / Ruleset。维护者必须人工确认 review 和适用 checks 全部满足，不得把 GitHub 允许点击合并视为门禁已通过。推荐的 Ruleset 基线见 [Pull Request 生命周期](pull-requests.md#ruleset-baseline)。
+    当前仓库审计未发现 `master` 已启用 branch protection / Ruleset。维护者必须人工确认 review 和适用 checks 全部满足，不得把 GitHub 允许点击合并视为门禁已通过。可导入配置和启用顺序见[仓库治理与保护](../quality/repository-governance.md)。
 
 ## 文档预览与包预览
 

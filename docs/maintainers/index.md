@@ -20,6 +20,7 @@ Playwright、Takumi、Jinja、filehost 与 telemetry 都属于外部适配器。
 
 - [测试矩阵](quality/testing-matrix.md)
 - [CI Actions](quality/ci-actions.md)
+- [仓库治理与保护](quality/repository-governance.md)
 - [发布流程](quality/release-process.md)
 - [文档版本管理](quality/versioning.md)
 

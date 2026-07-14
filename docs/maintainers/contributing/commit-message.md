@@ -100,6 +100,6 @@ BREAKING CHANGE: `render_html_to_image` has been removed. Use `render_html`.
 - PR 默认使用 squash merge，PR 标题必须可以直接作为最终 subject；
 - 合并前清理 `fix typo`、`wip`、`fixup!` 等中间提交语义；
 - squash body 保留必要的动机、兼容性说明、breaking change 和 issue 关联；
-- 只有确实需要在 `master` 长期保留多个独立提交边界时，维护者才例外选择 rebase merge。
+- `master` 只接受 squash merge；需要长期保留的设计边界写入 PR 描述、文档和最终 squash body，而不是依赖临时分支提交拓扑。
 
 完整 review、checks 与合并后清理约定见 [Pull Request 生命周期](pull-requests.md)。

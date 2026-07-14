@@ -35,6 +35,19 @@ make build-artifacts
 
 涉及 package resources 或 native extra 的版本还必须在仓库外、清空 `PYTHONPATH` 后安装真实产物。0.8 的门禁要求 Python 3.10–3.14 验证 wheel，Python 3.12 至少验证一次 sdist；检查全部 package resources 非空且登记在 `RECORD`，执行 NoneBot load、Preparation 与 typed artifact smoke，并在 `[takumi]` 环境确认受支持依赖版本后完成真实 native PNG 渲染。
 
+## 并行开发与 release cut
+
+多条 `feat/*`、`fix/*` 可以同时工作，但版本号只在显式的 release PR 中变化：
+
+1. 功能和修复分支从 `master` 创建，各自完成实现、测试与文档；普通功能 PR 不提前修改项目版本；
+1. 准备发版时，只把已经可发布的变更合入 `master`，未完成分支继续保持开放或放在 feature flag 后；
+1. 从选定的 `master` 快照创建短生命周期 `release/v<version>`，集中完成 `uv version <version>`、锁文件、迁移说明和 release notes；
+1. release PR 使用与普通 PR 相同的 review、preview 和 required checks，最终 squash merge；不要在 PR 合并前手工创建 tag；
+1. 合并后的四条 master workflow 按精确 source SHA 保留运行。后续 PR 即使很快合并，也不会取消或混入本次版本门禁；
+1. Auto Tag 只给版本变化的 trusted master SHA 打 tag，因此版本边界由该提交确定，而不是由发布 workflow 启动时仍在移动的 `master` 决定。
+
+当前自动发布只授权 `master` 历史。若未来需要同时维护 `0.8` 与 `0.9` 两条已分叉的稳定线，应先设计受保护的 maintenance branch、回合并规则和 tag 授权，再扩展 ancestry gate；不要临时从维护分支打 tag 后绕过校验。
+
 ## 自动发布主链路
 
 ```mermaid
@@ -48,14 +61,14 @@ flowchart LR
     E --> F["PyPI trusted publishing"]
     F --> V["回读 PyPI<br/>核对 filename + SHA-256"]
     V --> G["GitHub Release + artifacts"]
-    B --> I["versioned docs on gh-pages"]
+    G --> I["从同一 tag 部署<br/>versioned docs on gh-pages"]
 ```
 
 ### Auto Tag on Version Change
 
 `Auto Tag on Version Change` 监听 `CI`、`Coverage`、`Docs`、`Prek` 的 `workflow_run: completed` 事件。每个完成事件都只在受信任的 `master` push 上参与汇合，因此版本 PR 可以来自 fork，不需要让 fork PR workflow 持有写权限。
 
-1. 以 `workflow_run.head_sha` 为唯一 source SHA，通过 Actions API 查询同一 SHA、`master`、`push` 事件的四条 required workflow；任一缺失、未完成、失败或取消时正常结束且不创建 tag；
+1. 以 `workflow_run.head_sha` 为唯一 source SHA，通过 Actions API 查询同一 SHA、`master`、`push` 事件的四条 required workflow；任一缺失、未完成、失败或取消时正常结束且不创建 tag；required workflows 不会用后续 master push 取消旧 source SHA；
 1. 四条全部成功后检出该精确 SHA，并确认它位于 `origin/master`；同一 SHA 的多个完成事件按 concurrency key 串行化；
 1. 从 source SHA 第一父提交的 `pyproject.toml` 读取旧版本，再与当前项目版本比较；版本相同则正常结束；
 1. 只有版本实际变化时才用 pinned `packaging` 验证 PEP 440：新旧版本必须使用 canonical spelling，新版本必须严格递增，且不能带 PyPI 不接受的 local segment；
@@ -83,7 +96,7 @@ flowchart LR
 
 PyPI 使用 `release` environment 和 trusted publishing，不保存长期 API token。上传完成后，独立 verification job 会重试读取 PyPI JSON，并要求远端文件集合与本次 artifact 的 filename、SHA-256 **完全一致**。只有这个不可变远端状态通过验证，GitHub Release 才会绑定同一个 tag 并附加同一批 wheel 与 sdist。这样恢复时即使使用 `skip-existing`，也不会让 PyPI 与 GitHub Release 指向不同字节。
 
-手动运行 `Publish` 只用于恢复或维护者明确批准的发布，必须提供已经存在的 `release_tag`。workflow definition 只能从默认分支或与输入一致的 tag ref 运行，并仍执行全部 source/version/build/hash 校验，不能用 feature branch workflow 或手动输入绕过发布不变量。`release` environment 也应在仓库设置中只允许受保护的默认分支与 release tags。
+`Publish` 不监听 tag push；Auto Tag 在精确 SHA 门禁成功后显式 dispatch。手动运行只用于恢复或维护者明确批准的发布，必须提供已经存在的 `release_tag`。workflow definition 只能从默认分支或与输入一致的 tag ref 运行，并仍执行全部 source/version/build/hash 校验，不能用 feature branch workflow、手工误建 tag 或手动输入绕过发布不变量。`v*` tag 的不可变 Ruleset 和 `release` environment policy 见[仓库治理与保护](repository-governance.md)。
 
 ## TestPyPI
 
@@ -93,13 +106,15 @@ TestPyPI 用于安装行为或包元数据的人工验收，不是 PR 必需 che
 
 ## 文档是独立发布链路
 
-`Docs` 监听 `master` 上的文档、文档配置和文档工作流相关路径。版本字段位于 `pyproject.toml`，因此版本 PR 必然触发严格构建和 `mike` 部署；其成功结果也是自动创建 tag 的精确 SHA 门禁之一。
+`Docs` 监听 `master` 上的文档、文档配置和文档工作流相关路径。版本字段位于 `pyproject.toml`，因此版本 PR 必然触发严格构建；其成功结果也是自动创建 tag 的精确 SHA 门禁之一，但它不写正式 Pages 版本。
+
+`Publish versioned documentation` 位于不可逆软件发布之后：它重新检出经过验证的 tag、再次 strict build，并在 PyPI hash 回读与 GitHub Release 均成功后才通过 `mike` 创建 `/<version>/` 和更新 `latest`。
 
 因此：
 
 - 版本 PR 的 tag 必须等待同一 SHA 的 Docs workflow 成功；
-- 没有文档相关路径变化时，创建 tag 不会单独触发 Docs；
-- Docs 成功不代表 PyPI / GitHub Release 成功，反之亦然；
+- Docs 成功不代表 PyPI / GitHub Release 成功，也不会让未发布版本提前成为 `latest`；
+- PyPI / GitHub Release 成功后，版本文档仍可能因 Pages 瞬时故障失败；对同一 tag 重跑 `Publish` 即可恢复；
 - PR 文档预览目录不属于正式版本，关闭 PR 后会由独立 cleanup workflow 删除。
 
 版本目录和 `gh-pages` 写入策略见 [文档版本管理](versioning.md)。
@@ -116,8 +131,8 @@ TestPyPI 用于安装行为或包元数据的人工验收，不是 PR 必需 che
 | PyPI 已成功，GitHub Release 失败             | 优先重跑保留原 artifact 的 workflow；重跑发布恢复路径时，PyPI hash verification 必须证明重建产物与已发布文件相同，才会补齐 GitHub Release     |
 | PyPI 已有同名文件但 hash verification 不一致 | 立即停止自动恢复；保留双方 hash 和 workflow artifact，核对最初发布 run，不得用 `--clobber` 把不同字节附到 GitHub Release                      |
 | GitHub Release 已存在但附件缺失              | 核对 tag 和 PyPI 文件哈希后，重新运行或从该 workflow 的已验证 artifact 补齐附件                                                               |
-| Docs 失败，尚未创建 tag                      | 修复或重跑同一 source SHA 的 `Docs`；汇合门禁成功前不得手工补 tag                                                                             |
-| Docs 成功，tag 后软件发布失败                | 保留已部署文档，按发布 workflow 的失败阶段恢复；必要时在用户文档中暂缓宣称版本可安装                                                          |
+| Docs 门禁失败，尚未创建 tag                  | 瞬时故障只重跑同一 source SHA；真实缺陷必须通过新 PR 修复并重新执行 release cut，汇合门禁成功前不得手工补 tag                                 |
+| PyPI / GitHub Release 成功，版本文档失败      | 保留已经发布的软件版本，对同一 tag 重跑 `Publish` 以补齐 Pages；不得移动 tag、重发版本或从 release 分支复制 `site/`                           |
 
 !!! danger "不要覆盖已发布版本"
 
@@ -128,6 +143,6 @@ TestPyPI 用于安装行为或包元数据的人工验收，不是 PR 必需 che
 - PyPI 页面显示目标版本，wheel 与 sdist 均存在；
 - 从 PyPI 安装的包能被 NoneBot 加载；
 - GitHub Release 指向正确 tag，附件与 PyPI 产物一致；
-- 若本次触发 Docs，版本 URL 与 `latest` 可访问；
+- 版本 URL 与 `latest` 可访问，页面内容来自同一个 release tag；
 - `master`、tag、包元数据与文档展示的版本一致；
 - 对任何失败保留 workflow run、artifact 和恢复操作记录。

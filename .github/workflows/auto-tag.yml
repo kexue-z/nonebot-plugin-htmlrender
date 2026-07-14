@@ -1,7 +1,7 @@
 name: Auto Tag on Version Change
 
 on:
-  workflow_run:
+  workflow_run: # zizmor: ignore[dangerous-triggers] Only trusted master push runs are joined; the exact SHA is revalidated against origin/master before checkout or writes.
     workflows:
       - CI
       - Coverage

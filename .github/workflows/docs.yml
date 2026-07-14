@@ -27,7 +27,7 @@ on:
 permissions: {}
 
 concurrency:
-  group: docs-production-${{ github.sha }}
+  group: docs-validation-${{ github.sha }}
   cancel-in-progress: true
 
 jobs:
@@ -37,8 +37,6 @@ jobs:
     timeout-minutes: 20
     permissions:
       contents: read
-    outputs:
-      version: ${{ steps.version.outputs.version }}
     env:
       DOCS_LOG: docs-build.log
     steps:
@@ -52,7 +50,7 @@ jobs:
           python-version: "3.12"
           version: "0.11.28"
           enable-cache: true
-          cache-suffix: docs-production
+          cache-suffix: docs-validation
 
       - name: Show runner context
         run: |
@@ -69,10 +67,6 @@ jobs:
           uv pip list
           uv tree
 
-      - name: Resolve project version
-        id: version
-        run: echo "version=$(uv version --short)" >> "${GITHUB_OUTPUT}"
-
       - name: Build docs
         run: |
           set -o pipefail
@@ -86,121 +80,3 @@ jobs:
           path: ${{ env.DOCS_LOG }}
           if-no-files-found: warn
           retention-days: 14
-
-  deploy:
-    name: Deploy versioned docs
-    needs: build
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    permissions:
-      contents: write # Commit and push versioned documentation to gh-pages.
-    env:
-      DEPLOY_LOG: docs-deploy.log
-      VERSION: ${{ needs.build.outputs.version }}
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up uv
-        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
-        with:
-          python-version: "3.12"
-          version: "0.11.28"
-          enable-cache: true
-          cache-suffix: docs-production
-
-      - name: Sync docs dependencies
-        run: uv sync --locked --group docs --no-default-groups
-
-      - name: Configure deployment identity
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
-
-      - name: Deploy with conflict retry
-        run: |
-          set -euo pipefail
-          : > "${DEPLOY_LOG}"
-
-          for attempt in 1 2 3; do
-            echo "Deployment attempt ${attempt}/3" | tee -a "${DEPLOY_LOG}"
-            git branch --delete --force gh-pages 2>/dev/null || true
-            if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
-              git fetch --force origin gh-pages:gh-pages
-            fi
-
-            versions_file="${RUNNER_TEMP}/mike-versions.json"
-            if ! git show gh-pages:versions.json > "${versions_file}" 2>/dev/null; then
-              echo '[]' > "${versions_file}"
-            fi
-            update_latest=$(uvx --from packaging==26.2 python - \
-              "${VERSION}" "${versions_file}" <<'PY'
-          import json
-          from pathlib import Path
-          import sys
-
-          from packaging.version import Version
-
-          target = Version(sys.argv[1])
-          deployed = [
-              Version(item["version"])
-              for item in json.loads(Path(sys.argv[2]).read_text())
-          ]
-          newest = max(deployed) if deployed else None
-          should_update = newest is None or target >= newest
-          print(
-              f"Target docs version={target}; newest deployed={newest}; "
-              f"update latest={should_update}.",
-              file=sys.stderr,
-          )
-          print("true" if should_update else "false")
-          PY
-            )
-
-            if [[ "${update_latest}" == "true" ]]; then
-              deploy_succeeded=false
-              if uv run mike deploy --update-aliases "${VERSION}" latest 2>&1 | tee -a "${DEPLOY_LOG}" \
-                && uv run mike set-default latest 2>&1 | tee -a "${DEPLOY_LOG}"; then
-                deploy_succeeded=true
-              fi
-            else
-              deploy_succeeded=false
-              if uv run mike deploy "${VERSION}" 2>&1 | tee -a "${DEPLOY_LOG}"; then
-                deploy_succeeded=true
-              fi
-            fi
-
-            if [[ "${deploy_succeeded}" == "true" ]] \
-              && git push origin gh-pages:gh-pages 2>&1 | tee -a "${DEPLOY_LOG}"; then
-              exit 0
-            fi
-
-            if [[ "${attempt}" == "3" ]]; then
-              echo "::error::Failed to deploy docs after ${attempt} attempts."
-              exit 1
-            fi
-            sleep "$((attempt * 2))"
-          done
-
-      - name: Upload deployment logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: docs-deploy-logs
-          path: ${{ env.DEPLOY_LOG }}
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Show docs URL
-        env:
-          DOCS_OWNER: ${{ github.repository_owner }}
-          DOCS_REPO: ${{ github.event.repository.name }}
-        run: |
-          docs_url="https://${DOCS_OWNER}.github.io/${DOCS_REPO}/${VERSION}/"
-          echo "Docs deployed: ${docs_url}"
-          echo "### [Open deployed documentation](${docs_url})" >> "${GITHUB_STEP_SUMMARY}"

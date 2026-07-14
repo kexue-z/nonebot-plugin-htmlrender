@@ -95,9 +95,7 @@ from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
     PLAYWRIGHT_CAPABILITIES,
 )
 
-capability = get_default_application().capabilities.require(
-    PLAYWRIGHT_CAPABILITIES
-)
+capability = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
 async with capability.page(
     viewport={"width": 1280, "height": 800},
     extra_http_headers={"X-Trace": "example"},
