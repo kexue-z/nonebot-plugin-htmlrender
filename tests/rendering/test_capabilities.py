@@ -75,3 +75,26 @@ def test_contains_rejects_non_key_objects() -> None:
     catalog = CapabilityCatalog().with_capability(ECHO_KEY, _Echo())
 
     assert "test.echo" not in catalog
+
+
+def test_catalog_merges_disjoint_composition_capabilities() -> None:
+    other_key = CapabilityKey("test.other", _Echo)
+    first = _Echo()
+    second = _Echo()
+
+    merged = (
+        CapabilityCatalog()
+        .with_capability(ECHO_KEY, first)
+        .merged(CapabilityCatalog().with_capability(other_key, second))
+    )
+
+    assert merged.require(ECHO_KEY) is first
+    assert merged.require(other_key) is second
+
+
+def test_catalog_rejects_duplicate_names_when_merging() -> None:
+    left = CapabilityCatalog().with_capability(ECHO_KEY, _Echo())
+    right = CapabilityCatalog().with_capability(ECHO_KEY, _Echo())
+
+    with pytest.raises(ValueError, match=r"test\.echo"):
+        left.merged(right)

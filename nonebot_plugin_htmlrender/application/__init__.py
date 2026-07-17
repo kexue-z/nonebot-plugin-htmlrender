@@ -4,6 +4,7 @@ from .app import Application as Application
 from .bindings import RendererBindings as RendererBindings
 from .composition import build_application as build_application
 from .composition import build_renderer_bindings as build_renderer_bindings
+from .facades import ApplicationResources as ApplicationResources
 from .renderer import Renderer as Renderer
 from .use_cases import RasterizeHtml as RasterizeHtml
 from .use_cases import RenderHtml as RenderHtml
@@ -14,6 +15,7 @@ from .use_cases import RenderText as RenderText
 
 __all__ = [
     "Application",
+    "ApplicationResources",
     "RasterizeHtml",
     "RenderHtml",
     "RenderMarkdown",

@@ -16,6 +16,7 @@ from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityCatalog,
     CapabilityKey,
+    RenderedImage,
     RenderHtmlRequest,
     ResourcePolicy,
 )
@@ -25,6 +26,7 @@ from nonebot_plugin_htmlrender.resources.config import (
 )
 from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.service import ResourceService
+from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -54,6 +56,9 @@ class _FakeLifecycle:
 @dataclass
 class _FakeExecutor:
     calls: list[tuple[PreparedHtml, RasterOptions]] = field(default_factory=list)
+    result: RenderedImage = field(
+        default_factory=lambda: rendered_image("png", width=1600, height=731)
+    )
 
     async def execute(
         self,
@@ -62,10 +67,10 @@ class _FakeExecutor:
         *,
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
+    ) -> RenderedImage:
         del resource_policy, timeout_seconds
         self.calls.append((prepared, options))
-        return b"image-bytes"
+        return self.result
 
 
 class _FakeTemplateCompiler:
@@ -143,8 +148,8 @@ def test_build_application_with_executor_binds_all_use_cases(
         }
     )
     assert application.capabilities.require(key) is marker
-    assert application.preparation is preparer
-    assert application.resources is resources
+    assert application.preparation is not preparer
+    assert application.resources is not resources
 
 
 def test_build_application_without_executor_only_renders_html(
@@ -181,8 +186,9 @@ async def test_built_application_renders_through_real_preparer(
         RenderHtmlRequest(html="<p>hello</p>")
     )
 
-    assert bytes(artifact) == b"image-bytes"
+    assert artifact is executor.result
     assert artifact.format == "png"
+    assert (artifact.width, artifact.height) == (1600, 731)
     prepared, options = executor.calls[0]
     assert "<p>hello</p>" in prepared.html
     assert options.width == 800

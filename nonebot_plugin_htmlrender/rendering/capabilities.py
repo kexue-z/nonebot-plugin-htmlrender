@@ -55,6 +55,16 @@ class CapabilityCatalog:
         catalog._values = {**self._values, key.name: value}
         return catalog
 
+    def merged(self, other: CapabilityCatalog) -> CapabilityCatalog:
+        """Return the disjoint union of two already validated catalogs."""
+        duplicates = self._values.keys() & other._values.keys()
+        if duplicates:
+            names = ", ".join(sorted(duplicates))
+            raise ValueError(f"Capabilities are already registered: {names}.")
+        catalog = CapabilityCatalog()
+        catalog._values = {**self._values, **other._values}
+        return catalog
+
     def get(self, key: CapabilityKey[T]) -> T | None:
         value = self._values.get(key.name)
         if value is None:

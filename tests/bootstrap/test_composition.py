@@ -26,11 +26,13 @@ from nonebot_plugin_htmlrender.providers.sdk import (
 from nonebot_plugin_htmlrender.rendering import (
     NoopOperationObserver,
     ProviderUnavailable,
+    RenderedImage,
     RenderHtmlRequest,
     ResourceAccessDenied,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -61,9 +63,9 @@ class _FakeExecutor:
         *,
         resource_policy: object | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
+    ) -> RenderedImage:
         del prepared, options, resource_policy, timeout_seconds
-        return b"fake-image"
+        return rendered_image("png", width=1600, height=733)
 
 
 class _FakeProvider:
@@ -175,7 +177,7 @@ async def test_available_provider_receives_explicit_dependencies_and_renders() -
     assert [item.plugin_name for item in runtime.plugin_requirements] == ["fake_plugin"]
     assert len(provider.dependencies) == 1
     dependencies = provider.dependencies[0]
-    assert dependencies.resource_service is application.resources
+    assert dependencies.resource_service is not application.resources
     assert dependencies.resource_reader is not None
     assert dependencies.local_access_policy is not None
     assert dependencies.worker_executor is not None
@@ -185,7 +187,8 @@ async def test_available_provider_receives_explicit_dependencies_and_renders() -
     artifact = await application.renderer.render_html(
         RenderHtmlRequest(html="<p>hi</p>")
     )
-    assert bytes(artifact) == b"fake-image"
+    assert artifact.format == "png"
+    assert (artifact.width, artifact.height) == (1600, 733)
 
 
 def test_filehost_strategy_injects_asset_publisher() -> None:
@@ -203,7 +206,7 @@ def test_filehost_strategy_injects_asset_publisher() -> None:
     ).build_application()
 
     assert provider.dependencies[0].asset_publisher is not None
-    assert provider.dependencies[0].resource_service is application.resources
+    assert provider.dependencies[0].resource_service is not application.resources
 
 
 def test_filehost_strategy_off_keeps_publisher_for_per_call_override() -> None:
@@ -223,7 +226,7 @@ def test_filehost_strategy_off_keeps_publisher_for_per_call_override() -> None:
 
     assert runtime.asset_publisher_settings is not None
     assert provider.dependencies[0].asset_publisher is not None
-    assert provider.dependencies[0].resource_service is application.resources
+    assert provider.dependencies[0].resource_service is not application.resources
 
 
 async def test_unavailable_provider_surfaces_reason() -> None:

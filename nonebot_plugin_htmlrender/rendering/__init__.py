@@ -1,5 +1,6 @@
 """Rendering boundary: neutral requests, artifacts, errors, and ports."""
 
+from .admission import OperationAdmissionGate as OperationAdmissionGate
 from .artifacts import RenderedHtml as RenderedHtml
 from .artifacts import RenderedImage as RenderedImage
 from .capabilities import CapabilityCatalog as CapabilityCatalog
@@ -42,6 +43,7 @@ __all__ = [
     "InvalidRenderRequest",
     "NoopCacheObserver",
     "NoopOperationObserver",
+    "OperationAdmissionGate",
     "OperationObserver",
     "PreparationError",
     "PreparedHtmlExecutor",

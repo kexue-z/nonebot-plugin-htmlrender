@@ -17,10 +17,14 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from nonebot_plugin_htmlrender.preparation.service import HtmlPreparer
+    from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
     from nonebot_plugin_htmlrender.rendering.ports import ApplicationLifecycle
     from nonebot_plugin_htmlrender.resources.service import ResourceService
 
+    from .facades import ApplicationResources
     from .renderer import Renderer
+
+from .facades import AdmittedHtmlPreparer, AdmittedResourceService
 
 
 class _AppState(Enum):
@@ -42,10 +46,20 @@ class Application:
         resources: ResourceService,
         lifecycle: ApplicationLifecycle,
         capabilities: CapabilityCatalog | None = None,
+        operation_admission: OperationAdmissionGate | None = None,
     ) -> None:
         self._renderer = renderer
-        self._preparation = preparation
-        self._resources = resources
+        renderer_admission = renderer._admission_gate()
+        if (
+            operation_admission is not None
+            and operation_admission is not renderer_admission
+        ):
+            raise ValueError(
+                "Application and Renderer must share one operation admission gate."
+            )
+        self._operation_admission = renderer_admission
+        self._preparation = AdmittedHtmlPreparer(preparation, self._operation_admission)
+        self._resources = AdmittedResourceService(resources, self._operation_admission)
         self._lifecycle = lifecycle
         self._capabilities = (
             capabilities if capabilities is not None else CapabilityCatalog()
@@ -62,7 +76,7 @@ class Application:
         return self._preparation
 
     @property
-    def resources(self) -> ResourceService:
+    def resources(self) -> ApplicationResources:
         return self._resources
 
     @property
@@ -115,5 +129,6 @@ class Application:
             # A failed teardown remains retryable, but startup is permanently
             # rejected once closing has begun.
             self._state = _AppState.CLOSING
+            await self._operation_admission.stop_accepting_and_drain()
             await self._run_lifecycle("aclose", self._lifecycle.aclose)
             self._state = _AppState.CLOSED

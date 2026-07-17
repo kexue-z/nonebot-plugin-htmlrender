@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar, final
 
+from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
 from nonebot_plugin_htmlrender.rendering.errors import CapabilityUnavailable
 
 if TYPE_CHECKING:
@@ -29,8 +30,22 @@ _BindingT = TypeVar("_BindingT")
 class Renderer:
     """Executes render commands through explicitly injected use cases."""
 
-    def __init__(self, bindings: RendererBindings) -> None:
+    def __init__(
+        self,
+        bindings: RendererBindings,
+        *,
+        operation_admission: OperationAdmissionGate | None = None,
+    ) -> None:
         self._bindings = bindings
+        self._operation_admission = (
+            operation_admission
+            if operation_admission is not None
+            else OperationAdmissionGate()
+        )
+
+    def _admission_gate(self) -> OperationAdmissionGate:
+        """Return the package-internal gate used by application composition."""
+        return self._operation_admission
 
     @property
     def capabilities(self) -> frozenset[str]:
@@ -48,19 +63,23 @@ class Renderer:
 
     async def render_html(self, request: RenderHtmlRequest) -> RenderedImage:
         use_case = self._require(self._bindings.render_html, "render_html")
-        return await use_case.execute(request)
+        async with self._operation_admission.operation():
+            return await use_case.execute(request)
 
     async def render_text(self, request: RenderTextRequest) -> RenderedImage:
         use_case = self._require(self._bindings.render_text, "render_text")
-        return await use_case.execute(request)
+        async with self._operation_admission.operation():
+            return await use_case.execute(request)
 
     async def render_markdown(self, request: RenderMarkdownRequest) -> RenderedImage:
         use_case = self._require(self._bindings.render_markdown, "render_markdown")
-        return await use_case.execute(request)
+        async with self._operation_admission.operation():
+            return await use_case.execute(request)
 
     async def render_template(self, request: RenderTemplateRequest) -> RenderedImage:
         use_case = self._require(self._bindings.render_template, "render_template")
-        return await use_case.execute(request)
+        async with self._operation_admission.operation():
+            return await use_case.execute(request)
 
     async def render_template_html(
         self,
@@ -70,8 +89,10 @@ class Renderer:
             self._bindings.render_template_html,
             "render_template_html",
         )
-        return await use_case.execute(request)
+        async with self._operation_admission.operation():
+            return await use_case.execute(request)
 
     async def rasterize_html(self, request: RasterizeHtmlRequest) -> RenderedImage:
         use_case = self._require(self._bindings.rasterize_html, "rasterize_html")
-        return await use_case.execute(request)
+        async with self._operation_admission.operation():
+            return await use_case.execute(request)

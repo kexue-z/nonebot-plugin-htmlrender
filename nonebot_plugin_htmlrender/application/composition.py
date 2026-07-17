@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
+from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
+
 from .app import Application
 from .bindings import RendererBindings
 from .renderer import Renderer
@@ -51,18 +54,33 @@ def build_application(
     engine: EngineBindings,
     preparer: HtmlPreparer,
     resources: ResourceService,
+    operation_admission: OperationAdmissionGate | None = None,
+    capabilities: CapabilityCatalog | None = None,
 ) -> Application:
     """Assemble an Application around one composed engine."""
+    admission = (
+        operation_admission
+        if operation_admission is not None
+        else OperationAdmissionGate()
+    )
     bindings = build_renderer_bindings(
         executor=engine.prepared_html_executor,
         preparer=preparer,
     )
+    application_capabilities = (
+        engine.provider_capabilities
+        if engine.provider_capabilities is not None
+        else CapabilityCatalog()
+    )
+    if capabilities is not None:
+        application_capabilities = application_capabilities.merged(capabilities)
     return Application(
-        renderer=Renderer(bindings),
+        renderer=Renderer(bindings, operation_admission=admission),
         preparation=preparer,
         resources=resources,
         lifecycle=engine.lifecycle,
-        capabilities=engine.provider_capabilities,
+        capabilities=application_capabilities,
+        operation_admission=admission,
     )
 
 
