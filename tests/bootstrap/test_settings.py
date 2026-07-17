@@ -21,6 +21,9 @@ def test_render_settings_defaults() -> None:
     assert settings.provider is None
     assert settings.startup is RenderStartupMode.OFF
     assert settings.provider_config == {}
+    assert settings.graphics.backends == ()
+    assert settings.graphics.max_pixels == 16 * 1024 * 1024
+    assert settings.graphics.max_concurrency == 2
     assert settings.resources.cache.max_entries == 256
     assert settings.resources.cache.max_bytes == 64 * 1024 * 1024
     assert settings.resources.cache.max_resource_bytes == 64 * 1024 * 1024
@@ -43,6 +46,11 @@ def test_render_settings_nested_parse() -> None:
                 "provider": "takumi",
                 "startup": "probe",
                 "provider_config": {"max_concurrency": 2},
+                "graphics": {
+                    "backends": ["pillow", "skia"],
+                    "max_pixels": 1_000_000,
+                    "max_concurrency": 1,
+                },
                 "resources": {
                     "cache": {"max_entries": 8},
                     "local_access": {"allowed_paths": "assets"},
@@ -60,6 +68,9 @@ def test_render_settings_nested_parse() -> None:
     assert settings.provider == "takumi"
     assert settings.startup is RenderStartupMode.PROBE
     assert settings.provider_config == {"max_concurrency": 2}
+    assert settings.graphics.backends == ("pillow", "skia")
+    assert settings.graphics.max_pixels == 1_000_000
+    assert settings.graphics.max_concurrency == 1
     assert settings.resources.cache.max_entries == 8
     assert settings.resources.local_access.allowed_paths == [Path("assets")]
     assert settings.resources.filehost.cache_ttl_seconds == 30
@@ -77,6 +88,12 @@ def test_render_settings_nested_parse() -> None:
             "resources.cache.max_entry",
         ),
         ({"observability": {"prometheuz": True}}, "observability.prometheuz"),
+        ({"graphics": {"backend": ["pillow"]}}, "graphics.backend"),
+        ({"graphics": {"backends": ["unknown"]}}, "graphics.backends.0"),
+        (
+            {"graphics": {"backends": ["pillow", "pillow"]}},
+            "graphics.backends",
+        ),
     ],
 )
 def test_render_tree_rejects_unknown_fields(

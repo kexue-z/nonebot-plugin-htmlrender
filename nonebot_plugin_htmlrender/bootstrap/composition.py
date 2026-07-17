@@ -23,6 +23,7 @@ from nonebot_plugin_htmlrender.application import Application, build_application
 from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 from nonebot_plugin_htmlrender.providers.discovery import resolve_provider
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings, ProviderDependencies
+from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
 from nonebot_plugin_htmlrender.rendering.errors import ProviderUnavailable
 from nonebot_plugin_htmlrender.rendering.observers import (
     NoopCacheObserver,
@@ -34,6 +35,8 @@ from nonebot_plugin_htmlrender.resources.config import (
     ResourceStrategy,
 )
 from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+from .graphics import build_graphics_capabilities
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
@@ -272,6 +275,13 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
     operation_observer, cache_observer = select_observers(runtime.settings)
     cache_settings = _cache_settings(runtime.settings)
     worker = AnyioWorkerExecutor()
+    operation_admission = OperationAdmissionGate()
+    graphics_capabilities = build_graphics_capabilities(
+        runtime.settings.graphics,
+        worker=worker,
+        observer=operation_observer,
+        operation_admission=operation_admission,
+    )
     reader = build_resource_reader(cache_settings, cache_observer, worker)
     local = runtime.settings.resources.local_access
     local_access = ConfiguredLocalAccessPolicy(
@@ -347,6 +357,8 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         engine=replace(engine, lifecycle=lifecycle),
         preparer=preparer,
         resources=resources,
+        operation_admission=operation_admission,
+        capabilities=graphics_capabilities,
     )
 
 

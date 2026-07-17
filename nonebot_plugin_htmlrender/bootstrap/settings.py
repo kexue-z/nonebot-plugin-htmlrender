@@ -9,6 +9,9 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from nonebot_plugin_htmlrender.consts import RenderStartupMode
 
+# Pydantic resolves this annotation while constructing the model.
+from nonebot_plugin_htmlrender.graphics.models import GraphicsBackendName  # noqa: TC001
+
 
 class _StrictRenderModel(BaseModel):
     """Reject misspelled keys inside the plugin-owned ``render`` tree."""
@@ -69,6 +72,24 @@ class ObservabilitySettings(_StrictRenderModel):
     prometheus: bool = Field(default=False)
 
 
+class GraphicsSettings(_StrictRenderModel):
+    """Independent physical-pixel scene backends composed as capabilities."""
+
+    backends: tuple[GraphicsBackendName, ...] = ()
+    max_pixels: int = Field(default=16 * 1024 * 1024, gt=0)
+    max_concurrency: int = Field(default=2, gt=0)
+
+    @field_validator("backends")
+    @classmethod
+    def _unique_backends(
+        cls,
+        value: tuple[GraphicsBackendName, ...],
+    ) -> tuple[GraphicsBackendName, ...]:
+        if len(set(value)) != len(value):
+            raise ValueError("graphics backends must not contain duplicates")
+        return value
+
+
 class ResourceSettings(_StrictRenderModel):
     """Core-validated resource, cache, and security configuration."""
 
@@ -84,6 +105,7 @@ class RenderSettings(_StrictRenderModel):
     provider: str | None = Field(default=None)
     startup: RenderStartupMode = Field(default=RenderStartupMode.OFF)
     provider_config: dict[str, object] = Field(default_factory=dict)
+    graphics: GraphicsSettings = Field(default_factory=GraphicsSettings)
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
 
@@ -146,6 +168,7 @@ __all__ = [
     "LEGACY_CONFIG_KEYS",
     "CacheSettings",
     "FilehostSettings",
+    "GraphicsSettings",
     "LocalAccessSettings",
     "ObservabilitySettings",
     "RenderPluginConfig",

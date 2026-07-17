@@ -39,8 +39,16 @@ def test_default_plugin_import_does_not_load_engines_or_filehost() -> None:
         nonebot.require("nonebot_plugin_htmlrender")
 
         unexpected = {
+            "PIL",
+            "nonebot_plugin_htmlkit",
             "playwright.async_api",
+            "skia",
+            "takumi_py",
+            "nonebot_plugin_htmlrender.adapters.htmlkit.provider",
+            "nonebot_plugin_htmlrender.adapters.pillow.renderer",
             "nonebot_plugin_htmlrender.adapters.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.skia.renderer",
+            "nonebot_plugin_htmlrender.adapters.takumi.provider",
             "nonebot_plugin_filehost",
         } & set(sys.modules)
         if unexpected:
@@ -83,12 +91,86 @@ def test_playwright_provider_off_startup_stays_lazy() -> None:
         nonebot.require("nonebot_plugin_htmlrender")
 
         unexpected = {
+            "nonebot_plugin_htmlkit",
             "playwright.async_api",
             "nonebot_plugin_filehost",
             "nonebot_plugin_htmlrender.adapters.playwright.render",
         } & set(sys.modules)
         if unexpected:
             raise SystemExit(f"unexpected lazy modules loaded: {sorted(unexpected)}")
+        """
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_htmlkit_provider_bootstraps_only_its_required_plugin() -> None:
+    result = _run_python(
+        """
+        import sys
+
+        import nonebot
+
+        nonebot.init(
+            driver="~none",
+            log_level="ERROR",
+            render={"provider": "htmlkit", "startup": "off"},
+        )
+        nonebot.require("nonebot_plugin_htmlrender")
+
+        if "nonebot_plugin_htmlkit" not in sys.modules:
+            raise SystemExit("HTMLKit provider did not bootstrap its required plugin")
+
+        unexpected = {
+            "PIL",
+            "playwright.async_api",
+            "skia",
+            "takumi_py",
+            "nonebot_plugin_htmlrender.adapters.pillow.renderer",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.skia.renderer",
+            "nonebot_plugin_htmlrender.adapters.takumi.provider",
+        } & set(sys.modules)
+        if unexpected:
+            raise SystemExit(f"unexpected sibling backends loaded: {sorted(unexpected)}")
+        """
+    )
+
+    assert result.returncode == 0, result.stderr
+
+
+def test_graphics_backend_composes_without_loading_html_engines() -> None:
+    result = _run_python(
+        """
+        import sys
+
+        import nonebot
+
+        nonebot.init(
+            log_level="ERROR",
+            render={
+                "provider": None,
+                "graphics": {"backends": ["pillow"]},
+            },
+        )
+        nonebot.require("nonebot_plugin_htmlrender")
+
+        from nonebot_plugin_htmlrender import get_default_application
+
+        get_default_application()
+        if "nonebot_plugin_htmlrender.adapters.pillow.renderer" not in sys.modules:
+            raise SystemExit("configured Pillow capability was not composed")
+
+        unexpected = {
+            "nonebot_plugin_htmlkit",
+            "playwright.async_api",
+            "takumi_py",
+            "nonebot_plugin_htmlrender.adapters.htmlkit.provider",
+            "nonebot_plugin_htmlrender.adapters.playwright.render",
+            "nonebot_plugin_htmlrender.adapters.takumi.provider",
+        } & set(sys.modules)
+        if unexpected:
+            raise SystemExit(f"unexpected HTML engines loaded: {sorted(unexpected)}")
         """
     )
 
