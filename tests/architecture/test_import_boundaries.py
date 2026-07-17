@@ -278,17 +278,27 @@ def test_layer_rules_hold_for_static_and_literal_lazy_imports() -> None:
     assert not violations, "Forbidden dependency edges:\n  " + "\n  ".join(violations)
 
 
+def _python_sources(path: Path) -> tuple[Path, ...]:
+    if not path.exists():
+        return ()
+    return tuple(sorted(path.rglob("*.py")))
+
+
 def test_filehost_adapter_is_not_nested_under_the_resource_core() -> None:
     legacy_adapter = PACKAGE_ROOT / "resources" / "filehost"
-    assert not legacy_adapter.exists(), (
-        "resources.filehost is a host adapter and must live under adapters/resources"
+    sources = _python_sources(legacy_adapter)
+    assert not sources, (
+        "resources.filehost is a host adapter and must live under adapters/resources: "
+        f"{sources!r}"
     )
 
 
 def test_observability_adapter_is_not_nested_under_utils() -> None:
     legacy_adapter = PACKAGE_ROOT / "utils" / "telemetry"
-    assert not legacy_adapter.exists(), (
-        "telemetry integrates host SDKs and must live under adapters/observability"
+    sources = _python_sources(legacy_adapter)
+    assert not sources, (
+        "telemetry integrates host SDKs and must live under adapters/observability: "
+        f"{sources!r}"
     )
 
 
