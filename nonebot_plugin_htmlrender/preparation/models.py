@@ -5,9 +5,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
-from typing import Literal
 
 from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
+
+# Keep public annotations resolvable through typing.get_type_hints().
+from nonebot_plugin_htmlrender.raster import RasterImageFormat  # noqa: TC001
 
 
 class RenderRequirement(str, Enum):
@@ -59,7 +61,7 @@ class RasterOptions:
     width: int = 800
     height: int | None = None
     device_pixel_ratio: float = 2.0
-    format: Literal["png", "jpeg"] = "png"
+    format: RasterImageFormat = "png"
     quality: int | None = None
 
     def __post_init__(self) -> None:

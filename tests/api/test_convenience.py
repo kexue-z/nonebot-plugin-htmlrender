@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from inspect import signature
+import math
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -24,6 +25,7 @@ from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
 from nonebot_plugin_htmlrender.rendering import (
     InvalidRenderRequest,
     ProviderNotConfigured,
+    RenderedImage,
     ResourcePolicy,
 )
 from nonebot_plugin_htmlrender.resources.config import (
@@ -32,6 +34,7 @@ from nonebot_plugin_htmlrender.resources.config import (
 )
 from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.service import ResourceService
+from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -62,6 +65,7 @@ class _ExecutorCall:
 @dataclass
 class _FakeExecutor:
     calls: list[_ExecutorCall] = field(default_factory=list)
+    results: list[RenderedImage] = field(default_factory=list)
 
     async def execute(
         self,
@@ -70,11 +74,21 @@ class _FakeExecutor:
         *,
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
+    ) -> RenderedImage:
         self.calls.append(
             _ExecutorCall(prepared, options, resource_policy, timeout_seconds)
         )
-        return b"image-bytes"
+        result = rendered_image(
+            options.format,
+            width=math.ceil(options.width * options.device_pixel_ratio),
+            height=(
+                713
+                if options.height is None
+                else math.ceil(options.height * options.device_pixel_ratio)
+            ),
+        )
+        self.results.append(result)
+        return result
 
 
 @pytest.fixture
@@ -140,10 +154,10 @@ async def test_render_html_returns_typed_artifact(
         timeout_seconds=3.0,
     )
 
-    assert bytes(artifact) == b"image-bytes"
+    assert artifact is default_executor.results[0]
     assert artifact.format == "jpeg"
-    assert artifact.width == 640
-    assert artifact.height == 480
+    assert artifact.width == 1280
+    assert artifact.height == 960
     call = default_executor.calls[0]
     assert "<p>hello</p>" in call.prepared.html
     assert call.options.quality == 80
@@ -175,7 +189,8 @@ async def test_render_text_uses_text_defaults(
         resource_policy=ResourcePolicy.OFF,
     )
 
-    assert artifact.width == 500
+    assert artifact.width == 1000
+    assert artifact.height == 713
     assert artifact.media_type == "image/png"
     call = default_executor.calls[0]
     assert call.options.width == 500
@@ -192,7 +207,7 @@ async def test_render_markdown_flows_policy(
         resource_policy=ResourcePolicy.OFF,
     )
 
-    assert bytes(artifact) == b"image-bytes"
+    assert artifact is default_executor.results[0]
     call = default_executor.calls[0]
     assert call.resource_policy is ResourcePolicy.OFF
     assert "Title" in call.prepared.html
@@ -243,7 +258,7 @@ async def test_render_template_and_template_html(
     )
     html = await api.render_template_html(tmp_path, "page.html", {"title": "Hello"})
 
-    assert bytes(image) == b"image-bytes"
+    assert image is default_executor.results[0]
     assert default_executor.calls[0].options.width == 320
     assert "<h1>Hello</h1>" in str(html)
 
@@ -258,7 +273,8 @@ async def test_rasterize_html_uses_given_prepared(
         RasterOptions(width=256, height=128),
     )
 
-    assert artifact.width == 256
+    assert artifact.width == 512
+    assert artifact.height == 256
     call = default_executor.calls[0]
     assert call.prepared is prepared
     assert call.options.height == 128

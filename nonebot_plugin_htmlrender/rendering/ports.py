@@ -2,26 +2,25 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from collections.abc import Mapping  # noqa: TC003
+from contextlib import AbstractContextManager  # noqa: TC003
+from typing import Protocol
 
+from nonebot_plugin_htmlrender.preparation.models import (  # noqa: TC001
+    PreparedHtml,
+    RasterOptions,
+)
 from nonebot_plugin_htmlrender.resources.observation import (
     CacheObserver as CacheObserver,
 )
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from contextlib import AbstractContextManager
-
-    from nonebot_plugin_htmlrender.preparation.models import (
-        PreparedHtml,
-        RasterOptions,
-    )
-
-    from .requests import ResourcePolicy
+# Public protocol annotations must remain resolvable through get_type_hints().
+from .artifacts import RenderedImage  # noqa: TC001
+from .requests import ResourcePolicy  # noqa: TC001
 
 
 class PreparedHtmlExecutor(Protocol):
-    """Executes a prepared HTML document into raster bytes."""
+    """Executes a prepared HTML document into a validated raster artifact."""
 
     async def execute(
         self,
@@ -30,7 +29,7 @@ class PreparedHtmlExecutor(Protocol):
         *,
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes: ...
+    ) -> RenderedImage: ...
 
 
 class OperationObserver(Protocol):

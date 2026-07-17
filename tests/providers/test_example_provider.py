@@ -7,10 +7,16 @@ from pathlib import Path
 import sys
 from typing import Any
 
+import pytest
+
 from nonebot_plugin_htmlrender.bootstrap.composition import prepare_runtime
 from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
+from nonebot_plugin_htmlrender.preparation import RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import EngineProvider
-from nonebot_plugin_htmlrender.rendering import RenderHtmlRequest
+from nonebot_plugin_htmlrender.rendering import (
+    ProviderExecutionError,
+    RenderHtmlRequest,
+)
 from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
 _EXAMPLE_MODULE = (
@@ -65,4 +71,25 @@ async def test_echo_provider_composes_and_renders() -> None:
 
     payload = bytes(artifact)
     assert payload[: len(_PNG_MAGIC)] == _PNG_MAGIC
+    assert artifact.format == "png"
+    assert (artifact.width, artifact.height) == (1, 1)
     assert application.resources.strategy == ResourceStrategy()
+
+
+async def test_echo_provider_rejects_unsupported_encoded_format() -> None:
+    provider = _load_example_provider()
+    runtime = prepare_runtime(
+        RenderSettings.model_validate({"provider": "echo"}),
+        explicit_providers=[provider],
+    )
+    application = runtime.build_application()
+    try:
+        with pytest.raises(ProviderExecutionError, match="format mismatch"):
+            await application.renderer.render_html(
+                RenderHtmlRequest(
+                    html="<p>echo</p>",
+                    raster=RasterOptions(format="jpeg"),
+                )
+            )
+    finally:
+        await application.aclose()

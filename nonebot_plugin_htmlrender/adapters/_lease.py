@@ -29,6 +29,7 @@ if TYPE_CHECKING:
         PreparedHtml,
         RasterOptions,
     )
+    from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
     from nonebot_plugin_htmlrender.rendering.errors import RenderingError
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
@@ -46,7 +47,7 @@ if TYPE_CHECKING:
     ProbeLeaseFn = Callable[[LeaseT], Awaitable[None]]
     RasterizeLeaseFn = Callable[
         [LeaseT, PreparedHtml, RasterOptions, "ResourcePolicy | None"],
-        Awaitable[bytes],
+        Awaitable[RenderedImage],
     ]
 
 _TEARDOWN_TIMEOUT_SECONDS = 30.0
@@ -280,7 +281,7 @@ class PreparedHtmlLeaseExecutor(Generic[LeaseT]):
         *,
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
+    ) -> RenderedImage:
         if timeout_seconds is None:
             return await self._execute(prepared, options, resource_policy)
         try:
@@ -296,7 +297,7 @@ class PreparedHtmlLeaseExecutor(Generic[LeaseT]):
         prepared: PreparedHtml,
         options: RasterOptions,
         resource_policy: ResourcePolicy | None,
-    ) -> bytes:
+    ) -> RenderedImage:
         async with self._leases.lease() as lease:
             if self._operation is None:
                 return await self._run(
@@ -323,7 +324,7 @@ class PreparedHtmlLeaseExecutor(Generic[LeaseT]):
         prepared: PreparedHtml,
         options: RasterOptions,
         resource_policy: ResourcePolicy | None,
-    ) -> bytes:
+    ) -> RenderedImage:
         operation = self._operation or "render"
         with self._translate(operation, ProviderExecutionError):
             return await self._rasterize(

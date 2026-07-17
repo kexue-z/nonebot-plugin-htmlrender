@@ -31,11 +31,13 @@ from nonebot_plugin_htmlrender.providers.sdk import (
 from nonebot_plugin_htmlrender.rendering import (
     ProviderExecutionError,
     ProviderLifecycleError,
+    RenderedImage,
     ResourcePolicy,
     UnsupportedRequirement,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from tests.image_fixtures import encoded_image
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -49,7 +51,7 @@ if TYPE_CHECKING:
     from tests.adapters.conftest import RecordingOperationObserver
 
 PREPARED = PreparedHtml(html="<p>prepared</p>")
-OPTIONS = RasterOptions(width=320, height=240, device_pixel_ratio=1.0)
+OPTIONS = RasterOptions(width=320, height=240, device_pixel_ratio=2.0)
 
 
 class _FakeState:
@@ -63,11 +65,13 @@ class _FakeState:
 def _install_runtime_fakes(
     mocker: MockerFixture,
     *,
-    render_result: bytes = b"png-bytes",
+    render_result: bytes | None = None,
 ) -> tuple[
     list[_FakeState],
     list[tuple[_FakeState, PreparedHtml, RasterOptions, ResourceResolveMode]],
 ]:
+    if render_result is None:
+        render_result = encoded_image("png", width=640, height=480)
     created: list[_FakeState] = []
     rendered: list[
         tuple[_FakeState, PreparedHtml, RasterOptions, ResourceResolveMode]
@@ -184,10 +188,15 @@ async def test_executor_lazily_starts_and_reuses_runtime(
     first = await executor.execute(PREPARED, OPTIONS)
     second = await executor.execute(PREPARED, OPTIONS)
 
-    assert first == second == b"png-bytes"
+    assert isinstance(first, RenderedImage)
+    assert first == second
+    assert first.format == "png"
+    assert (first.width, first.height) == (640, 480)
     assert len(created) == 1
     assert len(rendered) == 2
     assert rendered[0][1] is PREPARED
+    assert rendered[0][2].width == 320
+    assert rendered[0][2].device_pixel_ratio == 2.0
     names = operation_observer.names()
     assert "takumi.open_runtime" in names
     assert "render.startup" in names
@@ -225,6 +234,22 @@ async def test_executor_resolves_per_call_policy_against_provider_strategy(
     await executor.execute(PREPARED, OPTIONS, resource_policy=policy)
 
     assert rendered[-1][3] is expected
+
+
+async def test_executor_rejects_encoded_format_mismatch(
+    mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
+) -> None:
+    _install_runtime_fakes(mocker, render_result=encoded_image("jpeg"))
+    bindings = TakumiProvider().compose(
+        TakumiConfig(),
+        _dependencies(operation_observer),
+    )
+    executor = bindings.prepared_html_executor
+    assert executor is not None
+
+    with pytest.raises(ProviderExecutionError, match="format mismatch"):
+        await executor.execute(PREPARED, OPTIONS)
 
 
 async def test_executor_rebuilds_after_runtime_death(

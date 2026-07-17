@@ -20,10 +20,12 @@ from nonebot_plugin_htmlrender.rendering.errors import (
     RenderingError,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopOperationObserver
+from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from nonebot_plugin_htmlrender.rendering import RenderedImage
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
 
 
@@ -286,7 +288,8 @@ async def test_prepared_executor_holds_lease_until_rasterize_finishes() -> None:
     rasterize_entered = anyio.Event()
     release_rasterize = anyio.Event()
     closed: list[_Lease] = []
-    results: list[bytes] = []
+    results: list[RenderedImage] = []
+    expected = rendered_image("png", width=128, height=64)
 
     async def create() -> _Lease:
         return _Lease(1)
@@ -300,12 +303,12 @@ async def test_prepared_executor_holds_lease_until_rasterize_finishes() -> None:
         prepared: PreparedHtml,
         options: RasterOptions,
         resource_policy: ResourcePolicy | None,
-    ) -> bytes:
+    ) -> RenderedImage:
         del prepared, options, resource_policy
         assert lease.alive is True
         rasterize_entered.set()
         await release_rasterize.wait()
-        return b"image"
+        return expected
 
     provider = _provider(create, close)
     executor = PreparedHtmlLeaseExecutor(
@@ -333,7 +336,7 @@ async def test_prepared_executor_holds_lease_until_rasterize_finishes() -> None:
         assert closed == []
         release_rasterize.set()
 
-    assert results == [b"image"]
+    assert results == [expected]
     assert len(closed) == 1
     with pytest.raises(ProviderLifecycleError, match="closing or closed"):
         await executor.execute(
@@ -355,9 +358,9 @@ async def test_prepared_executor_timeout_includes_lazy_lease_startup() -> None:
         prepared: PreparedHtml,
         options: RasterOptions,
         resource_policy: ResourcePolicy | None,
-    ) -> bytes:
+    ) -> RenderedImage:
         del lease, prepared, options, resource_policy
-        return b"image"
+        return rendered_image("png", width=128, height=64)
 
     executor = PreparedHtmlLeaseExecutor(
         leases=_provider(create, close),

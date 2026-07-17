@@ -22,6 +22,7 @@ from nonebot_plugin_htmlrender.rendering import (
     CapabilityUnavailable,
     ProviderExecutionError,
     RasterizeHtmlRequest,
+    RenderedImage,
     RenderHtmlRequest,
     RenderMarkdownRequest,
     RenderTemplateHtmlRequest,
@@ -29,6 +30,7 @@ from nonebot_plugin_htmlrender.rendering import (
     RenderTextRequest,
     ResourcePolicy,
 )
+from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -52,7 +54,9 @@ class _ExecutorCall:
 
 @dataclass
 class _FakeExecutor:
-    result: bytes = b"image-bytes"
+    result: RenderedImage = field(
+        default_factory=lambda: rendered_image("png", width=1600, height=713)
+    )
     calls: list[_ExecutorCall] = field(default_factory=list)
 
     async def execute(
@@ -62,7 +66,7 @@ class _FakeExecutor:
         *,
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
+    ) -> RenderedImage:
         self.calls.append(
             _ExecutorCall(prepared, options, resource_policy, timeout_seconds)
         )
@@ -166,9 +170,11 @@ class _FakePreparer:
         return self.html_content
 
 
-def _full_renderer() -> tuple[Renderer, _FakePreparer, _FakeExecutor]:
+def _full_renderer(
+    result: RenderedImage | None = None,
+) -> tuple[Renderer, _FakePreparer, _FakeExecutor]:
     preparer = _FakePreparer()
-    executor = _FakeExecutor()
+    executor = _FakeExecutor() if result is None else _FakeExecutor(result=result)
     bindings = RendererBindings(
         render_html=RenderHtml(preparer=preparer, executor=executor),
         render_text=RenderText(preparer=preparer, executor=executor),
@@ -181,7 +187,8 @@ def _full_renderer() -> tuple[Renderer, _FakePreparer, _FakeExecutor]:
 
 
 async def test_render_html_returns_typed_artifact() -> None:
-    renderer, preparer, executor = _full_renderer()
+    expected = rendered_image("jpeg", width=1280, height=960)
+    renderer, preparer, executor = _full_renderer(expected)
     request = RenderHtmlRequest(
         html="<p>hi</p>",
         raster=RasterOptions(width=640, height=480, format="jpeg", quality=80),
@@ -192,10 +199,10 @@ async def test_render_html_returns_typed_artifact() -> None:
 
     artifact = await renderer.render_html(request)
 
-    assert bytes(artifact) == b"image-bytes"
+    assert artifact is expected
     assert artifact.format == "jpeg"
-    assert artifact.width == 640
-    assert artifact.height == 480
+    assert artifact.width == 1280
+    assert artifact.height == 960
     assert preparer.prepare_calls == [
         ("html", {"html": "<p>hi</p>", "base_url": "https://example.invalid/"})
     ]
@@ -230,8 +237,8 @@ async def test_render_text_flows_through_executor() -> None:
     )
 
     assert artifact.format == "png"
-    assert artifact.width == 800
-    assert artifact.height is None
+    assert artifact.width == 1600
+    assert artifact.height == 713
     assert preparer.prepare_calls == [
         ("text", {"text": "hello", "css_path": "style.css"})
     ]
@@ -294,7 +301,7 @@ async def test_render_template_maps_policy_to_preparation_mode(
 
 
 async def test_render_template_and_template_html() -> None:
-    renderer, preparer, _ = _full_renderer()
+    renderer, preparer, executor = _full_renderer()
 
     image = await renderer.render_template(
         RenderTemplateRequest(
@@ -311,7 +318,7 @@ async def test_render_template_and_template_html() -> None:
         )
     )
 
-    assert bytes(image) == b"image-bytes"
+    assert image is executor.result
     assert str(html) == "<p>template html</p>"
     kinds = [kind for kind, _ in preparer.prepare_calls]
     assert kinds == ["template", "template_html"]
@@ -325,7 +332,8 @@ async def test_rasterize_html_passes_prepared_through() -> None:
         RasterizeHtmlRequest(prepared=prepared, options=RasterOptions(width=320))
     )
 
-    assert artifact.width == 320
+    assert artifact.width == 1600
+    assert artifact.height == 713
     assert executor.calls[0].prepared is prepared
 
 

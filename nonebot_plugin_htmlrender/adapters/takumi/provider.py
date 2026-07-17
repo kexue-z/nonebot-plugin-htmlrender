@@ -35,6 +35,7 @@ from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
     ProviderDependencies,
 )
+from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
 from nonebot_plugin_htmlrender.rendering.errors import (
     InvalidRenderRequest,
@@ -140,8 +141,8 @@ async def _rasterize(
     resource_policy: ResourcePolicy | None,
     *,
     default_resolve_mode: ResourceResolveMode,
-) -> bytes:
-    return await takumi_rasterize_html(
+) -> RenderedImage:
+    data = await takumi_rasterize_html(
         require_runtime_state(state),
         prepared,
         options,
@@ -150,6 +151,7 @@ async def _rasterize(
             default_resolve_mode,
         ),
     )
+    return RenderedImage.from_bytes(data, expected_format=options.format)
 
 
 async def _probe(state: TakumiRuntimeState) -> None:
@@ -216,7 +218,7 @@ class TakumiProvider:
             prepared: PreparedHtml,
             options: RasterOptions,
             resource_policy: ResourcePolicy | None,
-        ) -> bytes:
+        ) -> RenderedImage:
             return await _rasterize(
                 state,
                 prepared,

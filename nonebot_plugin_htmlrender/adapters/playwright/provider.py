@@ -22,6 +22,7 @@ from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
     ProviderDependencies,
 )
+from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderExecutionError,
@@ -69,7 +70,7 @@ async def _rasterize(
     *,
     resources: ResourceService,
     asset_publisher: AssetPublisher | None,
-) -> bytes:
+) -> RenderedImage:
     from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         ContentConfig,
         PageConfig,
@@ -98,7 +99,7 @@ async def _rasterize(
             wait_before_screenshot=0,
         ),
     )
-    return await render_prepared_html(
+    data = await render_prepared_html(
         prepared,
         content=ContentConfig(html=prepared.html),
         render=render,
@@ -111,6 +112,7 @@ async def _rasterize(
         ),
         telemetry_op="playwright.html_render.rasterize_html",
     )
+    return RenderedImage.from_bytes(data, expected_format=options.format)
 
 
 async def _probe(lease: PlaywrightLease) -> None:
@@ -206,7 +208,7 @@ class PlaywrightProvider:
             prepared: PreparedHtml,
             options: RasterOptions,
             resource_policy: ResourcePolicy | None,
-        ) -> bytes:
+        ) -> RenderedImage:
             return await _rasterize(
                 lease,
                 prepared,

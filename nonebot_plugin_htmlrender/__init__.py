@@ -66,6 +66,9 @@ from nonebot_plugin_htmlrender.preparation import (
 from nonebot_plugin_htmlrender.preparation import (
     RenderRequirement as RenderRequirement,
 )
+from nonebot_plugin_htmlrender.raster import (
+    RasterImageFormat as RasterImageFormat,
+)
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityCatalog as CapabilityCatalog,
 )
@@ -130,6 +133,9 @@ from nonebot_plugin_htmlrender.rendering import (
     ResourceResolutionError as ResourceResolutionError,
 )
 from nonebot_plugin_htmlrender.rendering import (
+    UnsupportedRenderOption as UnsupportedRenderOption,
+)
+from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRequirement as UnsupportedRequirement,
 )
 
@@ -163,6 +169,7 @@ __all__ = [
     "ProviderNotConfigured",
     "ProviderNotFound",
     "ProviderUnavailable",
+    "RasterImageFormat",
     "RasterOptions",
     "RasterizeHtmlRequest",
     "RenderHtmlRequest",
@@ -179,6 +186,7 @@ __all__ = [
     "RenderingError",
     "ResourcePolicy",
     "ResourceResolutionError",
+    "UnsupportedRenderOption",
     "UnsupportedRequirement",
     "get_default_application",
     "get_default_renderer",

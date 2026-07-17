@@ -17,6 +17,7 @@ from .errors import ResourceAccessDenied as ResourceAccessDenied
 from .errors import ResourceNotFound as ResourceNotFound
 from .errors import ResourceResolutionError as ResourceResolutionError
 from .errors import ResourceSizeExceeded as ResourceSizeExceeded
+from .errors import UnsupportedRenderOption as UnsupportedRenderOption
 from .errors import UnsupportedRequirement as UnsupportedRequirement
 from .observers import NoopCacheObserver as NoopCacheObserver
 from .observers import NoopOperationObserver as NoopOperationObserver
@@ -63,5 +64,6 @@ __all__ = [
     "ResourcePolicy",
     "ResourceResolutionError",
     "ResourceSizeExceeded",
+    "UnsupportedRenderOption",
     "UnsupportedRequirement",
 ]

@@ -28,6 +28,7 @@ from nonebot_plugin_htmlrender.providers import (
     ProviderDependencies,
     ResourceStrategy,
 )
+from nonebot_plugin_htmlrender.rendering import ProviderExecutionError, RenderedImage
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -91,9 +92,17 @@ class _EchoExecutor:
         *,
         resource_policy: ResourcePolicy | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
-        del prepared, options, resource_policy, timeout_seconds
-        return self._payload
+    ) -> RenderedImage:
+        del prepared, resource_policy, timeout_seconds
+        try:
+            return RenderedImage.from_bytes(
+                self._payload,
+                expected_format=options.format,
+            )
+        except ValueError as error:
+            raise ProviderExecutionError(
+                f"Echo rasterization failed: {error}"
+            ) from error
 
 
 @final

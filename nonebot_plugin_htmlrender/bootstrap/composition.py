@@ -42,6 +42,7 @@ if TYPE_CHECKING:
         EngineProvider,
         PluginRequirement,
     )
+    from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
     from nonebot_plugin_htmlrender.rendering.ports import (
         ApplicationLifecycle,
         OperationObserver,
@@ -98,7 +99,7 @@ class _UnavailableExecutor:
         *,
         resource_policy: object | None = None,
         timeout_seconds: float | None = None,
-    ) -> bytes:
+    ) -> RenderedImage:
         del prepared, options, resource_policy, timeout_seconds
         raise ProviderUnavailable(
             f"Provider `{self._provider_id}` is unavailable: {self._reason}"

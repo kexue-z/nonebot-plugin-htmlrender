@@ -7,9 +7,12 @@ capability objects resolved from ``Application.capabilities``.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 from nonebot_plugin_htmlrender.preparation.models import RasterOptions
+
+# Keep the shared alias available to runtime annotation introspection.
+from nonebot_plugin_htmlrender.raster import RasterImageFormat  # noqa: TC001
 from nonebot_plugin_htmlrender.rendering.requests import (
     RasterizeHtmlRequest,
     RenderHtmlRequest,
@@ -42,7 +45,7 @@ def _raster_options(
     width: int,
     height: int | None,
     device_pixel_ratio: float,
-    image_format: Literal["png", "jpeg"],
+    image_format: RasterImageFormat,
     quality: int | None,
 ) -> RasterOptions:
     return RasterOptions(
@@ -60,7 +63,7 @@ async def render_html(
     width: int = 800,
     height: int | None = None,
     device_pixel_ratio: float = 2.0,
-    image_format: Literal["png", "jpeg"] = "png",
+    image_format: RasterImageFormat = "png",
     quality: int | None = None,
     base_url: str | None = None,
     resource_policy: ResourcePolicy | None = None,
@@ -90,7 +93,7 @@ async def render_text(
     width: int = 500,
     height: int | None = None,
     device_pixel_ratio: float = 2.0,
-    image_format: Literal["png", "jpeg"] = "png",
+    image_format: RasterImageFormat = "png",
     quality: int | None = None,
     resource_policy: ResourcePolicy | None = None,
     timeout_seconds: float | None = None,
@@ -120,7 +123,7 @@ async def render_markdown(
     width: int = 500,
     height: int | None = None,
     device_pixel_ratio: float = 2.0,
-    image_format: Literal["png", "jpeg"] = "png",
+    image_format: RasterImageFormat = "png",
     quality: int | None = None,
     resource_policy: ResourcePolicy | None = None,
     timeout_seconds: float | None = None,
@@ -153,7 +156,7 @@ async def render_template(
     width: int = 500,
     height: int | None = None,
     device_pixel_ratio: float = 2.0,
-    image_format: Literal["png", "jpeg"] = "png",
+    image_format: RasterImageFormat = "png",
     quality: int | None = None,
     resource_policy: ResourcePolicy | None = None,
     timeout_seconds: float | None = None,

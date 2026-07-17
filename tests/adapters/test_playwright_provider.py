@@ -24,11 +24,13 @@ from nonebot_plugin_htmlrender.providers.sdk import (
 )
 from nonebot_plugin_htmlrender.rendering import (
     ProviderExecutionError,
+    RenderedImage,
     ResourcePolicy,
     ResourceResolutionError,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from tests.image_fixtures import encoded_image, rendered_image
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -139,6 +141,7 @@ async def test_standard_raster_uses_injected_operation_observer(
     operation_observer: RecordingOperationObserver,
 ) -> None:
     lease = object()
+    expected = rendered_image("png", width=1600, height=719)
 
     class FakeEngine:
         def __init__(
@@ -168,7 +171,7 @@ async def test_standard_raster_uses_injected_operation_observer(
     rasterize = mocker.patch.object(
         provider_module,
         "_rasterize",
-        new=mocker.AsyncMock(return_value=b"image"),
+        new=mocker.AsyncMock(return_value=expected),
     )
     bindings = PlaywrightProvider().compose(
         PlaywrightConfig(),
@@ -179,7 +182,7 @@ async def test_standard_raster_uses_injected_operation_observer(
 
     result = await executor.execute(PREPARED, RasterOptions())
 
-    assert result == b"image"
+    assert result is expected
     rasterize.assert_awaited_once()
     assert "playwright.html_render.rasterize_html" in operation_observer.names()
 
@@ -196,6 +199,7 @@ def test_compose_rejects_foreign_settings(
 
 async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
     captured: dict[str, object] = {}
+    encoded = encoded_image("jpeg", width=1280, height=1337)
 
     async def fake_render_prepared_html(
         prepared: PreparedHtml,
@@ -203,7 +207,7 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
     ) -> bytes:
         captured["prepared"] = prepared
         captured.update(kwargs)
-        return b"img"
+        return encoded
 
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.operations.render_prepared_html",
@@ -227,7 +231,10 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
         asset_publisher=None,
     )
 
-    assert result == b"img"
+    assert isinstance(result, RenderedImage)
+    assert bytes(result) == encoded
+    assert result.format == "jpeg"
+    assert (result.width, result.height) == (1280, 1337)
     assert captured["prepared"] is PREPARED
     assert captured["lease"] is lease
     assert captured["resources"] is resources
@@ -244,6 +251,31 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
     assert screenshot.full_page is True
     assert screenshot.format == "jpeg"
     assert screenshot.quality == 70
+    assert screenshot.device_scale_factor == 2.0
+
+
+async def test_rasterize_rejects_encoded_format_mismatch(
+    mocker: MockerFixture,
+) -> None:
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.render_prepared_html",
+        new=mocker.AsyncMock(return_value=encoded_image("png")),
+    )
+    lease = cast("PlaywrightLease", object())
+    resources = cast(
+        "ResourceService",
+        SimpleNamespace(strategy=ResourceStrategy()),
+    )
+
+    with pytest.raises(ValueError, match="format mismatch"):
+        await provider_module._rasterize(
+            lease,
+            PREPARED,
+            RasterOptions(format="jpeg", quality=70),
+            None,
+            resources=resources,
+            asset_publisher=None,
+        )
 
 
 def test_translate_maps_native_errors() -> None:
