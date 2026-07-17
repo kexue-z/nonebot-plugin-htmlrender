@@ -24,7 +24,37 @@ if TYPE_CHECKING:
 
 PACKAGE_NAME: Final = "nonebot-plugin-htmlrender"
 PACKAGE_IMPORT: Final = "nonebot_plugin_htmlrender"
+HTMLKIT_VERSION: Final = "0.1.0rc5"
 TAKUMI_VERSION: Final = "0.2.0"
+PILLOW_MINIMUM_VERSION: Final = "12.0.0"
+SKIA_MINIMUM_VERSION: Final = "144.0.post2"
+TRIO_MINIMUM_VERSION: Final = "0.33.0"
+EXPECTED_EXTRAS: Final = frozenset(
+    {
+        "all",
+        "filehost",
+        "htmlkit",
+        "pillow",
+        "playwright",
+        "prometheus",
+        "sentry",
+        "skia",
+        "takumi",
+    }
+)
+OPTIONAL_REQUIREMENTS: Final = {
+    "filehost": (
+        "nonebot-plugin-filehost>=0.2.0",
+        "py-machineid>=0.8.0",
+    ),
+    "htmlkit": (f"nonebot-plugin-htmlkit=={HTMLKIT_VERSION}",),
+    "pillow": (f"pillow>={PILLOW_MINIMUM_VERSION}",),
+    "playwright": ("playwright>=1.60.0",),
+    "prometheus": ("nonebot-plugin-prometheus>=0.4.0",),
+    "sentry": ("nonebot-plugin-sentry>=2.0.0",),
+    "skia": (f"skia-python>={SKIA_MINIMUM_VERSION}",),
+    "takumi": (f"takumi-py=={TAKUMI_VERSION}",),
+}
 REQUIRES_PYTHON_FORMS: Final = frozenset({">=3.10,<4.0", "<4.0,>=3.10"})
 PACKAGE_RESOURCES: Final = (
     "nonebot_plugin_htmlrender/templates/markdown/github-markdown-light.css",
@@ -42,6 +72,7 @@ _BASE_SMOKE = r"""
 import asyncio
 from importlib.metadata import version
 from importlib.resources import files
+from importlib.util import find_spec
 import json
 import os
 from pathlib import Path, PurePosixPath
@@ -75,6 +106,18 @@ check(
     installed_version == expected_version,
     f"Installed version {installed_version!r} != expected {expected_version!r}",
 )
+
+for optional_module in (
+    "PIL",
+    "nonebot_plugin_htmlkit",
+    "playwright",
+    "skia",
+    "takumi_py",
+):
+    check(
+        find_spec(optional_module) is None,
+        f"Bare core install unexpectedly contains backend module {optional_module!r}",
+    )
 
 package_root = files("nonebot_plugin_htmlrender")
 for resource_name in expected_resources:
@@ -110,6 +153,103 @@ async def main() -> None:
 
 
 asyncio.run(main())
+"""
+
+_HTMLKIT_SMOKE = r"""
+import asyncio
+from importlib.metadata import version
+from importlib.util import find_spec
+import os
+
+import nonebot
+
+
+def check(condition: object, message: str) -> None:
+    if not condition:
+        raise RuntimeError(message)
+
+
+nonebot.init(
+    driver="~none",
+    log_level="ERROR",
+    render={"provider": "htmlkit", "startup": "off"},
+)
+plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
+check(plugin is not None, "NoneBot could not load HTMLKit provider")
+
+from nonebot_plugin_htmlkit import init_fontconfig
+
+from nonebot_plugin_htmlrender import get_default_application, render_html
+
+check(
+    version("nonebot-plugin-htmlkit")
+    == os.environ["HTMLRENDER_EXPECTED_HTMLKIT_VERSION"],
+    "Installed nonebot-plugin-htmlkit version does not match the pinned facade",
+)
+for foreign_backend in ("PIL", "playwright", "skia", "takumi_py"):
+    check(
+        find_spec(foreign_backend) is None,
+        f"HTMLKit extra unexpectedly installed backend {foreign_backend!r}",
+    )
+
+# A normal NoneBot process invokes this through HTMLKit's startup hook.  The
+# isolated smoke has no running driver, so invoke the same public initializer.
+init_fontconfig()
+
+
+async def main() -> None:
+    application = get_default_application()
+    await application.startup()
+    try:
+        artifact = await render_html(
+            '<div style="width:32px;height:8px;background:#f00"></div>',
+            width=64,
+            device_pixel_ratio=1.0,
+        )
+        check(artifact.format == "png", "HTMLKit smoke did not return PNG metadata")
+        check(artifact.width == 64, "HTMLKit smoke did not preserve portable width")
+        check(
+            bytes(artifact).startswith(b"\x89PNG\r\n\x1a\n"),
+            "HTMLKit smoke did not produce a PNG",
+        )
+    finally:
+        await application.aclose()
+
+
+asyncio.run(main())
+"""
+
+_HTMLKIT_TRIO_SMOKE = r"""
+import anyio
+import nonebot
+
+
+def check(condition: object, message: str) -> None:
+    if not condition:
+        raise RuntimeError(message)
+
+
+nonebot.init(
+    driver="~none",
+    log_level="ERROR",
+    render={"provider": "htmlkit", "startup": "off"},
+)
+plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
+check(plugin is not None, "NoneBot could not load HTMLKit provider for Trio smoke")
+
+from nonebot_plugin_htmlrender import ProviderUnavailable, render_html
+
+
+async def main() -> None:
+    try:
+        await render_html("<p>Trio rejection</p>", device_pixel_ratio=1.0)
+    except ProviderUnavailable as error:
+        check("asyncio-only" in str(error), "HTMLKit Trio error lost stable detail")
+    else:
+        raise RuntimeError("HTMLKit unexpectedly executed under Trio")
+
+
+anyio.run(main, backend="trio")
 """
 
 _TAKUMI_SMOKE = r"""
@@ -190,6 +330,84 @@ async def main() -> None:
 asyncio.run(main())
 """
 
+_GRAPHICS_SMOKE = r"""
+import asyncio
+import struct
+
+import nonebot
+
+
+def check(condition: object, message: str) -> None:
+    if not condition:
+        raise RuntimeError(message)
+
+
+nonebot.init(
+    driver="~none",
+    render={
+        "provider": None,
+        "graphics": {
+            "backends": ["pillow", "skia"],
+            "max_pixels": 1024,
+            "max_concurrency": 1,
+        },
+    },
+)
+plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
+check(plugin is not None, "NoneBot could not load graphics capabilities")
+
+from nonebot_plugin_htmlrender import get_default_application
+from nonebot_plugin_htmlrender.graphics import (
+    PILLOW_RASTER_SCENE_RENDERER,
+    SKIA_RASTER_SCENE_RENDERER,
+    FillRect,
+    PixelRect,
+    RasterScene,
+    RenderRasterSceneRequest,
+    RGBAColor,
+)
+
+
+async def main() -> None:
+    application = get_default_application()
+    request = RenderRasterSceneRequest(
+        RasterScene(
+            8,
+            4,
+            commands=(
+                FillRect(PixelRect(1, 1, 3, 2), RGBAColor(255, 0, 0, 128)),
+            ),
+        )
+    )
+    try:
+        for key in (
+            PILLOW_RASTER_SCENE_RENDERER,
+            SKIA_RASTER_SCENE_RENDERER,
+        ):
+            renderer = application.capabilities.require(key)
+            artifact = await renderer.render(request)
+            rendered = bytes(artifact)
+            check(
+                rendered.startswith(b"\x89PNG\r\n\x1a\n"),
+                f"{key.name} did not produce a PNG",
+            )
+            dimensions = struct.unpack(">II", rendered[16:24])
+            check(
+                dimensions == (8, 4),
+                f"{key.name} produced unexpected dimensions: {dimensions!r}",
+            )
+            check(
+                (artifact.format, artifact.width, artifact.height)
+                == ("png", 8, 4),
+                f"{key.name} returned inconsistent artifact metadata",
+            )
+    finally:
+        await application.aclose()
+
+
+asyncio.run(main())
+"""
+
 
 class DistributionVerificationError(RuntimeError):
     """A built artifact does not satisfy the release contract."""
@@ -251,20 +469,32 @@ def _validate_metadata(
         )
 
     extras = set(metadata.get_all("Provides-Extra", []))
-    if "takumi" not in extras:
+    if extras != EXPECTED_EXTRAS:
         raise DistributionVerificationError(
-            f"{artifact.name} does not provide the 'takumi' extra."
+            f"{artifact.name} optional extras mismatch: "
+            f"missing={sorted(EXPECTED_EXTRAS - extras)}, "
+            f"unexpected={sorted(extras - EXPECTED_EXTRAS)}."
         )
 
     normalized_requirements = {
         requirement.lower().replace(" ", "").replace('"', "'")
         for requirement in metadata.get_all("Requires-Dist", [])
     }
-    expected_requirement = f"takumi-py=={TAKUMI_VERSION};extra=='takumi'"
-    if expected_requirement not in normalized_requirements:
+    expected_requirements = {
+        f"{requirement};extra=='{extra}'"
+        for extra, requirements in OPTIONAL_REQUIREMENTS.items()
+        for requirement in requirements
+    }
+    expected_requirements.update(
+        f"{requirement};extra=='all'"
+        for requirements in OPTIONAL_REQUIREMENTS.values()
+        for requirement in requirements
+    )
+    missing_requirements = expected_requirements - normalized_requirements
+    if missing_requirements:
         raise DistributionVerificationError(
-            f"{artifact.name} does not require the exact Takumi extra "
-            f"{expected_requirement!r}."
+            f"{artifact.name} optional requirements are incomplete: "
+            f"missing={sorted(missing_requirements)}."
         )
 
 
@@ -475,6 +705,7 @@ def _run_install_smokes(
         env.update(
             {
                 "HOME": str(root / "home"),
+                "HTMLRENDER_EXPECTED_HTMLKIT_VERSION": HTMLKIT_VERSION,
                 "HTMLRENDER_EXPECTED_RESOURCES": json.dumps(PACKAGE_RESOURCES),
                 "HTMLRENDER_EXPECTED_TAKUMI_VERSION": TAKUMI_VERSION,
                 "HTMLRENDER_EXPECTED_VERSION": expected_version,
@@ -509,6 +740,42 @@ def _run_install_smokes(
             label="Run installed-wheel package resource and preparation smoke",
         )
 
+        htmlkit_python, htmlkit_run_dir = _create_venv(
+            root,
+            name="wheel-htmlkit",
+            python_version=python_version,
+            uv=uv,
+            env=env,
+        )
+        _install_artifact(
+            htmlkit_python,
+            f"{wheel.resolve()}[htmlkit]",
+            uv=uv,
+            cwd=htmlkit_run_dir,
+            env=env,
+            label="Install wheel HTMLKit extra in isolation",
+        )
+        _install_artifact(
+            htmlkit_python,
+            f"trio>={TRIO_MINIMUM_VERSION}",
+            uv=uv,
+            cwd=htmlkit_run_dir,
+            env=env,
+            label="Install Trio smoke dependency into wheel HTMLKit environment",
+        )
+        _run(
+            [str(htmlkit_python), "-c", _HTMLKIT_TRIO_SMOKE],
+            cwd=htmlkit_run_dir,
+            env=env,
+            label="Run installed-wheel HTMLKit Trio rejection smoke",
+        )
+        _run(
+            [str(htmlkit_python), "-c", _HTMLKIT_SMOKE],
+            cwd=htmlkit_run_dir,
+            env=env,
+            label="Run installed-wheel HTMLKit native smoke",
+        )
+
         _install_artifact(
             wheel_python,
             f"{wheel.resolve()}[takumi]",
@@ -522,6 +789,21 @@ def _run_install_smokes(
             cwd=wheel_run_dir,
             env=env,
             label="Run installed-wheel Takumi native smoke",
+        )
+
+        _install_artifact(
+            wheel_python,
+            f"{wheel.resolve()}[pillow,skia]",
+            uv=uv,
+            cwd=wheel_run_dir,
+            env=env,
+            label="Install wheel Pillow and Skia extras",
+        )
+        _run(
+            [str(wheel_python), "-c", _GRAPHICS_SMOKE],
+            cwd=wheel_run_dir,
+            env=env,
+            label="Run installed-wheel Pillow and Skia raster smoke",
         )
 
         if smoke_sdist:
@@ -546,6 +828,41 @@ def _run_install_smokes(
                 env=env,
                 label="Run installed-sdist package resource and preparation smoke",
             )
+            sdist_htmlkit_python, sdist_htmlkit_run_dir = _create_venv(
+                root,
+                name="sdist-htmlkit",
+                python_version=python_version,
+                uv=uv,
+                env=env,
+            )
+            _install_artifact(
+                sdist_htmlkit_python,
+                f"{sdist.resolve()}[htmlkit]",
+                uv=uv,
+                cwd=sdist_htmlkit_run_dir,
+                env=env,
+                label="Install source distribution HTMLKit extra in isolation",
+            )
+            _install_artifact(
+                sdist_htmlkit_python,
+                f"trio>={TRIO_MINIMUM_VERSION}",
+                uv=uv,
+                cwd=sdist_htmlkit_run_dir,
+                env=env,
+                label="Install Trio smoke dependency into sdist HTMLKit environment",
+            )
+            _run(
+                [str(sdist_htmlkit_python), "-c", _HTMLKIT_TRIO_SMOKE],
+                cwd=sdist_htmlkit_run_dir,
+                env=env,
+                label="Run installed-sdist HTMLKit Trio rejection smoke",
+            )
+            _run(
+                [str(sdist_htmlkit_python), "-c", _HTMLKIT_SMOKE],
+                cwd=sdist_htmlkit_run_dir,
+                env=env,
+                label="Run installed-sdist HTMLKit native smoke",
+            )
             _install_artifact(
                 sdist_python,
                 f"{sdist.resolve()}[takumi]",
@@ -559,6 +876,20 @@ def _run_install_smokes(
                 cwd=sdist_run_dir,
                 env=env,
                 label="Run installed-sdist Takumi native smoke",
+            )
+            _install_artifact(
+                sdist_python,
+                f"{sdist.resolve()}[pillow,skia]",
+                uv=uv,
+                cwd=sdist_run_dir,
+                env=env,
+                label="Install source distribution Pillow and Skia extras",
+            )
+            _run(
+                [str(sdist_python), "-c", _GRAPHICS_SMOKE],
+                cwd=sdist_run_dir,
+                env=env,
+                label="Run installed-sdist Pillow and Skia raster smoke",
             )
 
 
