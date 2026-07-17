@@ -28,7 +28,24 @@ playwright = [
     "playwright>=1.60.0",
 ]
 all = [
-    "nonebot-plugin-htmlrender[filehost,playwright,prometheus,sentry,takumi]",
+    "nonebot-plugin-filehost>=0.2.0",
+    "nonebot-plugin-htmlkit==0.1.0rc5",
+    "nonebot-plugin-prometheus>=0.4.0",
+    "nonebot-plugin-sentry>=2.0.0",
+    "pillow>=12.0.0",
+    "playwright>=1.60.0",
+    "py-machineid>=0.8.0",
+    "skia-python>=144.0.post2",
+    "takumi-py==0.2.0",
+]
+pillow = [
+    "pillow>=12.0.0",
+]
+skia = [
+    "skia-python>=144.0.post2",
+]
+htmlkit = [
+    "nonebot-plugin-htmlkit==0.1.0rc5",
 ]
 
 [project.urls]
