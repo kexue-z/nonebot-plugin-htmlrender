@@ -1,0 +1,1 @@
+"""Raster-scene contract tests."""

@@ -141,7 +141,7 @@ from nonebot_plugin_htmlrender.rendering import (
 
 __plugin_meta__ = PluginMetadata(
     name="nonebot-plugin-htmlrender",
-    description="使用可插拔渲染引擎将 HTML、Markdown 与模板渲染为图片",
+    description="提供可插拔 HTML 渲染与独立的类型化栅格场景能力",
     usage=(
         "提供 HTML/Markdown/模板渲染为图片的能力，作为库插件供其他插件调用。\n"
         "主要接口：render_html, render_text, render_markdown, render_template 等。"

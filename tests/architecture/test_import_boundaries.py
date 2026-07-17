@@ -34,7 +34,14 @@ def _matches(module: str, prefix: str) -> bool:
     return module == prefix or module.startswith(f"{prefix}.")
 
 
-CORE_SCOPES = ("rendering", "application", "preparation", "resources")
+CORE_SCOPES = (
+    "graphics",
+    "raster",
+    "rendering",
+    "application",
+    "preparation",
+    "resources",
+)
 
 CORE_BANNED = (
     _absolute("adapters"),
@@ -49,6 +56,11 @@ CORE_BANNED = (
 )
 
 RULES: tuple[LayerRule, ...] = (
+    LayerRule(
+        name="raster foundation must not depend on other package layers",
+        scopes=("raster",),
+        banned=(PACKAGE,),
+    ),
     LayerRule(
         name="core packages must not depend on hosts or adapters",
         scopes=CORE_SCOPES,
@@ -79,6 +91,15 @@ RULES: tuple[LayerRule, ...] = (
         name="rendering must not import the provider SDK",
         scopes=("rendering",),
         banned=(_absolute("providers"),),
+    ),
+    LayerRule(
+        name="graphics contracts must not import HTML or provider layers",
+        scopes=("graphics",),
+        banned=(
+            _absolute("application"),
+            _absolute("preparation"),
+            _absolute("providers"),
+        ),
     ),
     LayerRule(
         name="takumi must not import playwright",
