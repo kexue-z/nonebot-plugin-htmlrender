@@ -39,7 +39,9 @@ SettingsT = TypeVar("SettingsT")
 
 ENTRY_POINT_GROUP = "nonebot_plugin_htmlrender.providers"
 
-RESERVED_PROVIDER_IDS: frozenset[EngineId] = frozenset({"playwright", "takumi"})
+RESERVED_PROVIDER_IDS: frozenset[EngineId] = frozenset(
+    {"htmlkit", "playwright", "takumi"}
+)
 
 __all__ = [
     "ENTRY_POINT_GROUP",

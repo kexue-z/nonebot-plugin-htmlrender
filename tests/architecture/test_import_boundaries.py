@@ -111,6 +111,26 @@ RULES: tuple[LayerRule, ...] = (
         scopes=("adapters.playwright",),
         banned=(_absolute("adapters.takumi"),),
     ),
+    LayerRule(
+        name="htmlkit must not import other renderer adapters",
+        scopes=("adapters.htmlkit",),
+        banned=(
+            _absolute("adapters.pillow"),
+            _absolute("adapters.playwright"),
+            _absolute("adapters.skia"),
+            _absolute("adapters.takumi"),
+        ),
+    ),
+    LayerRule(
+        name="pillow must not import skia",
+        scopes=("adapters.pillow",),
+        banned=(_absolute("adapters.skia"),),
+    ),
+    LayerRule(
+        name="skia must not import pillow",
+        scopes=("adapters.skia",),
+        banned=(_absolute("adapters.pillow"),),
+    ),
 )
 
 

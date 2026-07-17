@@ -38,6 +38,7 @@ MIRRORS = [
 class RenderBackend(StrEnum):
     """First-party engine identifiers used for telemetry labels."""
 
+    HTMLKIT = "htmlkit"
     PLAYWRIGHT = "playwright"
     TAKUMI = "takumi"
 

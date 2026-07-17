@@ -2,8 +2,8 @@
 
 Only the provider selected by configuration is ever imported. Explicit
 providers passed to the composition root take precedence (tests, embedding);
-``playwright`` and ``takumi`` are reserved for the first-party adapters and
-cannot be overridden through entry points.
+``htmlkit``, ``playwright``, and ``takumi`` are reserved for the first-party
+adapters and cannot be overridden through entry points.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ if TYPE_CHECKING:
     from .sdk import EngineId
 
 _FIRST_PARTY_MODULES: dict[str, str] = {
+    "htmlkit": "nonebot_plugin_htmlrender.adapters.htmlkit.provider",
     "playwright": "nonebot_plugin_htmlrender.adapters.playwright.provider",
     "takumi": "nonebot_plugin_htmlrender.adapters.takumi.provider",
 }
