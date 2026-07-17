@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
-from hashlib import sha256
 from importlib.resources import files
 import mimetypes
 import os
@@ -15,6 +14,7 @@ from urllib.request import urlopen
 import anyio
 from anyio.to_thread import run_sync
 
+from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
 from nonebot_plugin_htmlrender.resources.models import (
     FileResourceRef,
     InlineResourceRef,
@@ -24,12 +24,12 @@ from nonebot_plugin_htmlrender.resources.models import (
     ResourceRef,
     ResourceRevision,
 )
+from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.path_guard import validate_local_access
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
-    from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
     from nonebot_plugin_htmlrender.resources.ports import ResourceReader, WorkerExecutor
 
@@ -174,7 +174,13 @@ class CompositeResourceReader:
         self._worker = worker
         self._max_resource_bytes = max_resource_bytes
 
-    async def read(self, reference: ResourceRef) -> ResourceContent:
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
+        del refresh
         try:
             if isinstance(reference, FileResourceRef):
                 return await self._worker.run_sync(
@@ -206,7 +212,7 @@ class CompositeResourceReader:
                 return ResourceContent(
                     reference.data,
                     reference.media_type,
-                    ResourceRevision(sha256(reference.data).hexdigest()),
+                    ResourceRevision(reference.digest),
                 )
         except ResourceResolutionError:
             raise
@@ -252,7 +258,7 @@ class CompositeResourceReader:
         if isinstance(reference, PackageResourceRef):
             return ResourceRevision(f"package:{reference.package}:{reference.name}")
         if isinstance(reference, InlineResourceRef):
-            return ResourceRevision(sha256(reference.data).hexdigest())
+            return ResourceRevision(reference.digest)
         return None
 
     async def invalidate(self, reference: ResourceRef) -> None:
@@ -265,79 +271,22 @@ class CompositeResourceReader:
 @dataclass(slots=True)
 class _Inflight:
     event: anyio.Event
+    refresh: bool
     content: ResourceContent | None = None
     error: BaseException | None = None
-
-
-@final
-class SingleflightResourceReader:
-    """Deduplicate concurrent reads without retaining completed content."""
-
-    def __init__(self, inner: ResourceReader) -> None:
-        self._inner = inner
-        self._inflight: dict[tuple[int, int, object], _Inflight] = {}
-        self._epoch = 0
-        self._generations: dict[object, int] = {}
-        self._lock = anyio.Lock()
-
-    async def read(self, reference: ResourceRef) -> ResourceContent:
-        key = reference.cache_key
-        async with self._lock:
-            inflight_key = (
-                self._epoch,
-                self._generations.get(key, 0),
-                key,
-            )
-            inflight = self._inflight.get(inflight_key)
-            owner = inflight is None
-            if inflight is None:
-                inflight = _Inflight(anyio.Event())
-                self._inflight[inflight_key] = inflight
-        if not owner:
-            await inflight.event.wait()
-            if inflight.error is not None:
-                raise inflight.error
-            if inflight.content is None:
-                return await self.read(reference)
-            return inflight.content
-        try:
-            content = await self._inner.read(reference)
-            with anyio.CancelScope(shield=True):
-                async with self._lock:
-                    self._inflight.pop(inflight_key, None)
-                    inflight.content = content
-                    inflight.event.set()
-            return content
-        except BaseException as error:
-            with anyio.CancelScope(shield=True):
-                async with self._lock:
-                    self._inflight.pop(inflight_key, None)
-                    inflight.error = error
-                    inflight.event.set()
-            raise
-
-    async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
-        return await self._inner.revision(reference)
-
-    async def invalidate(self, reference: ResourceRef) -> None:
-        key = reference.cache_key
-        async with self._lock:
-            self._generations[key] = self._generations.get(key, 0) + 1
-        await self._inner.invalidate(reference)
-
-    async def clear(self) -> None:
-        async with self._lock:
-            self._epoch += 1
-            self._generations.clear()
-        await self._inner.clear()
 
 
 @dataclass(slots=True)
 class _CacheEntry:
     content: ResourceContent
     checked_at: float
-    epoch: int
-    generation: int
+
+
+@dataclass(frozen=True, slots=True)
+class _LoadSlot:
+    inflight: _Inflight
+    stale: _CacheEntry | None
+    owner: bool
 
 
 @final
@@ -355,14 +304,12 @@ class CachingResourceReader:
         self._settings = settings
         self._observer = observer
         self._entries: OrderedDict[object, _CacheEntry] = OrderedDict()
+        self._inflight: dict[object, _Inflight] = {}
         self._resident_bytes = 0
-        self._epoch = 0
-        self._generations: dict[object, int] = {}
         self._lock = anyio.Lock()
-        self._hits = 0
-        self._misses = 0
-        self._loads = 0
-        self._evictions = 0
+        self._reset_lock = anyio.Lock()
+        self._reset_all: anyio.Event | None = None
+        self._reset_keys: dict[object, anyio.Event] = {}
 
     def _record(self, events: dict[str, int]) -> None:
         try:
@@ -375,56 +322,117 @@ class CachingResourceReader:
         except Exception:
             return
 
-    async def read(self, reference: ResourceRef) -> ResourceContent:
-        key = reference.cache_key
-        now = time.monotonic()
-        async with self._lock:
-            entry = self._entries.get(key)
-            epoch = self._epoch
-            generation = self._generations.get(key, 0)
-            if (
-                entry is not None
-                and entry.epoch == epoch
-                and entry.generation == generation
-                and now - entry.checked_at < self._settings.revalidate_seconds
-            ):
-                self._entries.move_to_end(key)
-                self._hits += 1
-                self._record({"hit": 1})
-                return entry.content
-        if entry is not None:
-            stale = entry
-            current = await self._inner.revision(reference)
-            if current is not None and current == stale.content.revision:
-                async with self._lock:
-                    live = self._entries.get(key)
+    async def _acquire(
+        self,
+        key: object,
+        *,
+        refresh: bool,
+    ) -> ResourceContent | _LoadSlot:
+        while True:
+            async with self._lock:
+                reset = self._reset_all or self._reset_keys.get(key)
+                if reset is None:
+                    inflight = self._inflight.get(key)
+                    if refresh and (inflight is None or not inflight.refresh):
+                        entry = self._entries.pop(key, None)
+                        if entry is not None:
+                            self._resident_bytes -= len(entry.content.data)
+                        inflight = _Inflight(anyio.Event(), refresh=True)
+                        self._inflight[key] = inflight
+                        return _LoadSlot(inflight, None, owner=True)
+
+                    if inflight is not None:
+                        self._record({"wait": 1})
+                        return _LoadSlot(inflight, None, owner=False)
+
+                    entry = self._entries.get(key)
                     if (
-                        live is not None
-                        and live is stale
-                        and live.epoch == epoch
-                        and live.generation == generation
+                        entry is not None
+                        and time.monotonic() - entry.checked_at
+                        < self._settings.revalidate_seconds
                     ):
-                        live.checked_at = now
                         self._entries.move_to_end(key)
-                        self._hits += 1
                         self._record({"hit": 1})
-                        return live.content
-        self._misses += 1
-        content = await self._inner.read(reference)
-        self._loads += 1
-        async with self._lock:
-            if self._epoch == epoch and self._generations.get(key, 0) == generation:
-                self._store(key, content, epoch, generation)
-            self._record({"miss": 1, "load": 1})
-        return content
+                        return entry.content
+
+                    inflight = _Inflight(anyio.Event(), refresh=False)
+                    self._inflight[key] = inflight
+                    return _LoadSlot(inflight, entry, owner=True)
+            await reset.wait()
+
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
+        key = reference.cache_key
+        while True:
+            acquired = await self._acquire(key, refresh=refresh)
+            if isinstance(acquired, ResourceContent):
+                return acquired
+            inflight = acquired.inflight
+            if acquired.owner:
+                stale = acquired.stale
+                break
+            await inflight.event.wait()
+            if inflight.error is not None:
+                raise inflight.error
+            if inflight.content is None:
+                refresh = refresh or inflight.refresh
+                continue
+            return inflight.content
+
+        try:
+            cache_hit = False
+            if stale is not None:
+                current = await self._inner.revision(reference)
+                if current is not None and current == stale.content.revision:
+                    content = stale.content
+                    cache_hit = True
+                else:
+                    content = await self._inner.read(reference)
+            else:
+                content = await self._inner.read(reference, refresh=refresh)
+
+            with anyio.CancelScope(shield=True):
+                async with self._lock:
+                    events = {"hit": 1} if cache_hit else {"miss": 1, "load": 1}
+                    if self._inflight.get(key) is inflight:
+                        evictions = 0
+                        if (
+                            cache_hit
+                            and stale is not None
+                            and self._entries.get(key) is stale
+                        ):
+                            stale.checked_at = time.monotonic()
+                            self._entries.move_to_end(key)
+                        else:
+                            evictions = self._store(key, content)
+                        self._inflight.pop(key, None)
+                        if evictions:
+                            events["eviction"] = evictions
+                    inflight.content = content
+                    inflight.event.set()
+                    self._record(events)
+            return content
+        except BaseException as error:
+            cancelled = isinstance(error, anyio.get_cancelled_exc_class())
+            with anyio.CancelScope(shield=True):
+                async with self._lock:
+                    if self._inflight.get(key) is inflight:
+                        self._inflight.pop(key, None)
+                    if not cancelled:
+                        inflight.error = error
+                    inflight.event.set()
+                    self._record({"miss": 1})
+            raise
 
     def _store(
         self,
         key: object,
         content: ResourceContent,
-        epoch: int,
-        generation: int,
-    ) -> None:
+    ) -> int:
         previous = self._entries.pop(key, None)
         if previous is not None:
             self._resident_bytes -= len(previous.content.data)
@@ -434,37 +442,92 @@ class CachingResourceReader:
             or self._settings.max_bytes == 0
             or size > self._settings.max_bytes
         ):
-            return
-        self._entries[key] = _CacheEntry(content, time.monotonic(), epoch, generation)
+            return 0
+        self._entries[key] = _CacheEntry(content, time.monotonic())
         self._resident_bytes += size
+        evictions = 0
         while (
             len(self._entries) > self._settings.max_entries
             or self._resident_bytes > self._settings.max_bytes
         ):
             _, evicted = self._entries.popitem(last=False)
             self._resident_bytes -= len(evicted.content.data)
-            self._evictions += 1
+            evictions += 1
+        return evictions
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
         return await self._inner.revision(reference)
 
     async def invalidate(self, reference: ResourceRef) -> None:
         key = reference.cache_key
-        async with self._lock:
-            self._generations[key] = self._generations.get(key, 0) + 1
-            entry = self._entries.pop(key, None)
-            if entry is not None:
-                self._resident_bytes -= len(entry.content.data)
-        await self._inner.invalidate(reference)
+        async with self._reset_lock:
+            reset = anyio.Event()
+            async with self._lock:
+                self._reset_keys[key] = reset
+                entry = self._entries.pop(key, None)
+                if entry is not None:
+                    self._resident_bytes -= len(entry.content.data)
+                self._inflight.pop(key, None)
+                self._record({})
+            try:
+                await self._inner.invalidate(reference)
+            finally:
+                with anyio.CancelScope(shield=True):
+                    async with self._lock:
+                        if self._reset_keys.get(key) is reset:
+                            self._reset_keys.pop(key, None)
+                        reset.set()
 
     async def clear(self) -> None:
-        async with self._lock:
-            self._epoch += 1
-            self._entries.clear()
-            self._resident_bytes = 0
-            self._generations.clear()
-            self._record({})
-        await self._inner.clear()
+        async with self._reset_lock:
+            reset = anyio.Event()
+            async with self._lock:
+                self._reset_all = reset
+                self._entries.clear()
+                self._inflight.clear()
+                self._resident_bytes = 0
+                self._record({})
+            try:
+                await self._inner.clear()
+            finally:
+                with anyio.CancelScope(shield=True):
+                    async with self._lock:
+                        if self._reset_all is reset:
+                            self._reset_all = None
+                        reset.set()
+
+
+@final
+class SingleflightResourceReader:
+    """Compatibility facade for deduplicated reads without content residency."""
+
+    def __init__(self, inner: ResourceReader) -> None:
+        self._reader = CachingResourceReader(
+            inner,
+            settings=ResourceCacheSettings(
+                max_entries=0,
+                max_bytes=0,
+                revalidate_seconds=0,
+            ),
+            observer=NoopCacheObserver(),
+        )
+
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
+        return await self._reader.read(reference, refresh=refresh)
+
+    async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
+        return await self._reader.revision(reference)
+
+    async def invalidate(self, reference: ResourceRef) -> None:
+        await self._reader.invalidate(reference)
+
+    async def clear(self) -> None:
+        await self._reader.clear()
 
 
 def build_resource_reader(
@@ -476,8 +539,7 @@ def build_resource_reader(
         worker,
         max_resource_bytes=settings.max_resource_bytes,
     )
-    singleflight = SingleflightResourceReader(direct)
-    return CachingResourceReader(singleflight, settings=settings, observer=observer)
+    return CachingResourceReader(direct, settings=settings, observer=observer)
 
 
 __all__ = [

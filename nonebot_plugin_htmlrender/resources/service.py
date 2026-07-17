@@ -166,9 +166,7 @@ class ResourceService:
         normalized = self._reference(reference)
         if isinstance(normalized, FileResourceRef):
             normalized = FileResourceRef(self.authorize_local(normalized.path))
-        if refresh:
-            await self._reader.invalidate(normalized)
-        return (await self._reader.read(normalized)).data
+        return (await self._reader.read(normalized, refresh=refresh)).data
 
     async def read_text(
         self,

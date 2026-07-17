@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from collections import Counter
 from email.message import Message
+from functools import partial
 from typing import TYPE_CHECKING
 from urllib.error import HTTPError
 
@@ -57,13 +59,20 @@ class MemoryReader:
     def __init__(self, contents: dict[object, ResourceContent]) -> None:
         self.contents = contents
         self.reads: list[object] = []
+        self.refreshes: list[bool] = []
         self.revisions: list[object] = []
         self.invalidated: list[object] = []
         self.clear_calls = 0
 
-    async def read(self, reference: ResourceRef) -> ResourceContent:
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
         key = reference.cache_key
         self.reads.append(key)
+        self.refreshes.append(refresh)
         return self.contents[key]
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
@@ -85,9 +94,15 @@ class BlockingReader(MemoryReader):
         self.release = anyio.Event()
         self.error: BaseException | None = None
 
-    async def read(self, reference: ResourceRef) -> ResourceContent:
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
         key = reference.cache_key
         self.reads.append(key)
+        self.refreshes.append(refresh)
         self.started.set()
         await self.release.wait()
         if self.error is not None:
@@ -95,20 +110,76 @@ class BlockingReader(MemoryReader):
         return self.contents[key]
 
 
-class StaleFirstReader(MemoryReader):
+class RefreshBlockingReader(MemoryReader):
+    def __init__(self, contents: dict[object, ResourceContent]) -> None:
+        super().__init__(contents)
+        self.refresh_started = anyio.Event()
+        self.release_refresh = anyio.Event()
+
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
+        key = reference.cache_key
+        self.reads.append(key)
+        self.refreshes.append(refresh)
+        if refresh:
+            self.refresh_started.set()
+            await self.release_refresh.wait()
+        return self.contents[key]
+
+
+class TwoLoadBlockingReader(MemoryReader):
     def __init__(self, contents: dict[object, ResourceContent]) -> None:
         super().__init__(contents)
         self.first_started = anyio.Event()
         self.release_first = anyio.Event()
+        self.second_started = anyio.Event()
+        self.release_second = anyio.Event()
 
-    async def read(self, reference: ResourceRef) -> ResourceContent:
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
         key = reference.cache_key
         self.reads.append(key)
+        self.refreshes.append(refresh)
         captured = self.contents[key]
         if len(self.reads) == 1:
             self.first_started.set()
             await self.release_first.wait()
+        elif len(self.reads) == 2:
+            self.second_started.set()
+            await self.release_second.wait()
         return captured
+
+
+class ResetBlockingReader(MemoryReader):
+    def __init__(self, contents: dict[object, ResourceContent]) -> None:
+        super().__init__(contents)
+        self.reset_started = anyio.Event()
+        self.release_reset = anyio.Event()
+
+    async def invalidate(self, reference: ResourceRef) -> None:
+        await super().invalidate(reference)
+        self.reset_started.set()
+        await self.release_reset.wait()
+
+    async def clear(self) -> None:
+        self.clear_calls += 1
+        self.reset_started.set()
+        await self.release_reset.wait()
+
+
+def _observed_events(observer: RecordingCacheObserver) -> Counter[str]:
+    events: Counter[str] = Counter()
+    for _, recorded, _, _ in observer.calls:
+        events.update(recorded)
+    return events
 
 
 def _cache(
@@ -260,7 +331,9 @@ async def test_caching_reader_hits_and_revalidates_by_revision(
 
 
 @pytest.mark.anyio
-async def test_caching_reader_enforces_lru_and_byte_limits() -> None:
+async def test_caching_reader_enforces_lru_and_byte_limits(
+    recording_observer: RecordingCacheObserver,
+) -> None:
     references = [InlineResourceRef(str(index).encode()) for index in range(4)]
     inner = MemoryReader(
         {
@@ -268,7 +341,12 @@ async def test_caching_reader_enforces_lru_and_byte_limits() -> None:
             for index, reference in enumerate(references)
         }
     )
-    cached = _cache(inner, max_entries=2, max_bytes=4)
+    cached = _cache(
+        inner,
+        max_entries=2,
+        max_bytes=4,
+        observer=recording_observer,
+    )
 
     await cached.read(references[0])
     await cached.read(references[1])
@@ -282,6 +360,7 @@ async def test_caching_reader_enforces_lru_and_byte_limits() -> None:
         references[2].cache_key,
         references[1].cache_key,
     ]
+    assert _observed_events(recording_observer)["eviction"] == 2
 
 
 @pytest.mark.anyio
@@ -317,25 +396,73 @@ async def test_caching_reader_invalidate_and_clear_are_instance_local() -> None:
 
 
 @pytest.mark.anyio
-async def test_invalidation_prevents_stale_inflight_writeback() -> None:
+@pytest.mark.parametrize("operation", ["invalidate", "clear"])
+async def test_cache_reset_detaches_stale_inflight_writeback(operation: str) -> None:
     reference = InlineResourceRef(b"key")
-    inner = StaleFirstReader({reference.cache_key: _content(b"old", "one")})
+    inner = TwoLoadBlockingReader({reference.cache_key: _content(b"old", "one")})
     cached = _cache(inner)
     old_results: list[bytes] = []
+    new_results: list[bytes] = []
 
     async def load_old() -> None:
         old_results.append((await cached.read(reference)).data)
 
+    async def load_new() -> None:
+        new_results.append((await cached.read(reference)).data)
+
     async with anyio.create_task_group() as group:
         group.start_soon(load_old)
         await inner.first_started.wait()
-        await cached.invalidate(reference)
         inner.contents[reference.cache_key] = _content(b"new", "two")
-        assert (await cached.read(reference)).data == b"new"
+        if operation == "invalidate":
+            await cached.invalidate(reference)
+        else:
+            await cached.clear()
+        group.start_soon(load_new)
+        await inner.second_started.wait()
         inner.release_first.set()
+        await wait_all_tasks_blocked()
+        assert old_results == [b"old"]
+        assert new_results == []
+        inner.release_second.set()
 
-    assert old_results == [b"old"]
+    assert new_results == [b"new"]
     assert (await cached.read(reference)).data == b"new"
+    assert len(inner.reads) == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("operation", ["invalidate", "clear"])
+async def test_cache_reset_blocks_new_reads_until_inner_reset_finishes(
+    operation: str,
+) -> None:
+    reference = InlineResourceRef(b"key")
+    inner = ResetBlockingReader({reference.cache_key: _content(b"old", "one")})
+    cached = _cache(inner)
+
+    assert (await cached.read(reference)).data == b"old"
+    inner.contents[reference.cache_key] = _content(b"new", "two")
+    results: list[bytes] = []
+
+    async def reset() -> None:
+        if operation == "invalidate":
+            await cached.invalidate(reference)
+        else:
+            await cached.clear()
+
+    async def read() -> None:
+        results.append((await cached.read(reference)).data)
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(reset)
+        await inner.reset_started.wait()
+        group.start_soon(read)
+        await wait_all_tasks_blocked()
+        assert results == []
+        assert len(inner.reads) == 1
+        inner.release_reset.set()
+
+    assert results == [b"new"]
     assert len(inner.reads) == 2
 
 
@@ -392,10 +519,12 @@ async def test_singleflight_broadcasts_errors_without_caching_them() -> None:
 
 
 @pytest.mark.anyio
-async def test_decorator_chain_singleflights_before_cache_writeback() -> None:
+async def test_caching_reader_singleflights_metrics_and_writeback(
+    recording_observer: RecordingCacheObserver,
+) -> None:
     reference = InlineResourceRef(b"key")
     inner = BlockingReader({reference.cache_key: _content(b"value", "one")})
-    reader = _cache(SingleflightResourceReader(inner))
+    reader = _cache(inner, observer=recording_observer)
     results: list[bytes] = []
 
     async def read() -> None:
@@ -410,6 +539,170 @@ async def test_decorator_chain_singleflights_before_cache_writeback() -> None:
         inner.release.set()
 
     assert results == [b"value"] * 7
+    assert len(inner.reads) == 1
+    assert _observed_events(recording_observer) == Counter(
+        {"miss": 1, "load": 1, "wait": 6}
+    )
+    assert recording_observer.calls[-1][-2:] == (1, len(b"value"))
+
+
+@pytest.mark.anyio
+async def test_concurrent_refreshes_coalesce_and_supersede_cached_reads(
+    recording_observer: RecordingCacheObserver,
+) -> None:
+    reference = InlineResourceRef(b"key")
+    inner = RefreshBlockingReader({reference.cache_key: _content(b"old", "one")})
+    reader = _cache(inner, observer=recording_observer)
+
+    assert (await reader.read(reference)).data == b"old"
+    inner.contents[reference.cache_key] = _content(b"new", "two")
+    results: dict[str, bytes] = {}
+
+    async def load(label: str, *, refresh: bool) -> None:
+        results[label] = (await reader.read(reference, refresh=refresh)).data
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(partial(load, "refresh-owner", refresh=True))
+        await inner.refresh_started.wait()
+        group.start_soon(partial(load, "refresh-waiter", refresh=True))
+        group.start_soon(partial(load, "ordinary-waiter", refresh=False))
+        await wait_all_tasks_blocked()
+        assert results == {}
+        assert len(inner.reads) == 2
+        inner.release_refresh.set()
+
+    assert results == {
+        "refresh-owner": b"new",
+        "refresh-waiter": b"new",
+        "ordinary-waiter": b"new",
+    }
+    assert inner.refreshes == [False, True]
+    assert _observed_events(recording_observer) == Counter(
+        {"miss": 2, "load": 2, "wait": 2}
+    )
+    assert (await reader.read(reference)).data == b"new"
+
+
+@pytest.mark.anyio
+async def test_refresh_replaces_cold_load_without_crossing_waiter_groups(
+    recording_observer: RecordingCacheObserver,
+) -> None:
+    reference = InlineResourceRef(b"key")
+    inner = TwoLoadBlockingReader({reference.cache_key: _content(b"old", "one")})
+    reader = _cache(inner, observer=recording_observer)
+    old_results: list[bytes] = []
+    refreshed_results: dict[str, bytes] = {}
+
+    async def load_old() -> None:
+        old_results.append((await reader.read(reference)).data)
+
+    async def load_refreshed(label: str, *, refresh: bool) -> None:
+        refreshed_results[label] = (await reader.read(reference, refresh=refresh)).data
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(load_old)
+        await inner.first_started.wait()
+        group.start_soon(load_old)
+        await wait_all_tasks_blocked()
+        inner.contents[reference.cache_key] = _content(b"new", "two")
+        group.start_soon(partial(load_refreshed, "refresh-owner", refresh=True))
+        await inner.second_started.wait()
+        group.start_soon(partial(load_refreshed, "refresh-waiter", refresh=True))
+        group.start_soon(partial(load_refreshed, "ordinary-waiter", refresh=False))
+        await wait_all_tasks_blocked()
+        inner.release_first.set()
+        await wait_all_tasks_blocked()
+        assert old_results == [b"old", b"old"]
+        assert refreshed_results == {}
+        inner.release_second.set()
+
+    assert refreshed_results == {
+        "refresh-owner": b"new",
+        "refresh-waiter": b"new",
+        "ordinary-waiter": b"new",
+    }
+    assert inner.refreshes == [False, True]
+    assert (await reader.read(reference)).data == b"new"
+    assert len(inner.reads) == 2
+    assert _observed_events(recording_observer) == Counter(
+        {"miss": 2, "load": 2, "wait": 3, "hit": 1}
+    )
+
+
+@pytest.mark.anyio
+async def test_singleflight_leader_cancellation_makes_waiter_retry(
+    recording_observer: RecordingCacheObserver,
+) -> None:
+    reference = InlineResourceRef(b"key")
+    inner = BlockingReader({reference.cache_key: _content(b"value", "one")})
+    reader = _cache(inner, observer=recording_observer)
+    owner_scope: anyio.CancelScope | None = None
+    waiter_results: list[bytes] = []
+
+    async def owner() -> None:
+        nonlocal owner_scope
+        with anyio.CancelScope() as scope:
+            owner_scope = scope
+            await reader.read(reference)
+
+    async def waiter() -> None:
+        waiter_results.append((await reader.read(reference)).data)
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(owner)
+        await inner.started.wait()
+        group.start_soon(waiter)
+        await wait_all_tasks_blocked()
+        assert _observed_events(recording_observer)["wait"] == 1
+        if owner_scope is None:
+            raise AssertionError("owner cancellation scope was not initialized")
+        owner_scope.cancel()
+        await wait_all_tasks_blocked()
+        assert len(inner.reads) == 2
+        assert waiter_results == []
+        inner.release.set()
+
+    assert waiter_results == [b"value"]
+    assert len(inner.reads) == 2
+    assert (await reader.read(reference)).data == b"value"
+    assert _observed_events(recording_observer) == Counter(
+        {"miss": 2, "load": 1, "wait": 1, "hit": 1}
+    )
+
+
+@pytest.mark.anyio
+async def test_singleflight_waiter_cancellation_keeps_shared_load_alive(
+    recording_observer: RecordingCacheObserver,
+) -> None:
+    reference = InlineResourceRef(b"key")
+    inner = BlockingReader({reference.cache_key: _content(b"value", "one")})
+    reader = _cache(inner, observer=recording_observer)
+    waiter_scope: anyio.CancelScope | None = None
+    owner_results: list[bytes] = []
+
+    async def owner() -> None:
+        owner_results.append((await reader.read(reference)).data)
+
+    async def waiter() -> None:
+        nonlocal waiter_scope
+        with anyio.CancelScope() as scope:
+            waiter_scope = scope
+            await reader.read(reference)
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(owner)
+        await inner.started.wait()
+        group.start_soon(waiter)
+        await wait_all_tasks_blocked()
+        assert _observed_events(recording_observer)["wait"] == 1
+        if waiter_scope is None:
+            raise AssertionError("waiter cancellation scope was not initialized")
+        waiter_scope.cancel()
+        await wait_all_tasks_blocked()
+        inner.release.set()
+
+    assert owner_results == [b"value"]
+    assert (await reader.read(reference)).data == b"value"
     assert len(inner.reads) == 1
 
 

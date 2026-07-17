@@ -130,6 +130,123 @@ def test_weighted_cache_broadcasts_factory_errors() -> None:
     assert cache.stats().entries == 0
 
 
+def test_weighted_cache_clear_detaches_inflight_factory() -> None:
+    cache = SyncWeightedSingleflightLRU[str, str](max_entries=4, max_weight=16)
+    first_started = threading.Event()
+    release_first = threading.Event()
+    calls = 0
+    calls_lock = threading.Lock()
+
+    def factory() -> str:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+            call = calls
+        if call == 1:
+            first_started.set()
+            if not release_first.wait(timeout=2):
+                raise AssertionError("test did not release the first factory")
+            return "old"
+        return "new"
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        old_owner = executor.submit(
+            cache.get_or_insert,
+            "same",
+            weight=1,
+            factory=factory,
+        )
+        if not first_started.wait(timeout=1):
+            raise AssertionError("first cache factory did not start")
+        old_waiter = executor.submit(
+            cache.get_or_insert,
+            "same",
+            weight=1,
+            factory=factory,
+        )
+        deadline = time.monotonic() + 1
+        while cache.stats().waits < 1 and time.monotonic() < deadline:
+            time.sleep(0.001)
+        if cache.stats().waits != 1:
+            raise AssertionError("old waiter did not join the in-flight factory")
+
+        cache.clear()
+        assert (
+            executor.submit(
+                cache.get_or_insert,
+                "same",
+                weight=1,
+                factory=factory,
+            ).result(timeout=1)
+            == "new"
+        )
+        release_first.set()
+        assert old_owner.result(timeout=1) == "old"
+        assert old_waiter.result(timeout=1) == "old"
+
+    assert cache.get_or_insert("same", weight=1, factory=lambda: "unused") == "new"
+    assert calls == 2
+    assert cache.stats().entries == 1
+
+
+def test_weighted_cache_old_error_after_clear_does_not_remove_new_inflight() -> None:
+    cache = SyncWeightedSingleflightLRU[str, str](max_entries=4, max_weight=16)
+    first_started = threading.Event()
+    release_first = threading.Event()
+    second_started = threading.Event()
+    release_second = threading.Event()
+    calls = 0
+    calls_lock = threading.Lock()
+
+    def factory() -> str:
+        nonlocal calls
+        with calls_lock:
+            calls += 1
+            call = calls
+        if call == 1:
+            first_started.set()
+            if not release_first.wait(timeout=2):
+                raise AssertionError("test did not release the first factory")
+            raise RuntimeError("old failed")
+        if call == 2:
+            second_started.set()
+            if not release_second.wait(timeout=2):
+                raise AssertionError("test did not release the second factory")
+            return "new"
+        raise AssertionError("unexpected cache factory call")
+
+    def load() -> str:
+        return cache.get_or_insert("same", weight=1, factory=factory)
+
+    with ThreadPoolExecutor(max_workers=3) as executor:
+        old_owner = executor.submit(load)
+        if not first_started.wait(timeout=1):
+            raise AssertionError("first cache factory did not start")
+        old_waiter = executor.submit(load)
+        deadline = time.monotonic() + 1
+        while cache.stats().waits < 1 and time.monotonic() < deadline:
+            time.sleep(0.001)
+        if cache.stats().waits != 1:
+            raise AssertionError("old waiter did not join the in-flight factory")
+
+        cache.clear()
+        new_owner = executor.submit(load)
+        if not second_started.wait(timeout=1):
+            raise AssertionError("second cache factory did not start")
+        release_first.set()
+        with pytest.raises(RuntimeError, match="old failed"):
+            old_owner.result(timeout=1)
+        with pytest.raises(RuntimeError, match="old failed"):
+            old_waiter.result(timeout=1)
+        assert not new_owner.done()
+        release_second.set()
+        assert new_owner.result(timeout=1) == "new"
+
+    assert cache.get_or_insert("same", weight=1, factory=lambda: "unused") == "new"
+    assert calls == 2
+    assert cache.stats().entries == 1
+
+
 def test_weighted_cache_exports_event_deltas_and_state() -> None:
     observer = _RecordingCacheObserver()
     cache = SyncWeightedSingleflightLRU[str, str](

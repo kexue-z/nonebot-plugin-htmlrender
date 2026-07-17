@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from hashlib import sha256
 from pathlib import Path, PurePosixPath
 from typing import TypeAlias
 from urllib.parse import urlsplit
@@ -74,10 +75,20 @@ class RemoteResourceRef:
 class InlineResourceRef:
     data: bytes
     media_type: str | None = None
+    _digest: bytes = field(init=False, repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.data, bytes):
+            raise TypeError("Inline resource data must be immutable bytes.")
+        object.__setattr__(self, "_digest", sha256(self.data).digest())
 
     @property
-    def cache_key(self) -> tuple[str, bytes, str | None]:
-        return ("inline", self.data, self.media_type)
+    def digest(self) -> str:
+        return self._digest.hex()
+
+    @property
+    def cache_key(self) -> tuple[str, bytes, int, str | None]:
+        return ("inline", self._digest, len(self.data), self.media_type)
 
 
 ResourceRef: TypeAlias = (

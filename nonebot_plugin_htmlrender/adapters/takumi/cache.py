@@ -38,6 +38,7 @@ class _Entry(Generic[V]):
 @dataclass(slots=True)
 class _Inflight(Generic[V]):
     event: threading.Event
+    epoch: int
     value: V | None = None
     error: BaseException | None = None
     completed: bool = False
@@ -60,6 +61,7 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
         self.max_weight = max_weight
         self._entries: OrderedDict[K, _Entry[V]] = OrderedDict()
         self._inflight: dict[K, _Inflight[V]] = {}
+        self._epoch = 0
         self._resident_weight = 0
         self._lock = threading.RLock()
         self._hits = 0
@@ -93,7 +95,7 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
                 return entry.value
             inflight = self._inflight.get(key)
             if inflight is None:
-                inflight = _Inflight(event=threading.Event())
+                inflight = _Inflight(event=threading.Event(), epoch=self._epoch)
                 self._inflight[key] = inflight
                 self._misses += 1
                 owner = True
@@ -112,21 +114,23 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
             value = factory()
         except BaseException as error:
             with self._lock:
-                current = self._inflight.pop(key, None)
-                if current is inflight:
-                    inflight.error = error
-                    inflight.completed = True
-                    inflight.event.set()
+                if self._inflight.get(key) is inflight:
+                    self._inflight.pop(key, None)
+                inflight.error = error
+                inflight.completed = True
+                inflight.event.set()
             raise
 
         with self._lock:
             self._loads += 1
-            self._store(key, value=value, weight=weight)
-            current = self._inflight.pop(key, None)
+            current = self._inflight.get(key)
             if current is inflight:
-                inflight.value = value
-                inflight.completed = True
-                inflight.event.set()
+                self._inflight.pop(key, None)
+                if inflight.epoch == self._epoch:
+                    self._store(key, value=value, weight=weight)
+            inflight.value = value
+            inflight.completed = True
+            inflight.event.set()
         return value
 
     def _store(self, key: K, *, value: V, weight: int) -> None:
@@ -147,7 +151,9 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
 
     def clear(self) -> None:
         with self._lock:
+            self._epoch += 1
             self._entries.clear()
+            self._inflight.clear()
             self._resident_weight = 0
         self._export_metrics()
 

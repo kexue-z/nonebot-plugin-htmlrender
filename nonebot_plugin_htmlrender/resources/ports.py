@@ -13,7 +13,12 @@ R = TypeVar("R")
 
 
 class ResourceReader(Protocol):
-    async def read(self, reference: ResourceRef) -> ResourceContent: ...
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent: ...
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None: ...
 

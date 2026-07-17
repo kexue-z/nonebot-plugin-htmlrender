@@ -91,10 +91,17 @@ class RecordingReader:
         self.invalidated: list[object] = []
         self.clears = 0
         self.reads = 0
+        self.refreshes: list[bool] = []
 
-    async def read(self, reference: ResourceRef) -> ResourceContent:
+    async def read(
+        self,
+        reference: ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> ResourceContent:
         del reference
         self.reads += 1
+        self.refreshes.append(refresh)
         return self.content
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
@@ -204,7 +211,7 @@ async def test_reader_translates_package_and_decode_failures(tmp_path: Path) -> 
 
 
 @pytest.mark.anyio
-async def test_read_refresh_invalidates_only_the_injected_reader(
+async def test_read_refresh_is_forwarded_only_to_the_injected_reader(
     tmp_path: Path,
 ) -> None:
     reference = InlineResourceRef(b"key")
@@ -232,11 +239,13 @@ async def test_read_refresh_invalidates_only_the_injected_reader(
     assert await resources.read_bytes(reference, refresh=True) == b"value"
     await resources.clear()
 
-    assert reader.invalidated == [reference.cache_key]
+    assert reader.refreshes == [True]
+    assert reader.invalidated == []
     assert reader.clears == 1
     assert other.invalidated == []
     assert other.clears == 0
     assert await other_resources.read_bytes(reference) == b"other"
+    assert other.refreshes == [False]
 
 
 @pytest.mark.anyio

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from hashlib import sha256
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -39,12 +40,22 @@ def test_resource_models_have_stable_structural_cache_keys(tmp_path: Path) -> No
         "remote",
         "https://assets.example/card.css?v=1",
     )
-    assert inline_reference.cache_key == ("inline", b"card", "text/css")
+    assert inline_reference.cache_key == (
+        "inline",
+        sha256(b"card").digest(),
+        4,
+        "text/css",
+    )
     assert ResourceContent(
         b"card",
         "text/css",
         ResourceRevision("revision"),
     ).revision == ResourceRevision("revision")
+
+
+def test_inline_resource_rejects_mutable_payloads() -> None:
+    with pytest.raises(TypeError, match="immutable bytes"):
+        InlineResourceRef(cast("bytes", bytearray(b"mutable")))
 
 
 @pytest.mark.parametrize(
