@@ -59,7 +59,9 @@ except RenderingError:
     ...
 ```
 
-不要依赖 Playwright/Takumi 内部异常作为跨版本业务契约。
+不要依赖 HTMLKit/Playwright/Takumi 内部异常作为跨版本业务契约。对无法由选定
+Provider 准确表达的通用选项，捕获稳定的 `UnsupportedRenderOption`，不要自行猜测
+降级后的尺寸或 DPR。
 
 ## 让 bootstrap 管理默认生命周期
 

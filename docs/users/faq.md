@@ -50,10 +50,12 @@ I/O 边界使用 `bytes(artifact)` 或 `artifact.data`。
 `render_template` 的 Preparation 会处理资源值；独立处理可调用
 `resolve_template_vars` 或 `to_resource_url`。严格任务使用 `strict=True`。
 
-## Playwright 与 Takumi 怎么选？
+## Playwright、HTMLKit 与 Takumi 怎么选？
 
-需要 JavaScript、页面导航、网络或浏览器 CSS 语义时选 Playwright；静态内容、
-低进程开销或 native SVG/measure/animation 时选 Takumi。
+需要 JavaScript、页面导航或完整浏览器 CSS 语义时选 Playwright；希望用轻量
+litehtml/Cairo 处理受控静态 HTML 时可评估实验性 HTMLKit；需要 Takumi 专属的
+native SVG/measure/animation 时选 Takumi。HTMLKit rc5 不支持通用 request 的精确
+DPR 或固定高度，不能作为 Playwright 的透明替代。
 
 ## 可以同时配置两个 Provider 吗？
 

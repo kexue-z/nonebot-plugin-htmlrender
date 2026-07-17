@@ -10,7 +10,7 @@ icon: lucide/sliders-horizontal
 
 | 路径 | 默认值 | 说明 |
 | --- | --- | --- |
-| `render.provider` | `null` | `playwright`、`takumi` 或第三方 Provider ID |
+| `render.provider` | `null` | `htmlkit`、`playwright`、`takumi` 或第三方 Provider ID |
 | `render.startup` | `off` | `off`、`warmup`、`probe` |
 | `render.provider_config` | `{}` | 交给已选择 Provider 的配置对象 |
 
@@ -19,6 +19,8 @@ icon: lucide/sliders-horizontal
 
 不选择 Provider 时，插件仍可加载并运行 Preparation 与
 `render_template_html`；需要位图执行器的调用会得到 `CapabilityUnavailable`。
+独立的 Pillow/Skia `RasterScene` Capability 不依赖 `render.provider`，由
+[`render.graphics`](graphics.md) 单独启用。
 
 ## 资源缓存
 

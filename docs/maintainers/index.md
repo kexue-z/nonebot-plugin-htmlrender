@@ -7,7 +7,8 @@ icon: lucide/construction
 # 维护者文档
 
 0.8 以 composition root 为唯一接线位置。核心层只依赖协议和值对象；NoneBot、
-Playwright、Takumi、Jinja、filehost 与 telemetry 都属于外部适配器。
+HTMLKit、Playwright、Takumi、Pillow、Skia、Jinja、filehost 与 telemetry 都属于
+外部适配器；默认核心对象图不携带渲染后端。
 
 ## 架构
 

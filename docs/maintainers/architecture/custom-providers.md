@@ -53,7 +53,7 @@ distribution 在 entry point group 中注册：
 echo = "htmlrender_echo_provider:PROVIDER"
 ```
 
-entry point 名必须等于 `provider.id`。`playwright`、`takumi` 为保留 ID；
+entry point 名必须等于 `provider.id`。`htmlkit`、`playwright`、`takumi` 为保留 ID；
 重复 ID、保留 ID 覆盖、加载对象不满足协议都应在 composition 前失败。
 
 ## 配置

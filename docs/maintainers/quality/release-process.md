@@ -33,7 +33,12 @@ make build-artifacts
 
 该 target 内部执行 `uv build --no-sources`、pinned `twine==6.2.0 check` 和仓库外隔离安装 smoke。`--no-sources` 很重要：发布构建不得因本地 workspace source 覆盖而得到一个无法从锁定依赖重现的产物。
 
-涉及 package resources 或 native extra 的版本还必须在仓库外、清空 `PYTHONPATH` 后安装真实产物。0.8 的门禁要求 Python 3.10–3.14 验证 wheel，Python 3.12 至少验证一次 sdist；检查全部 package resources 非空且登记在 `RECORD`，执行 NoneBot load、Preparation 与 typed artifact smoke，并在 `[takumi]` 环境确认受支持依赖版本后完成真实 native PNG 渲染。
+涉及 package resources 或 native extra 的版本还必须在仓库外、清空 `PYTHONPATH`
+后安装真实产物。0.8 的门禁要求 Python 3.10–3.14 验证 wheel，Python 3.12 至少
+验证一次 sdist；检查全部 package resources 非空且登记在 `RECORD`，验证 bare core
+不安装任何 backend，执行 NoneBot load、Preparation 与 typed artifact smoke，并在
+`[htmlkit]`、`[takumi]` 和 `[pillow,skia]` 的独立环境中确认锁定依赖和真实 native
+PNG 渲染。
 
 ## 并行开发与 release cut
 

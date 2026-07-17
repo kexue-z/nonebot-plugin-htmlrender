@@ -17,7 +17,7 @@
 
 - 统一的 `render_html`、`render_text`、`render_markdown`、`render_template` API
 - `Application` / `Renderer` 组合边界与可发现的渲染 Provider
-- Playwright 浏览器 Provider 与 Takumi 原生 Provider
+- Playwright 浏览器、Takumi 原生与实验性 HTMLKit Provider
 - 与引擎无关的 Preparation、资源服务和 `PreparedHtml`
 - `RenderedImage` / `RenderedHtml` 类型化产物
 - Playwright、Takumi 专属能力通过类型化 Capability 获取
@@ -25,15 +25,19 @@
 
 ## 安装
 
-选择一个渲染 Provider：
+本体默认不安装任何位图渲染后端，只提供 Preparation 与模板到 HTML。按需选择
+一个 HTML Provider：
 
 ```bash
 uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
 # 或
 uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+# 或（实验性、asyncio-only）
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
 ```
 
-按需增加 `filehost`、`sentry`、`prometheus`；`all` 会安装全部可选能力。
+Pillow/Skia 是独立的 `RasterScene` Capability，不属于 HTML Provider。按需增加
+`pillow`、`skia`、`filehost`、`sentry`、`prometheus`；`all` 会安装全部可选能力。
 
 ```bash
 uv add "nonebot-plugin-htmlrender[playwright,filehost,prometheus]>=0.8.0a1,<0.9"
@@ -97,5 +101,5 @@ make build-artifacts
 
 ## 许可
 
-项目使用 MIT License。启用 Takumi 或其他第三方 Provider 前，请同时检查其
-依赖与分发许可。
+项目使用 MIT License。启用 Takumi、HTMLKit 或其他第三方 Provider 前，请同时
+检查其依赖与分发许可；HTMLKit rc5 的 native core 为 LGPL-3.0-or-later。

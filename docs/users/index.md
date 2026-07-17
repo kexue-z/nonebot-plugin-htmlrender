@@ -21,6 +21,7 @@ icon: lucide/book-open
 | 场景 | 文档 |
 | --- | --- |
 | 远程浏览器 | [远程 Playwright 与资源传输](remote-playwright.md) |
+| 轻量静态 HTML | [HTMLKit 配置](config/htmlkit.md) |
 | 本地 Jinja 模板 | [示例项目](examples.md) |
 | 无浏览器的静态渲染 | [Takumi 配置与能力](config/takumi.md) |
 | 0.7 升级 | [v0.8 迁移指南](migration-v080.md) |

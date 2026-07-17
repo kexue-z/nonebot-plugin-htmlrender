@@ -77,7 +77,13 @@ filehost TTL/预热/请求头与本地路径授权都由核心 Resource Service 
 uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
 # 或
 uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+# 或（实验性、asyncio-only）
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
 ```
+
+core 安装默认不包含任何位图渲染后端。HTMLKit rc5 另有
+`device_pixel_ratio=1.0`、`height=None` 的显式限制，详见
+[HTMLKit 配置](config/htmlkit.md)。
 
 未选择 Provider 时插件仍可执行 Preparation 与 `render_template_html`；由于位图
 操作未绑定，调用会抛出 `CapabilityUnavailable`。选择了 Provider 但缺少对应
@@ -145,7 +151,7 @@ async with playwright.page(viewport={"width": 800, "height": 600}) as page:
 
 实现 `EngineProvider[SettingsT]`，通过 entry point group
 `nonebot_plugin_htmlrender.providers` 注册。entry point 名必须等于
-`provider.id`；`playwright` 与 `takumi` 是保留 ID。
+`provider.id`；`htmlkit`、`playwright` 与 `takumi` 是保留 ID。
 
 0.7 与 0.8 开发分支中曾存在的过渡 Provider 接口不构成兼容契约。第三方
 Provider 必须适配 0.8.0a1 起公开的类型化 settings、`ProviderDependencies`、

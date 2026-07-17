@@ -10,7 +10,7 @@ icon: lucide/workflow
 
 先列出跨引擎语义与专属语义：
 
-- 能消费 `PreparedHtml` 并输出 raster bytes，才提供
+- 能消费 `PreparedHtml` 并输出 `RenderedImage`，才提供
   `PreparedHtmlExecutor`；
 - 页面、node、measure、animation 等放入 typed Capability；
 - 无法满足的 `RenderRequirement` 抛 `UnsupportedRequirement`，不得静默忽略。
@@ -40,7 +40,10 @@ Playwright lease 持有 driver/browser，单次操作创建 context/page；Takum
 ## 4. 实现 executor 与 Capability
 
 executor 只接受 `PreparedHtml`、`RasterOptions`、资源策略和操作超时。检查
-requirements 后执行，并把原始 bytes 交回 application 层封装。
+requirements 后执行。Adapter 在收到引擎编码 bytes 的边界立即调用
+`RenderedImage.from_bytes(data, expected_format=options.format)`，由产物解析真实物理
+像素尺寸并拒绝格式不匹配；检查失败需按执行错误翻译。Application 层只透传同一
+`RenderedImage`，不得再根据请求参数拼装元数据。
 
 Capability 与 executor 必须共享同一 lease provider，避免出现两份 runtime。
 输出对象不得让调用方绕过生命周期。
@@ -81,7 +84,7 @@ entry point 名与 `provider.id` 一致；测试至少覆盖：
 - 两个 composition 的资源、cache、observer 完全隔离；
 - 安装 wheel 后的真实 entry point smoke。
 
-真实引擎还需端到端 smoke，不能用“返回了 bytes”替代渲染语义断言。
+真实引擎还需端到端 smoke，不能用“构造出了 `RenderedImage`”替代渲染语义断言。
 
 ## 8. 文档与发布
 

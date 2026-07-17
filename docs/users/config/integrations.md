@@ -10,21 +10,36 @@ icon: lucide/activity
 
 | extra | 用途 |
 | --- | --- |
+| `htmlkit` | 实验性 HTMLKit/litehtml Provider |
 | `playwright` | Playwright Provider |
 | `takumi` | Takumi Provider |
+| `pillow` | 独立 Pillow `RasterScene` Capability |
+| `skia` | 独立 Skia `RasterScene` Capability |
 | `filehost` | Playwright 的显式 HTTP asset publisher |
 | `sentry` | Sentry spans 与 metrics |
 | `prometheus` | Prometheus metrics |
-| `all` | 安装上述全部能力 |
+| `all` | 安装上述全部能力，包括具有平台限制的 Skia |
 
 ```bash
 uv add "nonebot-plugin-htmlrender[playwright,sentry,prometheus]>=0.8.0a1,<0.9"
 ```
 
-Playwright/Takumi 的引擎库缺失会形成可诊断的 Provider availability；插件不会
-在 import 时无条件加载所有引擎。filehost transport 不同：为了在 ASGI 启动前
+HTMLKit/Playwright/Takumi 的引擎库缺失会形成可诊断的 Provider availability；插件
+不会在 import 时无条件加载所有引擎。选择 HTMLKit 时，bootstrap 会在 NoneBot
+startup 前只加载其对应插件，以注册上游 Fontconfig 初始化 hook。filehost transport
+不同：为了在 ASGI 启动前
 安装 guard，bootstrap 会立即 `require` 对应 NoneBot 插件；缺少 `filehost` extra
 或加载失败会直接抛出 `ProviderUnavailable`。
+
+Pillow/Skia 只在 `render.graphics.backends` 显式配置后加载，并形成独立 typed
+Capability，不进入 Provider discovery。Skia 没有 sdist/musllinux wheel，并要求
+manylinux_2_28、macOS 11+ 或受支持的 Windows wheel；Linux 还可能需要 OpenGL、
+`libEGL` 与 fontconfig 运行库。Alpine/musl 或旧 glibc 镜像不要安装 `skia` 或
+`all` extra；完整平台矩阵与配置见 [Pillow 与 Skia 位图场景](graphics.md)。
+
+HTMLKit 当前精确锁定 `nonebot-plugin-htmlkit==0.1.0rc5`。它不引入 Playwright 或
+Pillow，但属于 prerelease，平台 wheel、选项限制和 Fontconfig 生命周期见
+[HTMLKit 配置](htmlkit.md)。
 
 ## 开启观测
 

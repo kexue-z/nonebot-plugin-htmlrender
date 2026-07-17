@@ -78,11 +78,15 @@ artifact = await get_default_application().renderer.render_html(request)
 `RenderedImage` 提供：
 
 - `data: bytes`
-- `format: str`
-- `width: int | None`
-- `height: int | None`
+- `format: Literal["png", "jpeg"]`
+- `width: int`
+- `height: int`
 - `media_type: str`
 - `bytes(artifact)`
+
+格式与尺寸来自后端实际返回的编码数据；尺寸是最终图片的物理像素，不是请求中的
+CSS viewport。因而 DPR 与 Playwright full-page 截图也能得到准确元数据。
+构造时只检查识别格式与尺寸所需的有界容器元数据，不替代图片解码器的完整校验。
 
 `RenderedHtml` 提供 `content: str` 与 `str(artifact)`。不要依赖隐式类型转换。
 
@@ -148,7 +152,60 @@ await app.probe()
 await app.aclose()
 ```
 
-`startup()` 与 `aclose()` 幂等；关闭后不可重新启动，应创建新的 composition。
+`startup()` 与 `aclose()` 幂等。`aclose()` 会先拒绝新的 Renderer、Preparation 与
+Resource Service 异步操作，等待已经获准的完整操作结束，再清理 Provider 与缓存；
+即使调用方事先保留了这些 facade 的引用，关闭后也不能重新填充缓存。关闭失败可重试，
+但一旦进入关闭流程便永久拒绝新操作；需要再次渲染时应创建新的 composition。
+
+## RasterScene Capability
+
+Pillow 与 Skia 接受同一个后端中立、物理像素级 `RasterScene`，但分别注册为独立
+typed Capability。调用方必须明确要求需要的后端：
+
+```python
+from nonebot_plugin_htmlrender import get_default_application
+from nonebot_plugin_htmlrender.graphics import (
+    PILLOW_RASTER_SCENE_RENDERER,
+    SKIA_RASTER_SCENE_RENDERER,
+    FillRect,
+    PixelRect,
+    RasterEncodeOptions,
+    RasterScene,
+    RenderRasterSceneRequest,
+    RGBAColor,
+)
+
+app = get_default_application()
+pillow = app.capabilities.require(PILLOW_RASTER_SCENE_RENDERER)
+skia = app.capabilities.require(SKIA_RASTER_SCENE_RENDERER)
+
+request = RenderRasterSceneRequest(
+    scene=RasterScene(
+        width=320,
+        height=180,
+        background=RGBAColor(255, 255, 255),
+        commands=(
+            FillRect(
+                PixelRect(x=24, y=24, width=128, height=72),
+                RGBAColor(229, 57, 53, 192),
+            ),
+        ),
+    ),
+    output=RasterEncodeOptions(format="png"),
+)
+image = await pillow.render(request)
+```
+
+`PixelRect` 使用整数、左闭右开的坐标，超出画布的部分会被裁剪；命令按 tuple 顺序
+使用 source-over 合成。JPEG 可通过 `RasterEncodeOptions` 指定 `quality` 和不透明
+`matte`。两个后端不会泄露 Pillow/Skia 原生对象，也不承诺产生相同 bytes 或精确
+channel 值。
+
+这两项能力不是 `EngineProvider`，不进入 `render.provider`、HTMLKit/Playwright/Takumi
+Provider discovery 或通用 HTML request。它们由 `render.graphics.backends` 显式
+启用；缺失配置的 key 会抛出 `CapabilityUnavailable`，缺少已配置 backend 的 extra
+会在 composition 时抛出 `RasterBackendUnavailable`。安装、平台限制与共享资源预算
+见 [Pillow 与 Skia 位图场景](config/graphics.md)。
 
 ## Playwright Capability
 
@@ -208,13 +265,16 @@ executor 边界由库产生或翻译的错误都继承 `RenderingError`：
 | `ProviderNotFound` | 配置的 Provider ID 无法发现 |
 | `ProviderUnavailable` | Provider 存在但当前环境不可运行 |
 | `CapabilityUnavailable` | composition 未绑定请求的操作或 typed Capability；`provider: null` 的位图调用也属于此类 |
+| `UnsupportedRenderOption` | 选定 Provider 无法准确表示某个通用 raster 选项 |
 | `UnsupportedRequirement` | 文档需求超出 Provider 能力 |
 | `ResourceResolutionError` | 资源读取、授权或物化失败 |
 | `ProviderExecutionError` | Provider 执行失败 |
 | `ProviderLifecycleError` | startup、probe 或关闭失败 |
+| `RasterBackendUnavailable` | 已配置 Pillow/Skia backend，但依赖或运行环境不可用 |
+| `RasterBackendExecutionError` | Pillow/Skia native draw 或 encode 失败 |
 
-通用 executor 的适配器边界会把引擎异常翻译为这些类型；业务代码不应捕获
-引擎内部异常作为通用 API 的稳定契约。typed Capability 属于 Provider 专属 API：
-获取缺失 Capability 与 lease 生命周期仍使用上述稳定错误，但 raw Playwright
-`Page` 或 Takumi extension 内的专属操作可能直接抛出对应引擎异常，调用方需按
-该 Capability 文档处理。
+通用 executor 与 graphics adapter 的边界会把 native 异常翻译为这些类型；业务
+代码不应捕获引擎内部异常作为稳定契约。typed Capability 可以属于 Provider，也可
+像 Pillow/Skia 一样独立组合。获取缺失 Capability 与 lease 生命周期仍使用上述稳定
+错误；但 raw Playwright `Page` 或 Takumi extension 内的专属操作可能直接抛出对应
+引擎异常，调用方需按该 Capability 文档处理。

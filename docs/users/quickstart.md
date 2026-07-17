@@ -8,6 +8,13 @@ icon: lucide/rocket
 
 ## 1. 安装
 
+本体默认不携带 Playwright、HTMLKit、Takumi、Pillow 或 Skia。仅需要
+Preparation/模板到 HTML 时可直接安装 core：
+
+```bash
+uv add "nonebot-plugin-htmlrender>=0.8.0a1,<0.9"
+```
+
 浏览器语义最完整，推荐首次接入选择 Playwright：
 
 ```bash
@@ -20,6 +27,15 @@ uv run playwright install chromium
 ```bash
 uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
 ```
+
+也可以试用无需浏览器进程的 HTMLKit；它当前只支持 asyncio，并要求调用时
+显式使用 `device_pixel_ratio=1.0`、`height=None`：
+
+```bash
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
+```
+
+详见 [HTMLKit 配置与限制](config/htmlkit.md)。
 
 ## 2. 配置
 

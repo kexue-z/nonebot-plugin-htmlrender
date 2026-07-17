@@ -73,7 +73,7 @@ Provider entry point 会在进程内执行代码，其权限与 Bot 相同。
 - 保持 cache entry/byte 上限；
 - 限制 HTML、Markdown、模板变量与 asset 大小；
 - 设置 `timeout_seconds`；
-- 限制 Playwright 页面、Takumi worker 和并发请求数；
+- 限制 Playwright 页面、HTMLKit native thread、Takumi worker 和并发请求数；
 - 对用户可控 URL 限制下载大小与重定向次数。
 
 单个巨大资源不应挤占整个缓存预算；超限应作为资源错误报告。

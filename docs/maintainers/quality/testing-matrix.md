@@ -75,7 +75,9 @@ Ruff、`ty`、`basedpyright`、package 与 docs 固定在 Python 3.12，减少�
 
 - 修改 `pyproject.toml`、`uv.lock`、包内资源、入口点或发布 workflow：运行 `make build-artifacts`；该 target 内部执行 `uv build --no-sources` 与 pinned `twine==6.2.0 check`；
 - package resource 门禁必须在仓库外、清空 `PYTHONPATH` 后安装真实 wheel；Python 3.10–3.14 均验证 package resources 与 NoneBot/preparation smoke，Python 3.12 另验证 sdist；
-- wheel/`RECORD` 检查九个内置资源均存在且非空；`[takumi]` smoke 精确校验 `takumi-py==0.2.0` 并执行真实 native PNG；
+- wheel/`RECORD` 检查九个内置资源均存在且非空；bare-core smoke 断言 HTMLKit、
+  Playwright、Takumi、Pillow 与 Skia 均未安装；`[htmlkit]` 与 `[takumi]` 分别校验
+  锁定版本并执行真实 native PNG，`[pillow,skia]` 验证独立 `RasterScene` 能力；
 - 修改文档、MkDocs/Zensical 配置、文档依赖、Make target 或 docs workflow：运行 `make docs-build`，该 target 执行 strict build；
 - 修改插件入口、metadata、config 或依赖：除单测外必须等待完整 `noneload` 矩阵；
 - 修改公开行为：同步更新用户文档、回归测试和必要的迁移说明。

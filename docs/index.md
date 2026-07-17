@@ -39,6 +39,7 @@ icon: lucide/image
 | Preparation | 生成可移植的 `PreparedHtml` 与 `PreparedAsset` |
 | Resource Service | 读取、授权、缓存并物化文档资源 |
 | Provider | 校验专属配置并组合执行器、生命周期和 Capability |
+| Graphics Capability | 通过独立 Pillow/Skia adapter 执行物理像素 `RasterScene` |
 | typed artifact | 用 `RenderedImage` / `RenderedHtml` 保存结果与元数据 |
 
 ## 常用入口

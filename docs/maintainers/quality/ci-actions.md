@@ -35,8 +35,11 @@ tags:
 
 - `Ruff`：依次运行 `ruff format --check` 与 `ruff check`，只验证 checkout，不改写文件；
 - `Ty` 与 `Basedpyright`：两套类型检查器分别执行；
-- `Package Build`：`uv build --no-sources` 构建 wheel/sdist，用 `twine check` 校验 metadata，并在 Python 3.12 隔离安装 wheel/sdist；
-- `Wheel Smoke`：复用同一 artifact，在 Python 3.10、3.11、3.13、3.14 隔离安装 wheel 与 `[takumi]`，执行资源 preparation 和 native PNG；
+- `Package Build`：`uv build --no-sources` 构建 wheel/sdist，用 `twine check` 校验
+  metadata，并在 Python 3.12 隔离安装 bare core、`[htmlkit]`、`[takumi]` 与
+  `[pillow,skia]`；
+- `Wheel Smoke`：复用同一 artifact，在 Python 3.10、3.11、3.13、3.14 隔离安装
+  wheel，断言 core 零 backend，并为受支持的 native extra 执行真实 PNG；
 - `Remote Browser Render Smoke (Docker)`：通过 Docker Compose 验证远程 Playwright WebSocket 与默认 MEMORY 路径，覆盖 text、Markdown 相对图片、CSS 字体/背景和模板本地资源；
 - `NoneBot Plugin Load`：调用 `BalconyJH/noneload` reusable workflow，在 Python 3.10–3.14 隔离安装并加载插件。
 

@@ -13,6 +13,10 @@ render:
   provider: playwright
   startup: warmup
   provider_config: {}
+  graphics:
+    backends: []
+    max_pixels: 16777216
+    max_concurrency: 2
   resources:
     cache:
       max_entries: 256
@@ -43,6 +47,9 @@ render:
 - `render.provider`
 - `render.startup`
 - `render.provider_config`
+- `render.graphics.backends`
+- `render.graphics.max_pixels`
+- `render.graphics.max_concurrency`
 - `render.resources.cache.max_entries`
 - `render.resources.cache.max_bytes`
 - `render.resources.cache.max_resource_bytes`
@@ -64,7 +71,9 @@ render:
 阅读顺序：
 
 1. [基础配置与加载](core.md)
-2. [Playwright 配置](playwright.md) 或 [Takumi 配置](takumi.md)
-3. [依赖扩展与观测](integrations.md)
+2. 按需配置独立的 [Pillow 与 Skia 位图场景](graphics.md)
+3. [Playwright](playwright.md)、[HTMLKit](htmlkit.md) 或 [Takumi](takumi.md)
+4. [依赖扩展与观测](integrations.md)
 
 Provider 专属字段始终嵌套在 `render.provider_config`，并由所选 Provider 校验。
+`render.graphics` 不属于 Provider 配置；它组合独立的 typed Capability。

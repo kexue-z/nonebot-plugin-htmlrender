@@ -158,7 +158,9 @@ nav:
           - 配置:
               - 配置总览: users/config/index.md
               - 基础配置与加载: users/config/core.md
+              - Pillow 与 Skia 位图场景: users/config/graphics.md
               - Playwright 配置: users/config/playwright.md
+              - HTMLKit 配置: users/config/htmlkit.md
               - Takumi 配置与能力: users/config/takumi.md
               - 依赖扩展与观测: users/config/integrations.md
       - 使用:

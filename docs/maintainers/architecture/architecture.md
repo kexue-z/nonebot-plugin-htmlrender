@@ -12,17 +12,23 @@ icon: lucide/blocks
 flowchart LR
     API["Public API"] --> APP["Application / Renderer"]
     APP --> PREP["Preparation"]
-    APP --> PORTS["Rendering ports"]
+    APP --> PORTS["PreparedHtml rendering ports"]
+    APP --> GPORTS["RasterScene graphics ports"]
     PREP --> RES["Resource contracts"]
     BOOT["NoneBot composition root"] --> APP
     BOOT --> PROVIDER["Engine Provider"]
-    PROVIDER --> ADAPTER["Playwright / Takumi adapter"]
-    ADAPTER --> PORTS
+    PROVIDER --> HADAPTER["HTMLKit / Playwright / Takumi adapter"]
+    HADAPTER --> PORTS
+    BOOT --> GADAPTER["Pillow / Skia adapter"]
+    GADAPTER --> GPORTS
     BOOT --> RADAPTER["Resource / template / observability adapters"]
     RADAPTER --> RES
 ```
 
 箭头表示“可以依赖”。核心层不反向导入 bootstrap 或 adapters。
+Pillow/Skia 分支刻意绕开 `EngineProvider`：它们既不是 HTML engine，也不扩张
+HTMLKit/Playwright/Takumi 的 provider/backend 类型。未选择 Provider 且未启用
+graphics backend 时，核心对象图不导入或安装任何位图渲染依赖。
 
 ## 分层职责
 
@@ -36,6 +42,11 @@ flowchart LR
 `Application` 聚合 `Renderer`、Capability catalog、Preparation/Resource
 services 与组合生命周期。use case 通过构造器得到 preparer、executor 和
 observer，不做 discovery。
+
+`Renderer` 与公开的 Preparation/Resource facade 共享 composition 级 operation
+admission gate。公开 facade 不暴露内部 raw service，因而调用方在关闭前保留引用也
+不能绕过 gate。typed Capability 必须由其实现共享同一个 gate，或由自身的 lifecycle
+lease 提供等价的拒绝、drain 与关闭后不可复用语义；无状态 Capability 不能省略此边界。
 
 ### Preparation
 
@@ -54,6 +65,25 @@ Provider 负责专属配置、availability、bootstrap requirements 和 bindings
 它返回 executor、lifecycle、ResourceStrategy 与 typed capabilities，不读取
 NoneBot 全局配置。
 
+HTMLKit、Playwright 与 Takumi 都实现同一个 `PreparedHtmlExecutor` port，但能力并
+不被抹平：无法表示的通用选项和 execution requirement 必须在执行前以稳定错误
+拒绝，不能静默降级。HTMLKit rc5 的 native 工作无法取消，因此 adapter 在收到
+取消或超时后仍持有 admission/并发配额并 drain 原生 Future，完成后才传播取消。
+
+### Graphics Capability
+
+`graphics` 定义 immutable `RasterScene`、draw command、encode options 与
+`RasterSceneRenderer` port。Pillow、Skia 各自实现该 port，并以不同
+`CapabilityKey` 注册；catalog 只在 composition root 做不相交合并。中立契约不
+包含 `PreparedHtml`、文本 shaping 或 native object，因此无需也不得伪装成
+`EngineProvider`。
+
+两个 adapter 接收同一 composition 的 operation admission gate、worker、observer
+与一个共享 `RasterWorkBudget`。budget 先检查单场景物理像素数，再限制所有已启用
+graphics backend 的 native work 总并发；draw 与 encode 整段通过 worker 执行，
+不会阻塞异步事件循环。adapter 在编码边界构造 `RenderedImage` 并翻译 native
+异常，不把 Pillow/Skia 类型带入公共接口。
+
 ### Composition root
 
 唯一负责：
@@ -62,6 +92,7 @@ NoneBot 全局配置。
 - discovery 并解析 Provider 配置；
 - 创建 observer、worker、资源 reader/decorator、publisher 与 template adapter；
 - 调用 Provider `compose()`；
+- 按 `render.graphics.backends` 组合独立 graphics Capability，并为它们注入共享预算；
 - 组装并安装默认 `Application`；
 - 把 startup/shutdown 接到 NoneBot driver。
 
@@ -82,12 +113,36 @@ sequenceDiagram
     Resources-->>Preparation: ResourceContent / assets
     Preparation-->>Renderer: PreparedHtml
     Renderer->>Executor: execute(prepared, raster, policy)
-    Executor-->>Renderer: bytes
+    Executor-->>Renderer: RenderedImage
     Renderer-->>Caller: RenderedImage
 ```
 
 Provider 专属调用跳过通用 request 参数扩张：调用方从 catalog 获取 typed
 Capability，再由 Capability 获取当前 lease。
+
+独立 graphics 调用的数据流是：
+
+```mermaid
+sequenceDiagram
+    participant Caller
+    participant Catalog as Capability catalog
+    participant Gate as Operation admission
+    participant Budget as Shared raster budget
+    participant Worker
+    participant Adapter as Pillow / Skia adapter
+    Caller->>Catalog: require(backend-specific key)
+    Catalog-->>Caller: RasterSceneRenderer
+    Caller->>Adapter: render(RenderRasterSceneRequest)
+    Adapter->>Gate: operation()
+    Adapter->>Budget: reserve(width * height)
+    Adapter->>Worker: run_sync(draw + encode)
+    Worker-->>Adapter: encoded bytes
+    Adapter-->>Caller: RenderedImage
+```
+
+调用方选择的是 Pillow 或 Skia 的具体 key，不是会在运行时隐式切换后端的统一 key。
+矩形使用整数半开区间、按命令顺序做概念上的 source-over；native premultiplication、
+量化与 encoder 允许不同，因此跨后端 byte/pixel identity 不是契约。
 
 ## 生命周期
 
@@ -97,9 +152,16 @@ Capability，再由 Capability 获取当前 lease。
 2. Provider lifecycle；
 3. 可选 probe。
 
-关闭顺序相反：先拒绝新 lease，等待或取消有界的在途操作，关闭 Provider，
-再关闭 publisher/资源服务。`startup()` 与 `aclose()` 幂等；部分启动失败必须
-只清理由本次调用成功创建的资源。
+关闭时先让 application admission gate 永久拒绝新操作并等待在途 use case
+（包括 preparation）完成，再关闭 Provider，最后清理 publisher/资源服务。
+`startup()` 与 `aclose()` 幂等；teardown 失败后允许重试，但 admission gate 不重新
+打开。部分启动失败必须只清理由本次调用成功创建的资源。
+
+Pillow/Skia renderer 使用同一个 admission gate：关闭前已经获准并在共享 budget
+排队的调用属于在途操作，必须 drain；关闭开始后，从 catalog 预先保留的 renderer
+引用也会拒绝新调用。当前 graphics adapter 不缓存 decoded image/font/native
+surface；将来若引入 native cache，必须保持 backend-local、有界、带显式 disposer，
+并使用 epoch/identity 防止 clear 后的旧 inflight 回写。
 
 ## 允许的进程级状态
 
