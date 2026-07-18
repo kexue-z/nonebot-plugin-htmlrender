@@ -125,22 +125,22 @@ class _SkiaModule(Protocol):
     def ColorSetARGB(self, alpha: int, red: int, green: int, blue: int) -> int: ...
 
 
-skia = cast("_SkiaModule", import_module("skia"))
+_skia = cast("_SkiaModule", import_module("skia"))
 
 
 def _skia_color(color: RGBAColor) -> int:
-    return skia.ColorSetARGB(color.alpha, color.red, color.green, color.blue)
+    return _skia.ColorSetARGB(color.alpha, color.red, color.green, color.blue)
 
 
 def _surface(width: int, height: int) -> _SkiaSurface:
-    info = skia.ImageInfo.Make(
+    info = _skia.ImageInfo.Make(
         width,
         height,
-        skia.ColorType.kRGBA_8888_ColorType,
-        skia.AlphaType.kPremul_AlphaType,
-        skia.ColorSpace.MakeSRGB(),
+        _skia.ColorType.kRGBA_8888_ColorType,
+        _skia.AlphaType.kPremul_AlphaType,
+        _skia.ColorSpace.MakeSRGB(),
     )
-    surface = skia.Surface.MakeRaster(info)
+    surface = _skia.Surface.MakeRaster(info)
     if surface is None:
         raise RuntimeError("Skia could not allocate an RGBA raster surface.")
     return surface
@@ -148,10 +148,10 @@ def _surface(width: int, height: int) -> _SkiaSurface:
 
 def _encode(image: _SkiaImage, request: RenderRasterSceneRequest) -> bytes:
     if request.output.format == "png":
-        data = image.encodeToData(skia.EncodedImageFormat.kPNG, 100)
+        data = image.encodeToData(_skia.EncodedImageFormat.kPNG, 100)
     else:
         data = image.encodeToData(
-            skia.EncodedImageFormat.kJPEG,
+            _skia.EncodedImageFormat.kJPEG,
             request.output.jpeg_quality,
         )
     if data is None:
@@ -169,11 +169,11 @@ def _render_sync(request: RenderRasterSceneRequest) -> RenderedImage:
         rect = command.rect.clipped_to(scene.width, scene.height)
         if rect is None:
             continue
-        paint = skia.Paint(AntiAlias=False)
+        paint = _skia.Paint(AntiAlias=False)
         paint.setColor(_skia_color(command.color))
-        paint.setBlendMode(skia.BlendMode.kSrcOver)
+        paint.setBlendMode(_skia.BlendMode.kSrcOver)
         canvas.drawRect(
-            skia.Rect.MakeXYWH(rect.x, rect.y, rect.width, rect.height),
+            _skia.Rect.MakeXYWH(rect.x, rect.y, rect.width, rect.height),
             paint,
         )
 
@@ -182,13 +182,13 @@ def _render_sync(request: RenderRasterSceneRequest) -> RenderedImage:
         matte_surface = _surface(scene.width, scene.height)
         matte_canvas = matte_surface.getCanvas()
         matte_canvas.clear(_skia_color(request.output.jpeg_matte))
-        matte_paint = skia.Paint(AntiAlias=False)
-        matte_paint.setBlendMode(skia.BlendMode.kSrcOver)
+        matte_paint = _skia.Paint(AntiAlias=False)
+        matte_paint.setBlendMode(_skia.BlendMode.kSrcOver)
         matte_canvas.drawImage(
             image,
             0,
             0,
-            skia.SamplingOptions(),
+            _skia.SamplingOptions(),
             matte_paint,
         )
         image = matte_surface.makeImageSnapshot()

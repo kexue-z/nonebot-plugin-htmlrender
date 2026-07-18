@@ -111,7 +111,7 @@ remote-smoke-down: ## Stop remote browser smoke services and remove named volume
 	@echo "==> Tearing down remote browser smoke services"
 	docker compose -f tests/infra/docker-compose.remote-test.yaml down -v
 
-.PHONY: ruff-format ruff-format-check ruff-check lint basedpyright ty typecheck check
+.PHONY: ruff-format ruff-format-check ruff-check lint basedpyright type-completeness ty typecheck check
 ruff-format: ensure-uv ## Format Python files with Ruff.
 	@echo "==> Formatting Python files with Ruff"
 	$(UV) run ruff format nonebot_plugin_htmlrender tests
@@ -130,13 +130,17 @@ basedpyright: ensure-uv ## Run basedpyright type checking.
 	@echo "==> Running basedpyright"
 	$(UV) run basedpyright . --verbose
 
+type-completeness: ensure-uv ## Verify the installed package's public type surface.
+	@echo "==> Verifying package type completeness"
+	$(UV) run basedpyright --verifytypes nonebot_plugin_htmlrender --ignoreexternal
+
 ty: ensure-uv ## Run ty type checking.
 	@echo "==> Running ty"
 	$(UV) run ty check
 
-typecheck: basedpyright ## Alias for basedpyright.
+typecheck: basedpyright type-completeness ## Run source and public API type checks.
 
-check: ruff-format-check ruff-check basedpyright ty test ## Run format, lint, type checks, and tests without modifying files.
+check: ruff-format-check ruff-check typecheck ty test ## Run format, lint, type checks, and tests without modifying files.
 
 .PHONY: docs-serve docs-build docs-deploy docs-list
 docs-serve: ensure-uv ## Serve docs site locally.

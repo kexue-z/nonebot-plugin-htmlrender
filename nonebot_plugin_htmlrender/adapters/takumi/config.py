@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from os import cpu_count
 from pathlib import Path
-from typing import Literal
+from typing import ClassVar, Literal
 
 from nonebot.compat import field_validator
 from pydantic import BaseModel, ConfigDict, Field
@@ -48,7 +48,9 @@ class TakumiFontConfig(BaseModel):
     generic_family: GenericFontFamily | None = None
     cache_policy: FileCachePolicy | None = None
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
     @field_validator("path", mode="before")
     @classmethod
@@ -74,7 +76,9 @@ class TakumiHtmlOptionsConfig(BaseModel):
     tailwind_property: str | None = None
     max_depth: int | None = Field(default=None, ge=1)
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
     @field_validator("tailwind_property", mode="before")
     @classmethod
@@ -103,7 +107,9 @@ class TakumiConfig(BaseModel):
     default_lang: str | None = None
     font_families: list[str] = Field(default_factory=list)
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
     @field_validator("default_lang", mode="before")
     @classmethod

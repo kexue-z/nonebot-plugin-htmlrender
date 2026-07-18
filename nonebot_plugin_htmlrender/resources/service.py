@@ -36,7 +36,7 @@ if TYPE_CHECKING:
         ResourceResolver,
     )
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 _EXPLICIT_POLICIES = frozenset(
@@ -295,7 +295,7 @@ class ResourceService:
                 if isinstance(error, PermissionError):
                     raise ResourceAccessDenied(str(error)) from error
                 raise ResourceResolutionError(str(error)) from error
-            logger.warning("Failed to resolve resource %r: %s", value, error)
+            _logger.warning("Failed to resolve resource %r: %s", value, error)
             return value
 
     async def _resolve_any(

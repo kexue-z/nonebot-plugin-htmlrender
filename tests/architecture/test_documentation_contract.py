@@ -361,6 +361,13 @@ def _annotation_name(annotation: ast.expr) -> str | None:
     return None
 
 
+def _is_class_variable(annotation: ast.expr) -> bool:
+    return (
+        isinstance(annotation, ast.Subscript)
+        and _annotation_name(annotation.value) == "ClassVar"
+    )
+
+
 def _config_model_fields() -> dict[str, dict[str, str | None]]:
     tree = ast.parse(SETTINGS_PATH.read_text("utf-8"), filename=str(SETTINGS_PATH))
     classes = {node.name: node for node in tree.body if isinstance(node, ast.ClassDef)}
@@ -383,8 +390,10 @@ def _config_model_fields() -> dict[str, dict[str, str | None]]:
             continue
         fields: dict[str, str | None] = {}
         for statement in node.body:
-            if isinstance(statement, ast.AnnAssign) and isinstance(
-                statement.target, ast.Name
+            if (
+                isinstance(statement, ast.AnnAssign)
+                and isinstance(statement.target, ast.Name)
+                and not _is_class_variable(statement.annotation)
             ):
                 fields[statement.target.id] = _annotation_name(statement.annotation)
         models[name] = fields

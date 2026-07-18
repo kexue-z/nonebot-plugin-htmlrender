@@ -98,7 +98,7 @@ jobs:
         run: uv sync --locked --all-extras --all-groups
 
       - name: Basedpyright
-        run: uv run basedpyright .
+        run: make typecheck
 
   package:
     name: Package Build

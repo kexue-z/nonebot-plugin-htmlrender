@@ -139,7 +139,7 @@ from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRequirement as UnsupportedRequirement,
 )
 
-__plugin_meta__ = PluginMetadata(
+__plugin_meta__: PluginMetadata = PluginMetadata(
     name="nonebot-plugin-htmlrender",
     description="提供可插拔 HTML 渲染与独立的类型化栅格场景能力",
     usage=(

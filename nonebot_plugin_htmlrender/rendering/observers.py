@@ -16,7 +16,7 @@ if TYPE_CHECKING:
 
     from .ports import OperationObserver
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 @final
@@ -32,7 +32,7 @@ class NoopOperationObserver:
 
 
 def _log_observer_failure(operation: str, error: Exception) -> None:
-    logger.warning("Operation observer failed for %s: %s", operation, error)
+    _logger.warning("Operation observer failed for %s: %s", operation, error)
 
 
 @contextmanager

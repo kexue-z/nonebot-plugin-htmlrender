@@ -30,7 +30,7 @@ from nonebot_plugin_htmlrender.resources.errors import (
     ResourceSizeExceeded,
 )
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -131,13 +131,13 @@ def install_filehost_request_guard(settings: AssetPublisherSettings) -> bool:
         from nonebot import get_driver  # noqa: PLC0415
         from nonebot.drivers import ASGIMixin  # noqa: PLC0415
     except Exception as error:
-        logger.debug("Filehost request guard is unavailable: %s", error)
+        _logger.debug("Filehost request guard is unavailable: %s", error)
         return False
 
     try:
         driver = get_driver()
     except Exception as error:
-        logger.debug("Filehost request guard has no active NoneBot driver: %s", error)
+        _logger.debug("Filehost request guard has no active NoneBot driver: %s", error)
         return False
     if not isinstance(driver, ASGIMixin) or not isinstance(driver.server_app, FastAPI):
         return False
@@ -175,7 +175,7 @@ def install_filehost_request_guard(settings: AssetPublisherSettings) -> bool:
         return await call_next(request)
 
     setattr(app.state, state_key, guard)
-    logger.info(
+    _logger.info(
         "Filehost request guard enabled with header %r",
         header_name,
     )
@@ -246,7 +246,7 @@ class FilehostAssetPublisher:
                 )
                 await self.publish(data, suffix=suffix)
             except Exception as error:  # noqa: PERF203 -- optional files are isolated
-                logger.warning(
+                _logger.warning(
                     "Could not prewarm filehost resource %s: %s", path, error
                 )
 

@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING, Protocol, final
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class CacheObserver(Protocol):
@@ -41,7 +41,7 @@ def record_cache_observation(
     try:
         observer.record(cache, events, entries, resident_bytes)
     except Exception as error:
-        logger.warning("Cache observer failed for %s: %s", cache, error)
+        _logger.warning("Cache observer failed for %s: %s", cache, error)
 
 
 __all__ = ["CacheObserver", "NoopCacheObserver", "record_cache_observation"]
