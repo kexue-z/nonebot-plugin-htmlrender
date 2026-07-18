@@ -34,7 +34,14 @@ tags:
 | 3.13   | 是                | 是         | 新版运行时兼容        |
 | 3.14   | 是                | 是         | 最新稳定版前向兼容    |
 
-Ruff、`ty`、`basedpyright`、package 与 docs 固定在 Python 3.12，减少工具自身版本差异；这不缩小运行时支持范围，运行时兼容性由两个矩阵承担。
+Ruff、`ty`、`basedpyright`、package 与 docs 工具固定在 Python 3.12，减少工具自身
+版本差异；`basedpyright.pythonVersion` 保持为最低支持版本 3.10，以便静态契约不会
+误用较新语法或标准库。这不缩小运行时支持范围，运行时兼容性由两个矩阵承担。
+
+`make typecheck` 同时执行普通源码分析与
+`basedpyright --verifytypes nonebot_plugin_htmlrender --ignoreexternal`。后者要求
+`py.typed` 分发包的仓库内公共符号达到 100% type completeness；外部依赖自身缺少
+stub 不计入本仓库分数，但本仓库把 unknown/ambiguous 类型传播到公共签名仍会失败。
 
 ## CPU 架构矩阵
 
@@ -99,6 +106,7 @@ Documentation contract 属于 pytest 门禁，而不只是站点构建：
 ## warning 与排除策略
 
 - 主路径与 examples 只测试当前公开 API；旧契约只允许出现在显式 migration 对照中；
-- `ty` / basedpyright 必须零错误；不得用 ignore 掩盖已删除接口；
+- `ty` / basedpyright 必须零错误，包级 type completeness 必须为 100%；不得用
+  ignore 掩盖已删除接口或公共签名中的 unknown；
 - `requires_browser` 只用于确实需要浏览器进程的 case，不得用它把普通回归测试移出 PR 快速层；
 - coverage 排除必须对应不可执行或平台专用代码，并在配置中留下可审查的理由。

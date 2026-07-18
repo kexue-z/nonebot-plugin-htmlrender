@@ -30,7 +30,7 @@ tags:
 - 支持版本：Python 3.10–3.14。
 - 格式化：`ruff format`；CI 使用 `ruff format --check` 验证，不修改工作区。
 - Lint：`ruff check`
-- 类型检查：`basedpyright` + `ty`
+- 类型检查：`basedpyright` + `ty`，并对 `py.typed` 公共面运行 package verifytypes
 - 测试：`pytest` + `pytest-cov`
 
 提交前至少通过：

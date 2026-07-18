@@ -44,7 +44,8 @@ Playwright 的安装、signal 与 process helper 位于 `adapters/playwright/_su
 | 命令 | 用途 |
 | --- | --- |
 | `make prepare` | 同步全部 extras/groups 并安装 hooks |
-| `make check` | format check、lint、两套类型检查和 CI profile tests |
+| `make check` | format check、lint、两套类型检查、公共 API 类型完备性和 CI profile tests |
+| `make type-completeness` | 用 basedpyright 验证 `py.typed` 公共符号为 100% 完备 |
 | `make test-local` | 真实本地 Chromium |
 | `make remote-smoke` | 复用镜像执行远程浏览器 smoke |
 | `make remote-smoke-build` | 重建镜像并执行远程 smoke |
@@ -78,7 +79,7 @@ prek run --all-files
 ## 完成标准
 
 - 实现完整，无临时兼容壳、全局 provider seam 或未消费的接口；
-- Ruff、basedpyright、ty 与相关 pytest 通过；
+- Ruff、basedpyright、ty 与相关 pytest 通过，type completeness 保持 100%；
 - coverage 保持门槛；
 - examples 与 Python 代码块跟随公共 API；
 - 非 migration 文档不再描述已删除契约；

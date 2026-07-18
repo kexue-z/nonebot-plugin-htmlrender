@@ -165,7 +165,7 @@ PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是
 | Ruff 格式化 | `make ruff-format` |
 | Ruff 格式验证 | `make ruff-format-check` |
 | Ruff lint | `make ruff-check` |
-| Basedpyright | `make typecheck` |
+| Basedpyright | `make typecheck`（源码零诊断 + package type completeness 100%） |
 | Ty | `make ty` |
 | Coverage profile tests | `make test-ci` |
 | Local browser tests | `make install-browser && make test-local` |
