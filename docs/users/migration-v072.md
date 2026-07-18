@@ -50,7 +50,8 @@ remote_local_resource_policy = memory
 ```
 
 本地图片、字体、CSS 与模板资源读取为 `PreparedAsset`，按 SHA-256 去重，并通过当前
-Page 的 route 直接返回 bytes。这些资源 payload 不写持久化目录或其他磁盘位置，
+Page 的 route 直接返回 bytes、正确媒体类型、cache header 与
+`Access-Control-Allow-Origin: *`。这些资源 payload 不写持久化目录或其他磁盘位置，
 Page 关闭后释放；Playwright 浏览器文件与 runtime snapshot 仍可使用插件数据目录。
 
 如果你依赖旧行为，请显式声明意图：

@@ -69,6 +69,16 @@ publisher，使后续单次调用可以覆盖为 `auto` 或 `strict`。`auto` �
 uv add "nonebot-plugin-htmlrender[playwright,filehost]>=0.8.0a1,<0.9"
 ```
 
+两种远程 transport 遵循同一浏览器响应契约：`memory` 的 Page route 会返回正确媒体
+类型、cache header 与 `Access-Control-Allow-Origin: *`；filehost 只为通过请求头
+守卫的资源请求添加该 CORS 响应头，未认证请求返回 403。
+
+!!! warning "filehost 代理必须保留双向 header"
+
+    反向代理必须向 Bot 透传 `render.resources.filehost.request_header_name` 对应的
+    请求头，并向浏览器保留 `Access-Control-Allow-Origin` 响应头。通配 CORS 只
+    允许浏览器读取资源，不代替 filehost 授权。
+
 filehost 运行参数由核心 Resource Service 管理，位于 `render.resources.filehost`：
 
 | 完整路径 | 默认值 |
