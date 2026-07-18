@@ -15,9 +15,6 @@ Preparation/模板到 HTML 时可直接安装 core：
 uv add "nonebot-plugin-htmlrender>=0.8.0a1,<0.9"
 ```
 
-core 同时包含 `nonebot-plugin-localstore`，用于为整个插件提供规范的数据目录；
-它不是浏览器引擎依赖，也不会自行启用任何 Provider。
-
 浏览器语义最完整，推荐首次接入选择 Playwright：
 
 ```bash

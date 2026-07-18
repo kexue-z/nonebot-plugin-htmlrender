@@ -66,9 +66,9 @@ endpoint、代理凭据、headers 和 storage state 都是敏感信息：
 - 不跨请求复用含认证状态的 Page/context；
 - 只加载可信第三方 Provider distribution。
 
-localstore data 目录可能包含 Playwright 浏览器文件与运行时快照。部署时限制目录
-权限、备份范围和容器挂载；不要把它当作公开静态目录。其他 Provider 若在此保存
-状态，也必须遵循同一敏感数据生命周期。
+插件数据目录可能包含 Playwright 浏览器文件与运行时快照。部署时限制目录权限、
+备份范围和容器挂载；不要把它当作公开静态目录。其他 Provider 若在此保存状态，
+也必须遵循同一敏感数据生命周期。
 
 Provider entry point 会在进程内执行代码，其权限与 Bot 相同。
 

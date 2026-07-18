@@ -22,15 +22,11 @@ icon: lucide/sliders-horizontal
 独立的 Pillow/Skia `RasterScene` Capability 不依赖 `render.provider`，由
 [`render.graphics`](graphics.md) 单独启用。
 
-## 宿主持久化目录
+## 持久化目录
 
-`nonebot-plugin-localstore` 是 core 依赖，并由插件入口在任何 Provider 组合前统一
-加载。它提供插件级 data/cache/config 目录，属于宿主基础设施，不属于 Playwright
-extra，也不作为某个 Provider 的 bootstrap requirement。
-
-需要持久化本地状态的引擎 adapter 可以使用这套目录。目前 Playwright 在未显式设置
-`render.provider_config.storage_path` 时，用 localstore data 目录保存浏览器文件和
-运行时快照；这不会改变其他 Provider 继续复用该基础设施的边界。
+Playwright 未显式设置 `render.provider_config.storage_path` 时，会在插件数据目录中
+保存浏览器文件和运行时快照。部署时应确保该目录可写；需要使用独立卷或固定路径时，
+请显式设置 `storage_path`。
 
 ## 资源缓存
 

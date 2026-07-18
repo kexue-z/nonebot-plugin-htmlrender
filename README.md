@@ -37,9 +37,6 @@ uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
 uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
 ```
 
-core 会安装并统一加载 `nonebot-plugin-localstore`，作为插件级持久化目录基础设施；
-它不是 Playwright extra，也不代表已经选择任何渲染 Provider。
-
 Pillow/Skia 是独立的 `RasterScene` Capability，不属于 HTML Provider。按需增加
 `pillow`、`skia`、`filehost`、`sentry`、`prometheus`；`all` 会安装全部可选能力。
 

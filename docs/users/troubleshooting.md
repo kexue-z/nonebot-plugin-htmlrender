@@ -36,8 +36,7 @@ uv run playwright install chromium
 
 检查 `render.provider_config.engine`、`executable_path`、channel 与系统依赖。
 设置 `skip_browser_install: true` 会禁止自动安装，不会让缺失浏览器变为可用。
-未设置 `storage_path` 时还需确认 core localstore data 目录可写；它是插件级基础
-设施，不是 Playwright extra。
+未设置 `storage_path` 时还需确认插件数据目录可写。
 
 ## WS/CDP 连接失败
 

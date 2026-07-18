@@ -85,9 +85,6 @@ core 安装默认不包含任何位图渲染后端。HTMLKit rc5 另有
 `device_pixel_ratio=1.0`、`height=None` 的显式限制，详见
 [HTMLKit 配置](config/htmlkit.md)。
 
-`nonebot-plugin-localstore` 仍是 core 宿主基础设施，由插件入口统一加载；它不应
-移动到 Playwright extra 或由 Playwright Provider 单独声明 requirement。
-
 未选择 Provider 时插件仍可执行 Preparation 与 `render_template_html`；由于位图
 操作未绑定，调用会抛出 `CapabilityUnavailable`。选择了 Provider 但缺少对应
 extra 时，位图执行或启动会报告 `ProviderUnavailable`。

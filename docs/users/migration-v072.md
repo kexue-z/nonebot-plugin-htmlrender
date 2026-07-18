@@ -50,8 +50,8 @@ remote_local_resource_policy = memory
 ```
 
 本地图片、字体、CSS 与模板资源读取为 `PreparedAsset`，按 SHA-256 去重，并通过当前
-Page 的 route 直接返回 bytes。这些资源 payload 不写 localstore 或磁盘，Page 关闭后
-释放；Playwright 浏览器文件与 runtime snapshot 仍可使用 core localstore data 目录。
+Page 的 route 直接返回 bytes。这些资源 payload 不写持久化目录或其他磁盘位置，
+Page 关闭后释放；Playwright 浏览器文件与 runtime snapshot 仍可使用插件数据目录。
 
 如果你依赖旧行为，请显式声明意图：
 
@@ -90,7 +90,9 @@ text 与 Markdown 模板只随 distribution 分发：
 - 文件登记在 wheel `RECORD`；
 - 卸载 Python package 时随 distribution 自动删除。
 
-它们不会复制到 localstore。项目不提供 uninstall hook、模板复制、localstore purge 或用户覆盖目录。`render_cache_path` 与 `render_config_path` 当前为保留配置，没有模板消费者；进程内 cache 和 `PreparedAsset` 也不在这些目录落盘。
+它们不会复制到插件数据目录。项目不提供 uninstall hook、模板复制、持久化目录清理
+或用户覆盖目录。`render_cache_path` 与 `render_config_path` 当前为保留配置，没有模板
+消费者；进程内 cache 和 `PreparedAsset` 也不在这些目录落盘。
 
 用户模板仍由 `render_template(template_path=...)` 从显式 filesystem 目录读取。
 

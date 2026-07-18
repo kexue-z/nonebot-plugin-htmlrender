@@ -6,12 +6,6 @@ icon: lucide/activity
 
 # 依赖扩展与观测
 
-## core 基础设施
-
-`nonebot-plugin-localstore` 是必选 core 依赖：插件入口统一加载它，为所有引擎 adapter
-提供插件级持久化目录。它不在 optional extras 表中，也不是 Playwright 专属依赖；
-当前 Playwright 默认使用其 data 目录保存浏览器文件与运行时快照。
-
 ## 可选 extras
 
 | extra | 用途 |
