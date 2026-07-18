@@ -66,8 +66,11 @@ docs = [
     "mkdocstrings-python>=2.0.1",
 ]
 remote-smoke = [
+    "nonebot-plugin-filehost>=0.2.0",
     "nonebot2[fastapi]>=2.5.0",
     "pillow>=12.0.0",
+    "playwright>=1.60.0",
+    "py-machineid>=0.8.0",
 ]
 test = [
     "nonebug>=0.4.4",

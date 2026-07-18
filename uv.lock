@@ -1345,8 +1345,11 @@ docs = [
     { name = "zensical" },
 ]
 remote-smoke = [
+    { name = "nonebot-plugin-filehost" },
     { name = "nonebot2", extra = ["fastapi"] },
     { name = "pillow" },
+    { name = "playwright" },
+    { name = "py-machineid" },
 ]
 test = [
     { name = "httpx2" },
@@ -1406,8 +1409,11 @@ docs = [
     { name = "zensical", specifier = ">=0.0.51" },
 ]
 remote-smoke = [
+    { name = "nonebot-plugin-filehost", specifier = ">=0.2.0" },
     { name = "nonebot2", extras = ["fastapi"], specifier = ">=2.5.0" },
     { name = "pillow", specifier = ">=12.0.0" },
+    { name = "playwright", specifier = ">=1.60.0" },
+    { name = "py-machineid", specifier = ">=0.8.0" },
 ]
 test = [
     { name = "httpx2", specifier = ">=2.4.0" },
