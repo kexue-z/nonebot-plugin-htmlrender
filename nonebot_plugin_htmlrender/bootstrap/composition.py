@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from copy import deepcopy
+from dataclasses import replace
 from typing import TYPE_CHECKING, final
 
 import anyio
@@ -203,13 +204,52 @@ class _ComposedLifecycle:
         self._raise_errors("Application shutdown failed.", errors)
 
 
-@dataclass(frozen=True)
+@final
 class ComposedRuntime:
-    settings: RenderSettings
-    provider: EngineProvider[object] | None
-    provider_settings: object | None
-    plugin_requirements: tuple[PluginRequirement, ...]
-    resource_strategy: ResourceStrategy
+    """Reusable composition plan backed by immutable configuration snapshots."""
+
+    __slots__ = (
+        "_plugin_requirements",
+        "_provider",
+        "_provider_settings",
+        "_resource_strategy",
+        "_settings",
+    )
+
+    def __init__(
+        self,
+        settings: RenderSettings,
+        provider: EngineProvider[object] | None,
+        provider_settings: object | None,
+        plugin_requirements: tuple[PluginRequirement, ...],
+        resource_strategy: ResourceStrategy,
+    ) -> None:
+        self._settings = settings.model_copy(deep=True)
+        self._provider = provider
+        self._provider_settings = deepcopy(provider_settings)
+        self._plugin_requirements = tuple(plugin_requirements)
+        self._resource_strategy = resource_strategy
+
+    @property
+    def settings(self) -> RenderSettings:
+        """Return a detached view of the settings captured by this plan."""
+        return self._settings.model_copy(deep=True)
+
+    @property
+    def provider(self) -> EngineProvider[object] | None:
+        return self._provider
+
+    @property
+    def plugin_requirements(self) -> tuple[PluginRequirement, ...]:
+        return self._plugin_requirements
+
+    @property
+    def resource_strategy(self) -> ResourceStrategy:
+        return self._resource_strategy
+
+    def _inputs_for_build(self) -> tuple[RenderSettings, object | None]:
+        """Create isolated mutable inputs for one application composition."""
+        return self._settings.model_copy(deep=True), deepcopy(self._provider_settings)
 
     def build_application(self) -> Application:
         return _build_application_for(self)
@@ -297,30 +337,30 @@ def prepare_runtime(
 
 
 def _build_application_for(runtime: ComposedRuntime) -> Application:
-    operation_observer, cache_observer = select_observers(runtime.settings)
-    cache_settings = _cache_settings(runtime.settings)
+    settings, provider_settings = runtime._inputs_for_build()
+    operation_observer, cache_observer = select_observers(settings)
+    cache_settings = _cache_settings(settings)
     worker = AnyioWorkerExecutor()
     operation_admission = OperationAdmissionGate()
     graphics_capabilities = build_graphics_capabilities(
-        runtime.settings.graphics,
+        settings.graphics,
         worker=worker,
         observer=operation_observer,
         operation_admission=operation_admission,
     )
     reader = build_resource_reader(cache_settings, cache_observer, worker)
-    local = runtime.settings.resources.local_access
+    local = settings.resources.local_access
     local_access = ConfiguredLocalAccessPolicy(
         allowed_roots=local.allowed_paths,
         allow_any=local.allow_any_path,
     )
 
     provider = runtime.provider
-    provider_settings = runtime.provider_settings
     strategy = runtime.resource_strategy
     publisher: AssetPublisher | None = None
     if _uses_publisher(strategy):
         publisher = FilehostAssetPublisher(
-            settings=_publisher_settings(runtime.settings),
+            settings=_publisher_settings(settings),
             observer=cache_observer,
             worker=worker,
             local_access=local_access,

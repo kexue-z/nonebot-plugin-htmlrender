@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -79,6 +79,7 @@ class _FakeProvider:
         self.available = available
         self.strategy = strategy or ResourceStrategy(is_remote=True)
         self.parsed: list[Mapping[str, object]] = []
+        self.composed_settings: list[object] = []
         self.dependencies: list[ProviderDependencies] = []
 
     def parse_settings(self, raw: Mapping[str, object]) -> object:
@@ -107,7 +108,7 @@ class _FakeProvider:
         settings: object,
         dependencies: ProviderDependencies,
     ) -> EngineBindings:
-        del settings
+        self.composed_settings.append(settings)
         self.dependencies.append(dependencies)
         return EngineBindings(
             lifecycle=_FakeLifecycle(),
@@ -161,6 +162,47 @@ def test_provider_free_runtime_builds_isolated_preparation_apps() -> None:
     assert first.renderer.capabilities == frozenset({"render_template_html"})
     assert first.resources is not second.resources
     assert first.preparation is not second.preparation
+
+
+def test_runtime_settings_are_detached_from_mutable_configuration(
+    tmp_path: Path,
+) -> None:
+    settings = RenderSettings.model_validate(
+        {
+            "resources": {
+                "local_access": {
+                    "allowed_paths": [tmp_path],
+                }
+            }
+        }
+    )
+    runtime = prepare_runtime(settings)
+
+    settings.resources.local_access.allowed_paths.append(tmp_path.parent)
+    exposed_settings = runtime.settings
+    exposed_settings.resources.local_access.allowed_paths.append(tmp_path.parent)
+    application = runtime.build_application()
+
+    with pytest.raises(ResourceAccessDenied, match="outside allowed roots"):
+        application.resources.authorize_local(tmp_path.parent / "outside.png")
+
+
+def test_runtime_isolates_provider_settings_between_builds() -> None:
+    provider = _FakeProvider()
+    runtime = prepare_runtime(
+        RenderSettings.model_validate(
+            {"provider": "fake-engine", "provider_config": {"answer": 42}}
+        ),
+        explicit_providers=[provider],
+    )
+
+    runtime.build_application()
+    first_settings = cast("dict[str, object]", provider.composed_settings[0])
+    first_settings["parsed"] = {"answer": "mutated"}
+
+    runtime.build_application()
+
+    assert provider.composed_settings[1] == {"parsed": {"answer": 42}}
 
 
 async def test_available_provider_receives_explicit_dependencies_and_renders() -> None:
