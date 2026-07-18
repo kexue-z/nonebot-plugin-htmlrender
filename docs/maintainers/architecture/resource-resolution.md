@@ -108,6 +108,21 @@ HTMLKit、Playwright 与 Takumi executor 都必须执行同一个默认值。`of
 executor 中退回到 transport policy 后隐式物化；若 transport 需要 publisher，
 composition 仍需组装它，以兑现后续单次调用的 `auto` / `strict` 覆盖。
 
+## 浏览器资产响应不变量
+
+`memory` 与 filehost 是不同 transport，但都必须让远程浏览器安全消费受授权资产：
+
+- 响应保留 asset bytes 与正确媒体类型；
+- 跨源图片、CSS 与字体响应携带 `Access-Control-Allow-Origin: *`；
+- `memory` route 同时返回 cache header，资源只在当前 render lease 内有效；
+- filehost 先执行请求头守卫，仅为认证成功的资源响应添加通配 CORS；被拒绝的请求
+  返回 403，且不携带该响应头。
+
+!!! warning "CORS 不是授权机制"
+
+    实现和代理不得用可访问 URL 或通配 CORS 替代 `LocalAccessPolicy` 与 filehost
+    请求头守卫，也不得在代理层剥离守卫请求头或 CORS 响应头。
+
 ## filehost publisher
 
 filehost 是 `AssetPublisher` adapter。NoneBot require、路由安装、预热和关闭都
@@ -125,4 +140,7 @@ filehost 插件管理。
 
 覆盖 ref dispatch、目录与 symlink 越界、immutable/revalidate revision、
 远程失败、strict/auto/off、并发冷读、owner/waiter 取消、异常广播、
-generation 竞争、byte budget/LRU、observer 隔离和两个 composition 隔离。
+generation 竞争、byte budget/LRU、observer 隔离和两个 composition 隔离。真实远程
+Chromium 测试必须分别经过 `memory` 与 filehost transport，验证 Markdown 引用的
+CSS、图片和字体确实完成加载；filehost 还需验证守卫请求头、成功响应的 CORS、
+未认证 403，以及浏览器侧没有对应的 `requestfailed`。

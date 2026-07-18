@@ -101,7 +101,11 @@ Documentation contract 属于 pytest 门禁，而不只是站点构建：
 `make docs-build` 另外验证导航、链接、anchor、引用和静态站渲染，两层都必须
 通过。
 
-远程 Docker `connect_ws` smoke 覆盖 text、Markdown 相对图片、CSS 字体和模板资源，并且不得要求调用方手工提供 HTTP base URL。测试必须断言 Bot 侧 `file://` 从未作为远程文档导航目标。
+远程 Docker `connect_ws` smoke 依次覆盖 `memory` 与 `filehost` transport 下的
+text、Markdown 相对图片、CSS 字体和模板资源，并且不得要求调用方手工提供 HTTP
+base URL。Markdown 使用哨兵像素证明相对图片确实加载；filehost 还必须观察远程
+Chromium 发起的 CSS、PNG、WOFF2 请求，并验证请求头守卫、通配 CORS 和未认证
+403。测试必须断言 Bot 侧 `file://` 从未作为远程文档导航目标。
 
 ## warning 与排除策略
 

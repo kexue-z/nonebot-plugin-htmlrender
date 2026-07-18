@@ -40,7 +40,7 @@ tags:
   `[pillow,skia]`；
 - `Wheel Smoke`：复用同一 artifact，在 Python 3.10、3.11、3.13、3.14 隔离安装
   wheel，断言 core 零 backend，并为受支持的 native extra 执行真实 PNG；
-- `Remote Browser Render Smoke (Docker)`：通过 Docker Compose 验证远程 Playwright WebSocket 与默认 MEMORY 路径，覆盖 text、Markdown 相对图片、CSS 字体/背景和模板本地资源；
+- `Remote Browser Render Smoke (Docker)`：通过 Docker Compose 顺序验证远程 Playwright WebSocket 的 MEMORY 与 filehost 路径，覆盖 text、Markdown 相对图片、CSS 字体/背景和模板本地资源，并检查 filehost 请求头、CORS、资源后缀与未认证 403；
 - `NoneBot Plugin Load`：调用 `BalconyJH/noneload` reusable workflow，在 Python 3.10–3.14 隔离安装并加载插件。
 
 pytest 不在 `CI` 中重复执行，由 `Coverage` 统一覆盖。
