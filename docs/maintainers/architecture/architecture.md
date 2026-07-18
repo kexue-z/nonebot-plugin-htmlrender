@@ -179,9 +179,12 @@ environment、observer、publisher 和 lease provider 都属于某个 compositio
 不得通过模块级 provider seam 注入。
 
 宿主适配层仍可管理本质上属于整个进程的资源，例如 ASGI filehost guard、
-观测 SDK 的 exporter registry、core 统一加载的 localstore 目录设施，以及安装工具
-使用的 OS signal/process task 状态。这些状态只能封装在 adapter/host 边界内，
-不能成为业务路径读取配置、发现 service 或共享 Provider runtime 的后门。
+观测 SDK 的 exporter registry、core 统一加载的 `nonebot-plugin-localstore` 目录设施，
+以及安装工具使用的 OS signal/process task 状态。`nonebot-plugin-localstore` 必须保持
+core 宿主依赖，由插件入口统一加载；不得移动到 Playwright extra，也不得由
+Playwright Provider 通过 `bootstrap_requirements()` 单独声明。这些状态只能封装在
+adapter/host 边界内，不能成为业务路径读取配置、发现 service 或共享 Provider
+runtime 的后门。
 
 ## 架构门禁
 
