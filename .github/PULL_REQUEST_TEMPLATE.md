@@ -19,7 +19,8 @@
 - [ ] `make typecheck`
 - [ ] `make ty`
 - [ ] `make test-ci`
-- [ ] `uvx prek run --all-files`
+- [ ] `prek run --all-files`
+- [ ] workflow 变更已运行 `prek run actionlint --all-files --hook-stage=manual`，或本项不适用
 - [ ] 已按改动范围运行 package / docs / local browser / remote smoke 检查，或说明不适用原因
 - [ ] 已新增或更新回归测试
 
