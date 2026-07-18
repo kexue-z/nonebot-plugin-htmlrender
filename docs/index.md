@@ -9,7 +9,8 @@ icon: lucide/image
 插件把输入分成两个阶段：Preparation 将 HTML、Markdown、文本或 Jinja 模板
 转换为中立的 `PreparedHtml`；配置的 Provider 再把它执行为
 `RenderedImage`。Provider 专属操作通过类型化 Capability 暴露，不进入通用
-渲染函数。
+渲染函数；第一方 Capability 契约从稳定的
+`nonebot_plugin_htmlrender.capabilities` 包导入。
 
 ## 从这里开始
 
@@ -38,7 +39,7 @@ icon: lucide/image
 | `Renderer` | 执行类型化 request，不感知具体引擎 |
 | Preparation | 生成可移植的 `PreparedHtml` 与 `PreparedAsset` |
 | Resource Service | 读取、授权、缓存并物化文档资源 |
-| Provider | 校验专属配置并组合执行器、生命周期和 Capability |
+| Provider | 校验专属配置，通过窄资源 façade 组合执行器、生命周期和 Capability |
 | Graphics Capability | 通过独立 Pillow/Skia adapter 执行物理像素 `RasterScene` |
 | typed artifact | 用 `RenderedImage` / `RenderedHtml` 保存结果与元数据 |
 

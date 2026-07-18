@@ -36,9 +36,7 @@ await matcher.finish(UniMessage(Image(raw=bytes(artifact))))
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
 async with playwright.page(viewport={"width": 1280, "height": 800}) as page:
@@ -61,6 +59,7 @@ Provider 配置中选择。
 - 通过 `nonebot_plugin_htmlrender.providers` entry point 注册；
 - 解析 `render.provider_config`；
 - 返回 lifecycle 与 `PreparedHtmlExecutor` bindings；
+- 只通过收窄的 `ProviderResources` 访问资源；
 - 不读取 NoneBot 全局配置，不创建全局 observer。
 
 它只返回固定颜色的 1×1 PNG，用于验证 discovery 与 SDK 接线，不是通用

@@ -6,6 +6,12 @@ icon: lucide/activity
 
 # 依赖扩展与观测
 
+## core 基础设施
+
+`nonebot-plugin-localstore` 是必选 core 依赖：插件入口统一加载它，为所有引擎 adapter
+提供插件级持久化目录。它不在 optional extras 表中，也不是 Playwright 专属依赖；
+当前 Playwright 默认使用其 data 目录保存浏览器文件与运行时快照。
+
 ## 可选 extras
 
 | extra | 用途 |
@@ -78,6 +84,13 @@ Sentry：
 schema 中 provider identity 的 label 名保留为 `backend`；它是兼容性字段，
 不是公共架构概念。路径、URL、HTML、模板变量、字体名、digest 和资源内容
 都不会进入标签。
+
+所有引擎通过同一个 composition-owned observer 接入两个 exporter。稳定 operation
+包括 `playwright.html_render.rasterize_html`、`takumi.rasterize_html`、
+`htmlkit.rasterize_html`、`graphics.pillow.render_scene` 与
+`graphics.skia.render_scene`；专属 Capability 使用自己的稳定 operation 前缀。
+引擎 adapter 不直接导入 Sentry 或 Prometheus SDK；关闭对应开关时这些桩退化为
+no-op。
 
 ## 故障隔离
 

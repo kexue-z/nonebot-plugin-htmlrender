@@ -44,9 +44,7 @@ CDP 仅支持 Chromium。`render.provider_config.connect_ws.endpoint` 与
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 capability = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
 async with capability.page(viewport={"width": 1280, "height": 800}) as page:

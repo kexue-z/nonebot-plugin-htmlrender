@@ -157,6 +157,9 @@ Resource Service 异步操作，等待已经获准的完整操作结束，再清
 即使调用方事先保留了这些 facade 的引用，关闭后也不能重新填充缓存。关闭失败可重试，
 但一旦进入关闭流程便永久拒绝新操作；需要再次渲染时应创建新的 composition。
 
+同步资源判断（例如本地路径授权）也会检查同一个 admission gate。Provider 专属
+Capability 则必须通过自身的 runtime lease 提供等价的拒绝、drain 与关闭后失效语义。
+
 ## RasterScene Capability
 
 Pillow 与 Skia 接受同一个后端中立、物理像素级 `RasterScene`，但分别注册为独立
@@ -211,11 +214,13 @@ Provider discovery 或通用 HTML request。它们由 `render.graphics.backends`
 
 页面导航、header、User-Agent、选择器截图属于浏览器专属语义：
 
+第一方 Provider 的 lookup key 与 Protocol 只从稳定公共包
+`nonebot_plugin_htmlrender.capabilities` 导入；`adapters.*.capabilities` 是实现细节，
+不构成兼容路径。
+
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
 async with playwright.page(
@@ -240,9 +245,7 @@ Takumi 的 node、measure、SVG、animation 与动态字体 API 通过专属 Cap
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
-    TAKUMI_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 
 takumi = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
 async with takumi.extension() as extension:

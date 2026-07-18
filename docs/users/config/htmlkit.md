@@ -91,9 +91,10 @@ markdown_image = await render_markdown(
 ## 资源、事件循环与取消
 
 适配器禁用了 HTMLKit 自带的 filesystem/network fetcher。图片和 CSS 只从
-`PreparedAsset` 或 composition 注入的 Resource Service/Reader 获取，因此继续
-遵守本地路径白名单、单资源大小限制、共享缓存和 `ResourcePolicy`。外部
-stylesheet 的独立 base URL 会在交给 native renderer 前保留。
+`PreparedAsset` 或 composition 注入的 `ProviderResources.read_bytes()` 获取，因此
+继续遵守本地路径白名单、单资源大小限制、共享缓存和 `ResourcePolicy`。Provider
+拿不到底层 reader、policy 或完整 `ResourceService`。外部 stylesheet 的独立 base
+URL 会在交给 native renderer 前保留。
 
 rc5 只支持 asyncio；在 Trio 下启动、探测或执行会得到 `ProviderUnavailable`，
 不会泄漏原始 event-loop 错误。native 层每次渲染创建 detached thread，取消

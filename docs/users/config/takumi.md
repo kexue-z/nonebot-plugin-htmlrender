@@ -92,9 +92,7 @@ node、measure、SVG、动画和动态字体是 Takumi 专属能力：
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
-    TAKUMI_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 
 capability = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
 async with capability.extension() as extension:

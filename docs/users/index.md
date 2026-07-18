@@ -7,7 +7,8 @@ icon: lucide/book-open
 # 用户文档
 
 0.8 的稳定调用面由通用渲染函数、request、Preparation 模型和类型化产物
-组成。浏览器页面、Takumi node 等专属操作只从对应 Capability 获取。
+组成。浏览器页面、Takumi node 等专属操作只从对应 Capability 获取；第一方
+Capability key 统一从 `nonebot_plugin_htmlrender.capabilities` 导入。
 
 ## 推荐路径
 

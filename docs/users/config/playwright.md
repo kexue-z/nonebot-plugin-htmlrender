@@ -38,10 +38,13 @@ render:
 | `render.provider_config.skip_browser_install` | `false` | 缺少本地浏览器时禁止自动安装 |
 | `render.provider_config.cleanup_legacy_cache` | `false` | 是否清理旧浏览器缓存 |
 | `render.provider_config.close_on_exit` | `true` | composition 关闭时关闭本地浏览器 |
-| `render.provider_config.storage_path` | `null` | Provider 存储目录；默认由 localstore 决定 |
+| `render.provider_config.storage_path` | `null` | Playwright 浏览器存储目录；默认使用 core localstore data 目录 |
 
 `channel` 只适用于 Chromium；CDP 只适用于 Chromium；WS 与 CDP endpoint
 互斥。空的 `executable_path` 会归一化为 `null`。
+
+localstore 是插件 core 的宿主基础设施，而非 Playwright extra。Playwright 只是其
+当前消费者之一；`storage_path` 仅覆盖本 adapter 的浏览器存储位置。
 
 ## 资源 transport
 
@@ -91,9 +94,7 @@ filehost 运行参数由核心 Resource Service 管理，位于 `render.resource
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 capability = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
 async with capability.page(

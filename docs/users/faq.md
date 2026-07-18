@@ -22,6 +22,12 @@ I/O 边界使用 `bytes(artifact)` 或 `artifact.data`。
 不是。它表示延迟创建 Provider runtime。第一次需要执行器或 Capability 的
 操作会启动；希望启动失败尽早暴露时使用 `warmup` 或 `probe`。
 
+## localstore 为什么是 core 依赖？
+
+它提供插件级 data/cache/config 目录，是可供所有引擎 adapter 使用的宿主基础设施，
+不属于 Playwright extra。当前 Playwright 在未配置 `storage_path` 时使用其 data
+目录；安装 localstore 本身不会启用浏览器或选择 Provider。
+
 ## 如何操作 Playwright Page？
 
 从 `get_default_application().capabilities` 中按

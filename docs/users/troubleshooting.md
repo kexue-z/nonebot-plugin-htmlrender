@@ -36,6 +36,8 @@ uv run playwright install chromium
 
 检查 `render.provider_config.engine`、`executable_path`、channel 与系统依赖。
 设置 `skip_browser_install: true` 会禁止自动安装，不会让缺失浏览器变为可用。
+未设置 `storage_path` 时还需确认 core localstore data 目录可写；它是插件级基础
+设施，不是 Playwright extra。
 
 ## WS/CDP 连接失败
 
@@ -47,8 +49,9 @@ uv run playwright install chromium
 
 ## typed Capability 缺失
 
-确认导入了正确 key，并且 `render.provider` 与该 Capability 对应。不要用
-Capability 缺失作为 Provider 身份判断；业务应按真实所需能力探测。
+第一方 key 应从 `nonebot_plugin_htmlrender.capabilities` 导入。确认
+`render.provider` 与该 Capability 对应；不要用 Capability 缺失作为 Provider 身份
+判断，业务应按真实所需能力探测。
 
 ## 本地资源被拒绝
 

@@ -20,7 +20,8 @@
 - Playwright 浏览器、Takumi 原生与实验性 HTMLKit Provider
 - 与引擎无关的 Preparation、资源服务和 `PreparedHtml`
 - `RenderedImage` / `RenderedHtml` 类型化产物
-- Playwright、Takumi 专属能力通过类型化 Capability 获取
+- Playwright、Takumi 专属能力通过稳定的 `nonebot_plugin_htmlrender.capabilities`
+  类型化契约获取
 - 有界资源缓存、严格本地路径策略和可选观测集成
 
 ## 安装
@@ -35,6 +36,9 @@ uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
 # 或（实验性、asyncio-only）
 uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
 ```
+
+core 会安装并统一加载 `nonebot-plugin-localstore`，作为插件级持久化目录基础设施；
+它不是 Playwright extra，也不代表已经选择任何渲染 Provider。
 
 Pillow/Skia 是独立的 `RasterScene` Capability，不属于 HTML Provider。按需增加
 `pillow`、`skia`、`filehost`、`sentry`、`prometheus`；`all` 会安装全部可选能力。

@@ -85,6 +85,9 @@ core 安装默认不包含任何位图渲染后端。HTMLKit rc5 另有
 `device_pixel_ratio=1.0`、`height=None` 的显式限制，详见
 [HTMLKit 配置](config/htmlkit.md)。
 
+`nonebot-plugin-localstore` 仍是 core 宿主基础设施，由插件入口统一加载；它不应
+移动到 Playwright extra 或由 Playwright Provider 单独声明 requirement。
+
 未选择 Provider 时插件仍可执行 Preparation 与 `render_template_html`；由于位图
 操作未绑定，调用会抛出 `CapabilityUnavailable`。选择了 Provider 但缺少对应
 extra 时，位图执行或启动会报告 `ProviderUnavailable`。
@@ -125,9 +128,7 @@ media_type = artifact.media_type
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 app = get_default_application()
 playwright = app.capabilities.require(PLAYWRIGHT_CAPABILITIES)
@@ -135,13 +136,20 @@ async with playwright.page(viewport={"width": 800, "height": 600}) as page:
     await page.goto("https://example.com")
 ```
 
+第一方 key 与 Protocol 的稳定导入路径是
+`nonebot_plugin_htmlrender.capabilities`。adapter 内部 capability 模块不是公共
+兼容路径。
+
 ## 删除符号
 
 以下名字只用于迁移检索，不存在兼容 adapter：
 
 - `Backend`、`BackendCapability`、`BackendExtension`
-- `RenderRuntime`、`RenderSession`
+- `RenderBackend`、`RenderRuntime`、`RenderSession`
 - `register_backend`、`build_backend`
+- `PreparationService`、`SingleflightResourceReader`、
+  `ResourceValueResolver`、`clean_playwright_cache`
+- `PageConfig.base_url`；页面导航只使用 `document_url`
 - `_compat` 中的 `text_to_pic`、`md_to_pic`、`html_to_pic`、
   `template_to_pic`、`template_to_html`
 
@@ -155,7 +163,11 @@ async with playwright.page(viewport={"width": 800, "height": 600}) as page:
 
 0.7 与 0.8 开发分支中曾存在的过渡 Provider 接口不构成兼容契约。第三方
 Provider 必须适配 0.8.0a1 起公开的类型化 settings、`ProviderDependencies`、
-`EngineBindings`、`ResourceStrategy` 与 provider-local lease；不提供兼容 shim。以
+`EngineBindings`、`ProviderResources`、`ResourceStrategy` 与 provider-local
+lease；不提供兼容 shim。当前 `ProviderDependencies` 只包含 operation/cache
+observer、`resources` 与可选 `asset_publisher`，不再暴露 worker、raw reader、local
+policy 或完整 `ResourceService`。`EngineBindings` 也不再包含 `description` 或
+`observation_attributes`；Provider ID 是引擎身份的唯一来源。以
 `examples/echo-provider` 和 [Provider 开发指南](../maintainers/architecture/provider-development.md)
 为准。
 

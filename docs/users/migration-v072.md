@@ -49,7 +49,9 @@ resource_resolve_mode = auto
 remote_local_resource_policy = memory
 ```
 
-本地图片、字体、CSS 与模板资源读取为 `PreparedAsset`，按 SHA-256 去重，并通过当前 Page 的 route 直接返回 bytes。数据不写 localstore 或磁盘，Page 关闭后释放。
+本地图片、字体、CSS 与模板资源读取为 `PreparedAsset`，按 SHA-256 去重，并通过当前
+Page 的 route 直接返回 bytes。这些资源 payload 不写 localstore 或磁盘，Page 关闭后
+释放；Playwright 浏览器文件与 runtime snapshot 仍可使用 core localstore data 目录。
 
 如果你依赖旧行为，请显式声明意图：
 
@@ -64,10 +66,9 @@ filehost 的 TTL 现在明确为 URL mapping TTL。它不承诺逐文件物理�
 v0.7.2 固定以下语义：
 
 - `PreparedHtml.base_url`：解析 HTML/CSS 的相对资源，不触发导航；
-- `PageConfig.document_url`：显式要求 `page.goto()` 的页面 URL；
-- `PageConfig.base_url`：v0.7.1 导航字段的弃用兼容别名，不再表示资源基址。
+- `PageConfig.document_url`：显式要求 `page.goto()` 的页面 URL。
 
-旧兼容入口把 `PageConfig.base_url` 当作导航目标时会发出弃用警告。把实际导航目标迁移到 `document_url`：
+v0.8 已删除 `PageConfig.base_url` 兼容别名；实际导航目标必须使用 `document_url`：
 
 ```python
 # Before: one field carried two meanings
