@@ -4,7 +4,6 @@ from .reader import (
     CachingResourceReader,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
-    SingleflightResourceReader,
     build_resource_reader,
 )
 
@@ -14,7 +13,6 @@ __all__ = [
     "CompositeResourceReader",
     "ConfiguredLocalAccessPolicy",
     "FilehostAssetPublisher",
-    "SingleflightResourceReader",
     "build_resource_reader",
     "install_filehost_request_guard",
 ]

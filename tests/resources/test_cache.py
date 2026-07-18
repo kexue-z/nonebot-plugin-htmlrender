@@ -15,7 +15,6 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     CachingResourceReader,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
-    SingleflightResourceReader,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.adapters.resources import reader as reader_module
@@ -471,7 +470,7 @@ async def test_singleflight_deduplicates_concurrent_reads() -> None:
     reference = InlineResourceRef(b"key")
     content = _content(b"value", "one")
     inner = BlockingReader({reference.cache_key: content})
-    reader = SingleflightResourceReader(inner)
+    reader = _cache(inner, max_entries=0, max_bytes=0, revalidate_seconds=0)
     results: list[ResourceContent] = []
 
     async def read() -> None:
@@ -494,7 +493,7 @@ async def test_singleflight_broadcasts_errors_without_caching_them() -> None:
     reference = InlineResourceRef(b"key")
     inner = BlockingReader({reference.cache_key: _content(b"value", "one")})
     inner.error = RuntimeError("read failed")
-    reader = SingleflightResourceReader(inner)
+    reader = _cache(inner, max_entries=0, max_bytes=0, revalidate_seconds=0)
     errors: list[str] = []
 
     async def read() -> None:

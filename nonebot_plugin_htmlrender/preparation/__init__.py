@@ -8,12 +8,11 @@ from .models import (
     RasterOptions,
     RenderRequirement,
 )
-from .service import DefaultHtmlPreparer, HtmlPreparer, PreparationService
+from .service import DefaultHtmlPreparer, HtmlPreparer
 
 __all__ = (
     "DefaultHtmlPreparer",
     "HtmlPreparer",
-    "PreparationService",
     "PreparedAsset",
     "PreparedHtml",
     "PreparedStylesheet",

@@ -14,7 +14,12 @@ from urllib.request import urlopen
 import anyio
 from anyio.to_thread import run_sync
 
-from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
+from nonebot_plugin_htmlrender.resources.errors import (
+    ResourceAccessDenied,
+    ResourceNotFound,
+    ResourceResolutionError,
+    ResourceSizeExceeded,
+)
 from nonebot_plugin_htmlrender.resources.models import (
     FileResourceRef,
     InlineResourceRef,
@@ -24,21 +29,14 @@ from nonebot_plugin_htmlrender.resources.models import (
     ResourceRef,
     ResourceRevision,
 )
-from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.path_guard import validate_local_access
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
     from nonebot_plugin_htmlrender.resources.ports import ResourceReader, WorkerExecutor
-
-from nonebot_plugin_htmlrender.resources.errors import (
-    ResourceAccessDenied,
-    ResourceNotFound,
-    ResourceResolutionError,
-    ResourceSizeExceeded,
-)
 
 R = TypeVar("R")
 
@@ -497,39 +495,6 @@ class CachingResourceReader:
                         reset.set()
 
 
-@final
-class SingleflightResourceReader:
-    """Compatibility facade for deduplicated reads without content residency."""
-
-    def __init__(self, inner: ResourceReader) -> None:
-        self._reader = CachingResourceReader(
-            inner,
-            settings=ResourceCacheSettings(
-                max_entries=0,
-                max_bytes=0,
-                revalidate_seconds=0,
-            ),
-            observer=NoopCacheObserver(),
-        )
-
-    async def read(
-        self,
-        reference: ResourceRef,
-        *,
-        refresh: bool = False,
-    ) -> ResourceContent:
-        return await self._reader.read(reference, refresh=refresh)
-
-    async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
-        return await self._reader.revision(reference)
-
-    async def invalidate(self, reference: ResourceRef) -> None:
-        await self._reader.invalidate(reference)
-
-    async def clear(self) -> None:
-        await self._reader.clear()
-
-
 def build_resource_reader(
     settings: ResourceCacheSettings,
     observer: CacheObserver,
@@ -547,6 +512,5 @@ __all__ = [
     "CachingResourceReader",
     "CompositeResourceReader",
     "ConfiguredLocalAccessPolicy",
-    "SingleflightResourceReader",
     "build_resource_reader",
 ]

@@ -253,6 +253,4 @@ class DefaultHtmlPreparer:
         )
 
 
-PreparationService = DefaultHtmlPreparer
-
-__all__ = ["DefaultHtmlPreparer", "HtmlPreparer", "PreparationService"]
+__all__ = ["DefaultHtmlPreparer", "HtmlPreparer"]

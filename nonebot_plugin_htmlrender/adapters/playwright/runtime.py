@@ -449,8 +449,3 @@ def reconcile_legacy_playwright_cache(
             logger.info("Playwright was cleaned successfully.")
         except Exception as e:
             logger.error(f"Failed to delete Playwright: {e}")
-
-
-def clean_playwright_cache(config: PlaywrightConfig, *, cleanup: bool) -> None:
-    """已弃用：请改用 ``reconcile_legacy_playwright_cache``。"""
-    reconcile_legacy_playwright_cache(config, cleanup=cleanup)

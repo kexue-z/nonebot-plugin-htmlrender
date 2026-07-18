@@ -1,8 +1,6 @@
-from collections.abc import Mapping
-from typing import TYPE_CHECKING, Literal, cast
-import warnings
+from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
-from nonebot.compat import field_validator, model_validator
+from nonebot.compat import field_validator
 from pydantic import BaseModel, ConfigDict, Field
 
 from nonebot_plugin_htmlrender.rendering.errors import InvalidRenderRequest
@@ -19,7 +17,9 @@ class ViewportConfig(BaseModel):
     width: int = Field(default=800, ge=1, le=10000, description="Viewport width")
     height: int = Field(default=600, ge=1, le=10000, description="Viewport height")
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 class ScreenshotOptions(BaseModel):
@@ -49,7 +49,9 @@ class ScreenshotOptions(BaseModel):
         description="Wait time before screenshot (milliseconds)",
     )
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 class PngScreenshotOptions(ScreenshotOptions):
@@ -61,7 +63,9 @@ class PngScreenshotOptions(ScreenshotOptions):
 
     format: Literal["png"] = Field(default="png", frozen=True)
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 class JpegScreenshotOptions(ScreenshotOptions):
@@ -79,7 +83,9 @@ class JpegScreenshotOptions(ScreenshotOptions):
         description="Image quality, range 0-100",
     )
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 ScreenshotConfig = PngScreenshotOptions | JpegScreenshotOptions
@@ -97,14 +103,6 @@ class PageConfig(BaseModel):
         description="Optional URL to navigate before injecting HTML.",
     )
 
-    deprecated_base_url: str | None = Field(
-        default=None,
-        alias="base_url",
-        exclude=True,
-        repr=False,
-        description="Deprecated input-only compatibility alias for document_url.",
-    )
-
     user_agent: str | None = Field(
         default=None, description="User agent string, None for default"
     )
@@ -112,31 +110,6 @@ class PageConfig(BaseModel):
     extra_http_headers: dict[str, str] = Field(
         default_factory=dict, description="Additional HTTP headers"
     )
-
-    @model_validator(mode="before")
-    @classmethod
-    def migrate_deprecated_base_url(cls, data: object) -> object:
-        """Migrate the v0.7.1 navigation alias without making it a resource base."""
-        if not isinstance(data, Mapping):
-            return data
-        values = dict(data)
-        base_url = values.pop("base_url", None)
-        document_url = values.get("document_url")
-        if base_url is None:
-            return values
-        if document_url is not None:
-            raise ValueError(
-                "base_url is a deprecated alias for document_url; provide only "
-                "document_url when both would otherwise be set"
-            )
-        warnings.warn(
-            "PageConfig.base_url is deprecated; use document_url. Resource bases "
-            "belong to PreparedHtml.base_url.",
-            DeprecationWarning,
-            stacklevel=3,
-        )
-        values["document_url"] = base_url
-        return values
 
     @field_validator("document_url")
     @classmethod
@@ -161,22 +134,9 @@ class PageConfig(BaseModel):
             )
         return v
 
-    @property
-    def base_url(self) -> str:
-        """Deprecated readable alias retained for v0.7.1 callers."""
-        return self.document_url or "about:blank"
-
-    @base_url.setter
-    def base_url(self, value: str | None) -> None:
-        warnings.warn(
-            "PageConfig.base_url is deprecated; use document_url. Resource bases "
-            "belong to PreparedHtml.base_url.",
-            DeprecationWarning,
-            stacklevel=2,
-        )
-        self.document_url = self.validate_page_url(value)
-
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 class ContentConfig(BaseModel):
@@ -213,7 +173,9 @@ class ContentConfig(BaseModel):
             raise ValueError("HTML content cannot be empty")
         return v
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 class RenderConfig(BaseModel):
@@ -229,7 +191,9 @@ class RenderConfig(BaseModel):
         discriminator="format",
     )
 
-    model_config = ConfigDict(extra="forbid", validate_assignment=True)
+    model_config: ClassVar[ConfigDict] = ConfigDict(
+        extra="forbid", validate_assignment=True
+    )
 
 
 def _build_screenshot_config(
