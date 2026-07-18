@@ -107,7 +107,7 @@ class _FakePreparer:
         *,
         markdown_path: str = "",
         css_path: str = "",
-        resource_strict: bool | None = None,
+        resource_mode: ResourceResolveMode | None = None,
     ) -> PreparedHtml:
         self.prepare_calls.append(
             (
@@ -116,7 +116,7 @@ class _FakePreparer:
                     "markdown_text": markdown_text,
                     "markdown_path": markdown_path,
                     "css_path": css_path,
-                    "resource_strict": resource_strict,
+                    "resource_mode": resource_mode,
                 },
             )
         )
@@ -254,17 +254,17 @@ async def test_render_text_flows_through_executor() -> None:
 
 
 @pytest.mark.parametrize(
-    ("policy", "expected_strict"),
+    ("policy", "expected_mode"),
     [
         (None, None),
-        (ResourcePolicy.OFF, None),
-        (ResourcePolicy.AUTO, False),
-        (ResourcePolicy.STRICT, True),
+        (ResourcePolicy.OFF, ResourceResolveMode.OFF),
+        (ResourcePolicy.AUTO, ResourceResolveMode.AUTO),
+        (ResourcePolicy.STRICT, ResourceResolveMode.STRICT),
     ],
 )
-async def test_render_markdown_maps_policy_to_preparation_strictness(
+async def test_render_markdown_maps_policy_to_preparation_mode(
     policy: ResourcePolicy | None,
-    expected_strict: bool | None,  # noqa: FBT001 -- pytest passes params by name
+    expected_mode: ResourceResolveMode | None,
 ) -> None:
     renderer, preparer, executor = _full_renderer()
 
@@ -274,7 +274,7 @@ async def test_render_markdown_maps_policy_to_preparation_strictness(
 
     kind, arguments = preparer.prepare_calls[0]
     assert kind == "markdown"
-    assert arguments["resource_strict"] == expected_strict
+    assert arguments["resource_mode"] == expected_mode
     assert executor.calls[0].resource_policy is policy
 
 
@@ -351,7 +351,7 @@ async def test_missing_binding_raises_capability_unavailable() -> None:
         operation_admission=OperationAdmissionGate(),
     )
 
-    assert renderer.capabilities == frozenset()
+    assert renderer.supported_commands == frozenset()
     assert not renderer.supports("render_html")
     with pytest.raises(CapabilityUnavailable) as exc_info:
         await renderer.render_html(RenderHtmlRequest(html="<p>hi</p>"))
@@ -369,6 +369,6 @@ def test_capabilities_derived_from_bindings() -> None:
         operation_admission=OperationAdmissionGate(),
     )
 
-    assert renderer.capabilities == frozenset({"render_text", "rasterize_html"})
+    assert renderer.supported_commands == frozenset({"render_text", "rasterize_html"})
     assert renderer.supports("rasterize_html")
     assert not renderer.supports("render_markdown")

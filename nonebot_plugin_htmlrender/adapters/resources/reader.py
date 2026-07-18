@@ -2,14 +2,13 @@ from __future__ import annotations
 
 from collections import OrderedDict
 from dataclasses import dataclass
+from functools import partial
 from importlib.resources import files
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import time
 from typing import TYPE_CHECKING, TypeVar, final
-from urllib.error import HTTPError
-from urllib.request import urlopen
 
 import anyio
 from anyio.to_thread import run_sync
@@ -31,12 +30,18 @@ from nonebot_plugin_htmlrender.resources.models import (
 )
 from nonebot_plugin_htmlrender.resources.path_guard import validate_local_access
 
+from .remote import ConfiguredRemoteAccessPolicy, read_bounded, read_remote
+
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
     from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
-    from nonebot_plugin_htmlrender.resources.ports import ResourceReader, WorkerExecutor
+    from nonebot_plugin_htmlrender.resources.ports import (
+        RemoteAccessPolicy,
+        ResourceReader,
+        WorkerExecutor,
+    )
 
 R = TypeVar("R")
 
@@ -78,15 +83,6 @@ def _file_revision(path: Path) -> ResourceRevision:
     )
 
 
-def _read_bounded(read: Callable[[int], bytes], limit: int, label: str) -> bytes:
-    data = read(-1 if limit == 0 else limit + 1)
-    if limit > 0 and len(data) > limit:
-        raise ResourceSizeExceeded(
-            f"Resource {label} exceeds the configured {limit}-byte read limit."
-        )
-    return data
-
-
 def _read_file(path: Path, max_resource_bytes: int) -> ResourceContent:
     for _ in range(3):
         with path.open("rb") as stream:
@@ -96,7 +92,7 @@ def _read_file(path: Path, max_resource_bytes: int) -> ResourceContent:
                     f"Resource {path} exceeds the configured "
                     f"{max_resource_bytes}-byte read limit."
                 )
-            data = _read_bounded(stream.read, max_resource_bytes, str(path))
+            data = read_bounded(stream.read, max_resource_bytes, str(path))
             after = os.fstat(stream.fileno())
         before_revision = ResourceRevision(
             f"{before.st_dev}:{before.st_ino}:{before.st_size}:{before.st_mtime_ns}:{before.st_ctime_ns}"
@@ -121,7 +117,7 @@ def _read_package(
         *PurePosixPath(reference.name).parts
     )
     with traversable.open("rb") as stream:
-        data = _read_bounded(
+        data = read_bounded(
             stream.read,
             max_resource_bytes,
             f"{reference.package}:{reference.name}",
@@ -133,30 +129,6 @@ def _read_package(
     )
 
 
-def _read_remote(
-    reference: RemoteResourceRef,
-    max_resource_bytes: int,
-) -> ResourceContent:
-    with urlopen(reference.url, timeout=30) as response:  # noqa: S310 -- explicit opt-in ref
-        content_length = response.headers.get("Content-Length")
-        if (
-            max_resource_bytes > 0
-            and content_length is not None
-            and content_length.isdigit()
-            and int(content_length) > max_resource_bytes
-        ):
-            raise ResourceSizeExceeded(
-                f"Resource {reference.url} exceeds the configured "
-                f"{max_resource_bytes}-byte read limit."
-            )
-        data = _read_bounded(response.read, max_resource_bytes, reference.url)
-        media_type = response.headers.get_content_type()
-        etag = response.headers.get("ETag")
-        modified = response.headers.get("Last-Modified")
-    revision = ResourceRevision(etag or modified) if etag or modified else None
-    return ResourceContent(data, media_type, revision)
-
-
 @final
 class CompositeResourceReader:
     """Dispatch concrete resource refs to source-specific adapters."""
@@ -166,11 +138,13 @@ class CompositeResourceReader:
         worker: WorkerExecutor,
         *,
         max_resource_bytes: int = 64 * 1024 * 1024,
+        remote_access: RemoteAccessPolicy | None = None,
     ) -> None:
         if max_resource_bytes < 0:
             raise ValueError("Resource read limit must not be negative.")
         self._worker = worker
         self._max_resource_bytes = max_resource_bytes
+        self._remote_access = remote_access or ConfiguredRemoteAccessPolicy()
 
     async def read(
         self,
@@ -194,9 +168,12 @@ class CompositeResourceReader:
                 )
             if isinstance(reference, RemoteResourceRef):
                 return await self._worker.run_sync(
-                    _read_remote,
-                    reference,
-                    self._max_resource_bytes,
+                    partial(
+                        read_remote,
+                        reference,
+                        policy=self._remote_access,
+                        max_resource_bytes=self._max_resource_bytes,
+                    )
                 )
             if isinstance(reference, InlineResourceRef):
                 if (
@@ -218,19 +195,6 @@ class CompositeResourceReader:
             raise ResourceNotFound(str(error)) from error
         except PermissionError as error:
             raise ResourceAccessDenied(str(error)) from error
-        except HTTPError as error:
-            remote_url = (
-                reference.url
-                if isinstance(reference, RemoteResourceRef)
-                else repr(reference)
-            )
-            if error.code == 404:
-                raise ResourceNotFound(
-                    f"Remote resource was not found: {remote_url}"
-                ) from error
-            raise ResourceResolutionError(
-                f"Remote resource request failed with HTTP {error.code}: {remote_url}"
-            ) from error
         except OSError as error:
             raise ResourceResolutionError(str(error)) from error
         except Exception as error:
@@ -499,10 +463,13 @@ def build_resource_reader(
     settings: ResourceCacheSettings,
     observer: CacheObserver,
     worker: WorkerExecutor,
+    *,
+    remote_access: RemoteAccessPolicy | None = None,
 ) -> CachingResourceReader:
     direct = CompositeResourceReader(
         worker,
         max_resource_bytes=settings.max_resource_bytes,
+        remote_access=remote_access,
     )
     return CachingResourceReader(direct, settings=settings, observer=observer)
 

@@ -37,6 +37,8 @@ from nonebot_plugin_htmlrender.resources.service import ResourceService
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
+    from pytest_mock import MockerFixture
+
 
 def _published_label(value: str | Path | bytes) -> str:
     if isinstance(value, bytes):
@@ -257,7 +259,8 @@ async def test_local_file_strategy_resolves_nested_values(tmp_path: Path) -> Non
     result = await resources.resolve_template_vars(
         {
             "path": image,
-            "relative": "logo.png",
+            "relative": "./logo.png",
+            "bare_text": "logo.png",
             "nested": [image, (image,), {image}],
             "plain": "hello world",
         },
@@ -268,10 +271,31 @@ async def test_local_file_strategy_resolves_nested_values(tmp_path: Path) -> Non
     assert result == {
         "path": expected,
         "relative": expected,
+        "bare_text": "logo.png",
         "nested": [expected, (expected,), {expected}],
         "plain": "hello world",
     }
     assert await resources.to_resource_url(image) == expected
+
+
+@pytest.mark.anyio
+async def test_plain_text_classification_never_probes_the_filesystem(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    template_root = tmp_path / "templates"
+    template_root.mkdir()
+    (template_root / "looks-like-file.png").write_bytes(b"x")
+    resources = _resources(tmp_path)
+
+    exists_spy = mocker.spy(Path, "exists")
+    result = await resources.resolve_template_vars(
+        {"caption": "looks-like-file.png", "plain": "hello world"},
+        template_base=template_root,
+    )
+
+    assert result == {"caption": "looks-like-file.png", "plain": "hello world"}
+    assert exists_spy.call_count == 0
 
 
 @pytest.mark.anyio
@@ -337,7 +361,7 @@ async def test_filehost_policy_uses_injected_publisher_and_access_policy(
     result = await resources.resolve_template_vars(
         {
             "absolute": asset,
-            "relative": "asset.bin",
+            "relative": "./asset.bin",
             "bytes": b"raw",
             "buffer": BytesIO(b"buffer"),
             "mutable": bytearray(b"mutable"),

@@ -32,6 +32,11 @@ from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRenderOption,
     UnsupportedRequirement,
 )
+from nonebot_plugin_htmlrender.rendering.requests import (
+    POLICY_RESOLVE_MODES,
+    resolve_mode_for_policy,
+)
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 from tests.image_fixtures import encoded_image
 
 
@@ -180,3 +185,9 @@ def test_template_request_requires_template_name() -> None:
 def test_timeout_must_be_finite_and_positive(timeout: float) -> None:
     with pytest.raises(InvalidRenderRequest, match="timeout_seconds"):
         RenderHtmlRequest(html="<p>hi</p>", timeout_seconds=timeout)
+
+
+def test_policy_resolve_mode_mapping_is_exhaustive() -> None:
+    assert set(POLICY_RESOLVE_MODES) == set(ResourcePolicy)
+    for policy in ResourcePolicy:
+        assert isinstance(resolve_mode_for_policy(policy), ResourceResolveMode)

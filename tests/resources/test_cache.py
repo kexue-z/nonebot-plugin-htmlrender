@@ -1,10 +1,8 @@
 from __future__ import annotations
 
 from collections import Counter
-from email.message import Message
 from functools import partial
 from typing import TYPE_CHECKING
-from urllib.error import HTTPError
 
 import anyio
 from anyio import wait_all_tasks_blocked
@@ -226,7 +224,7 @@ async def test_composite_reader_supports_all_reference_kinds(
     )
     remote_read = mocker.patch.object(
         reader_module,
-        "_read_remote",
+        "read_remote",
         return_value=remote_content,
     )
     remote = RemoteResourceRef("https://assets.example/card.css")
@@ -247,7 +245,9 @@ async def test_composite_reader_supports_all_reference_kinds(
     assert inline_content.revision == await reader.revision(inline)
     assert await reader.read(remote) is remote_content
     assert await reader.revision(remote) is None
-    remote_read.assert_called_once_with(remote, 64 * 1024 * 1024)
+    remote_read.assert_called_once()
+    assert remote_read.call_args.args == (remote,)
+    assert remote_read.call_args.kwargs["max_resource_bytes"] == 64 * 1024 * 1024
 
 
 @pytest.mark.anyio
@@ -290,18 +290,18 @@ async def test_composite_reader_translates_source_errors(
     remote = RemoteResourceRef("https://assets.example/missing.css")
     mocker.patch.object(
         reader_module,
-        "_read_remote",
-        side_effect=HTTPError(remote.url, 404, "missing", Message(), None),
+        "read_remote",
+        side_effect=ResourceNotFound(f"Remote resource was not found: {remote.url}"),
     )
     with pytest.raises(ResourceNotFound, match="was not found"):
         await reader.read(remote)
 
     mocker.patch.object(
         reader_module,
-        "_read_remote",
-        side_effect=HTTPError(remote.url, 503, "unavailable", Message(), None),
+        "read_remote",
+        side_effect=OSError("connection reset"),
     )
-    with pytest.raises(ResourceResolutionError, match="HTTP 503"):
+    with pytest.raises(ResourceResolutionError, match="connection reset"):
         await reader.read(remote)
 
 

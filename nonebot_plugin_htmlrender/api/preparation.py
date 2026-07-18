@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nonebot_plugin_htmlrender.preparation.html import prepare_html as prepare_html
-from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
+from nonebot_plugin_htmlrender.rendering.requests import (
+    ResourcePolicy,
+    resolve_mode_for_policy,
+)
 
 from ._default import get_default_application
 
@@ -31,16 +34,14 @@ async def prepare_markdown(
     css_path: str = "",
     resource_policy: ResourcePolicy | None = None,
 ) -> PreparedHtml:
-    resource_strict = (
-        None
-        if resource_policy in {None, ResourcePolicy.OFF}
-        else resource_policy is ResourcePolicy.STRICT
+    resource_mode = (
+        None if resource_policy is None else resolve_mode_for_policy(resource_policy)
     )
     return await get_default_application().preparation.prepare_markdown(
         markdown,
         markdown_path=markdown_path,
         css_path=css_path,
-        resource_strict=resource_strict,
+        resource_mode=resource_mode,
     )
 
 

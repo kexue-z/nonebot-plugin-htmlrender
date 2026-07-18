@@ -55,6 +55,25 @@ class ResourceCacheSettings:
 
 
 @dataclass(frozen=True, slots=True)
+class RemoteAccessSettings:
+    """Network egress policy for remote resource fetches.
+
+    Private, loopback, and link-local destinations are denied unless the host
+    is explicitly listed in ``allow_hosts`` or ``allow_private_networks`` is
+    enabled.  ``deny_hosts`` always wins over every allow rule.
+    """
+
+    allow_private_networks: bool = False
+    allow_hosts: tuple[str, ...] = ()
+    deny_hosts: tuple[str, ...] = ()
+    max_redirects: int = 5
+
+    def __post_init__(self) -> None:
+        if self.max_redirects < 0:
+            raise ValueError("Remote redirect limit must not be negative.")
+
+
+@dataclass(frozen=True, slots=True)
 class AssetPublisherSettings:
     cache_ttl_seconds: float = 300.0
     request_header_name: str = "X-HTMLRender-Filehost-Request"
@@ -90,6 +109,7 @@ class ResourceStrategy:
 __all__ = [
     "AssetPublisherSettings",
     "LocalLocalResourcePolicy",
+    "RemoteAccessSettings",
     "RemoteLocalResourcePolicy",
     "ResourceCacheSettings",
     "ResourceResolveMode",

@@ -50,7 +50,7 @@ class HtmlPreparer(Protocol):
         *,
         markdown_path: str = "",
         css_path: str = "",
-        resource_strict: bool | None = None,
+        resource_mode: ResourceResolveMode | None = None,
     ) -> PreparedHtml: ...
 
     async def prepare_template(
@@ -132,7 +132,7 @@ class DefaultHtmlPreparer:
         *,
         markdown_path: str = "",
         css_path: str = "",
-        resource_strict: bool | None = None,
+        resource_mode: ResourceResolveMode | None = None,
     ) -> PreparedHtml:
         if not markdown_text:
             if not markdown_path:
@@ -189,12 +189,13 @@ class DefaultHtmlPreparer:
             base_url=markup_base,
             stylesheets=(PreparedStylesheet(css=css, base_url=stylesheet_base),),
         )
-        if resource_strict is None:
+        effective_mode = resource_mode or self._resources.strategy.resolve_mode
+        if effective_mode is ResourceResolveMode.OFF:
             return prepared
         return await materialize_local_assets(
             prepared,
             resources=self._resources,
-            strict=resource_strict,
+            strict=effective_mode is ResourceResolveMode.STRICT,
         )
 
     async def prepare_template(

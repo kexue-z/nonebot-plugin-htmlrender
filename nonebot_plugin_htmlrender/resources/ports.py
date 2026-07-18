@@ -3,7 +3,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol, TypeVar
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping, Sequence
+    from collections.abc import Awaitable, Callable, Mapping, Sequence
+    from ipaddress import IPv4Address, IPv6Address
     from pathlib import Path
 
     from .config import ResourceStrategy
@@ -48,6 +49,26 @@ class LocalAccessPolicy(Protocol):
     def authorize(self, path: Path) -> Path: ...
 
 
+class RemoteAccessPolicy(Protocol):
+    """Egress policy consulted before and during every remote fetch.
+
+    ``authorize_address`` must be called with each resolved address and with
+    every redirect hop so DNS answers cannot smuggle the request into a
+    blocked network after the initial URL check passed.
+    """
+
+    @property
+    def max_redirects(self) -> int: ...
+
+    def authorize_url(self, url: str) -> None: ...
+
+    def authorize_address(
+        self,
+        url: str,
+        address: IPv4Address | IPv6Address,
+    ) -> None: ...
+
+
 class AssetPublisher(Protocol):
     def create_lease(self) -> str: ...
 
@@ -90,18 +111,25 @@ class TemplateCompiler(Protocol):
 
 
 class ResourceResolver(Protocol):
+    """Custom per-call resolution hook accepted by the resource service.
+
+    ``resolve`` may be synchronous or return an awaitable; the service awaits
+    the result when needed.
+    """
+
     def resolve(
         self,
         value: object,
         *,
         template_base: Path | None = None,
-    ) -> object: ...
+    ) -> object | Awaitable[object]: ...
 
 
 __all__ = [
     "AssetPublisher",
     "LocalAccessPolicy",
     "ProviderResources",
+    "RemoteAccessPolicy",
     "ResourceReader",
     "ResourceResolver",
     "TemplateCompiler",

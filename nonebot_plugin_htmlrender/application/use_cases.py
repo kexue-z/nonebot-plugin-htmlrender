@@ -15,8 +15,7 @@ import anyio
 
 from nonebot_plugin_htmlrender.rendering.artifacts import RenderedHtml, RenderedImage
 from nonebot_plugin_htmlrender.rendering.errors import ProviderExecutionError
-from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
-from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
+from nonebot_plugin_htmlrender.rendering.requests import resolve_mode_for_policy
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -30,20 +29,9 @@ if TYPE_CHECKING:
         RenderTemplateHtmlRequest,
         RenderTemplateRequest,
         RenderTextRequest,
+        ResourcePolicy,
     )
-
-
-def _preparation_strictness(policy: ResourcePolicy | None) -> bool | None:
-    """Map the per-call resource policy onto preparation-time strictness.
-
-    ``None`` and ``OFF`` skip preparation-time materialization; the executor
-    still receives the policy and applies its own transport rules.
-    """
-    if policy is ResourcePolicy.STRICT:
-        return True
-    if policy is ResourcePolicy.AUTO:
-        return False
-    return None
+    from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 
 def _preparation_resolve_mode(
@@ -51,7 +39,7 @@ def _preparation_resolve_mode(
 ) -> ResourceResolveMode | None:
     if policy is None:
         return None
-    return ResourceResolveMode(policy.value)
+    return resolve_mode_for_policy(policy)
 
 
 @contextmanager
@@ -135,7 +123,7 @@ class RenderMarkdown:
                 request.markdown,
                 markdown_path=request.markdown_path,
                 css_path=request.css_path,
-                resource_strict=_preparation_strictness(request.resource_policy),
+                resource_mode=_preparation_resolve_mode(request.resource_policy),
             )
             return await self._executor.execute(
                 prepared,

@@ -58,6 +58,15 @@ class LocalAccessSettings(_StrictRenderModel):
         return v
 
 
+class RemoteAccessSettings(_StrictRenderModel):
+    """Security policy for remote (http/https) resource fetches."""
+
+    allow_private_networks: bool = Field(default=False)
+    allow_hosts: list[str] = Field(default_factory=list)
+    deny_hosts: list[str] = Field(default_factory=list)
+    max_redirects: int = Field(default=5, ge=0)
+
+
 class FilehostSettings(_StrictRenderModel):
     """Core-owned settings for the optional asset publisher adapter."""
 
@@ -104,6 +113,7 @@ class ResourceSettings(_StrictRenderModel):
     cache: CacheSettings = Field(default_factory=CacheSettings)
     templates: TemplateSettings = Field(default_factory=TemplateSettings)
     local_access: LocalAccessSettings = Field(default_factory=LocalAccessSettings)
+    remote_access: RemoteAccessSettings = Field(default_factory=RemoteAccessSettings)
     filehost: FilehostSettings = Field(default_factory=FilehostSettings)
 
 
@@ -179,6 +189,7 @@ __all__ = [
     "GraphicsSettings",
     "LocalAccessSettings",
     "ObservabilitySettings",
+    "RemoteAccessSettings",
     "RenderPluginConfig",
     "RenderSettings",
     "RenderStartupMode",

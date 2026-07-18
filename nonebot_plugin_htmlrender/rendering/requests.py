@@ -42,6 +42,20 @@ class ResourcePolicy(str, Enum):
     """Skip local resource resolution and materialization for this execution."""
 
 
+# The single source of truth for translating per-call policies into
+# preparation/execution resolve modes.  Renaming a member on either enum must
+# fail here instead of silently matching through shared value strings.
+POLICY_RESOLVE_MODES: dict[ResourcePolicy, ResourceResolveMode] = {
+    ResourcePolicy.AUTO: ResourceResolveMode.AUTO,
+    ResourcePolicy.STRICT: ResourceResolveMode.STRICT,
+    ResourcePolicy.OFF: ResourceResolveMode.OFF,
+}
+
+
+def resolve_mode_for_policy(policy: ResourcePolicy) -> ResourceResolveMode:
+    return POLICY_RESOLVE_MODES[policy]
+
+
 def effective_resource_resolve_mode(
     policy: ResourcePolicy | None,
     default: ResourceResolveMode,
@@ -49,7 +63,7 @@ def effective_resource_resolve_mode(
     """Resolve a per-call override against the provider-selected default."""
     if policy is None:
         return default
-    return ResourceResolveMode(policy.value)
+    return resolve_mode_for_policy(policy)
 
 
 def _validate_timeout(timeout_seconds: float | None) -> None:

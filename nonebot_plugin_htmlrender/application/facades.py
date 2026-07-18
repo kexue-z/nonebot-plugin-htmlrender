@@ -16,7 +16,10 @@ if TYPE_CHECKING:
         ResourceStrategy,
     )
     from nonebot_plugin_htmlrender.resources.models import ResourceRef
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.service import (
+        ResolverSpec,
+        ResourceService,
+    )
     from nonebot_plugin_htmlrender.resources.templating import (
         ExtensionSpec,
         FilterCallable,
@@ -47,7 +50,7 @@ class ApplicationResources(Protocol):
         refresh: bool = False,
     ) -> str: ...
 
-    def should_resolve(self, resolver: object | None = None) -> bool: ...
+    def should_resolve(self, resolver: ResolverSpec = None) -> bool: ...
 
     async def resolve_template_vars(
         self,
@@ -55,7 +58,7 @@ class ApplicationResources(Protocol):
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> dict[str, Any]: ...
 
@@ -65,7 +68,7 @@ class ApplicationResources(Protocol):
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> str: ...
 
@@ -75,7 +78,7 @@ class ApplicationResources(Protocol):
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> list[str]: ...
 
@@ -118,14 +121,14 @@ class AdmittedHtmlPreparer:
         *,
         markdown_path: str = "",
         css_path: str = "",
-        resource_strict: bool | None = None,
+        resource_mode: ResourceResolveMode | None = None,
     ) -> PreparedHtml:
         async with self._admission.operation():
             return await self._delegate.prepare_markdown(
                 markdown_text,
                 markdown_path=markdown_path,
                 css_path=css_path,
-                resource_strict=resource_strict,
+                resource_mode=resource_mode,
             )
 
     async def prepare_template(
@@ -212,7 +215,7 @@ class AdmittedResourceService:
                 refresh=refresh,
             )
 
-    def should_resolve(self, resolver: object | None = None) -> bool:
+    def should_resolve(self, resolver: ResolverSpec = None) -> bool:
         self._admission.ensure_accepting()
         return self._delegate.should_resolve(resolver)
 
@@ -222,7 +225,7 @@ class AdmittedResourceService:
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> dict[str, Any]:
         async with self._admission.operation():
@@ -240,7 +243,7 @@ class AdmittedResourceService:
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> str:
         async with self._admission.operation():
@@ -258,7 +261,7 @@ class AdmittedResourceService:
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> list[str]:
         async with self._admission.operation():

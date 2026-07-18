@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from inspect import isawaitable
 from io import BytesIO
-import logging
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Any, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, TypeGuard, cast
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import anyio
+from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
 
@@ -36,20 +36,19 @@ if TYPE_CHECKING:
         ResourceResolver,
     )
 
-_logger = logging.getLogger(__name__)
-
 _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
-_EXPLICIT_POLICIES = frozenset(
-    {
-        LocalLocalResourcePolicy.FILE.value,
-        LocalLocalResourcePolicy.FILEHOST.value,
-        LocalLocalResourcePolicy.PASSTHROUGH.value,
-        RemoteLocalResourcePolicy.MEMORY.value,
-        RemoteLocalResourcePolicy.PASSTHROUGH.value,
-        RemoteLocalResourcePolicy.FILEHOST.value,
-        RemoteLocalResourcePolicy.ERROR.value,
-    }
-)
+
+TransportPolicy: TypeAlias = "LocalLocalResourcePolicy | RemoteLocalResourcePolicy"
+ResolverSpec: TypeAlias = "str | ResourceResolver | None"
+
+# Derived from the enum members themselves so a value rename cannot leave a
+# stale string behind.  Members whose values overlap across the two enums
+# (passthrough/filehost) share identical semantics in ``_resolve_scalar``.
+_EXPLICIT_POLICIES: Mapping[str, TransportPolicy] = {
+    member.value: member
+    for enum_cls in (RemoteLocalResourcePolicy, LocalLocalResourcePolicy)
+    for member in enum_cls
+}
 
 
 def _resolve_local_path(value: str | Path, *, label: str) -> Path:
@@ -87,7 +86,15 @@ def _is_bytes(value: object) -> TypeGuard[bytes | bytearray | BytesIO]:
     return isinstance(value, (bytes, bytearray, BytesIO))
 
 
-def _is_local_string(value: str, template_base: Path | None) -> bool:
+def _is_local_string(value: str) -> bool:
+    """Classify by string shape only.
+
+    Classification must stay free of filesystem probes: touching the
+    filesystem here would let arbitrary template text trigger reads and leak
+    existence information before any policy check runs.  Bare names without a
+    path shape stay text; callers express path intent with ``Path`` values,
+    explicit ``./``-style prefixes, or concrete ``ResourceRef`` objects.
+    """
     stripped = value.strip()
     if not stripped or _is_explicit_url(stripped):
         return False
@@ -95,16 +102,14 @@ def _is_local_string(value: str, template_base: Path | None) -> bool:
         stripped
     ):
         return True
-    if template_base is not None and (template_base / stripped).expanduser().exists():
-        return True
     return ("/" in stripped or "\\" in stripped) and " " not in stripped
 
 
-def _is_scalar(value: object, template_base: Path | None) -> bool:
+def _is_scalar(value: object) -> bool:
     return (
         isinstance(value, Path)
         or _is_bytes(value)
-        or (isinstance(value, str) and _is_local_string(value, template_base))
+        or (isinstance(value, str) and _is_local_string(value))
     )
 
 
@@ -201,25 +206,88 @@ class ResourceService:
             return reference
         return FileResourceRef(_resolve_local_path(reference, label="resource path"))
 
-    def _policy(self, resolver: object | None) -> str:
+    def _policy(self, resolver: ResolverSpec) -> TransportPolicy | ResourceResolver:
         if resolver is None or resolver == "auto":
             return (
-                self._strategy.remote_local_policy.value
+                self._strategy.remote_local_policy
                 if self._strategy.is_remote
-                else self._strategy.local_local_policy.value
+                else self._strategy.local_local_policy
             )
         if isinstance(resolver, str):
-            if resolver in _EXPLICIT_POLICIES:
-                return resolver
-            raise InvalidRenderRequest(f"Unknown resource policy: {resolver!r}")
+            member = _EXPLICIT_POLICIES.get(resolver)
+            if member is None:
+                raise InvalidRenderRequest(f"Unknown resource policy: {resolver!r}")
+            return member
         if callable(getattr(resolver, "resolve", None)):
-            return "custom"
+            return resolver
         raise InvalidRenderRequest("Custom resource resolver must expose resolve().")
 
-    def should_resolve(self, resolver: object | None = None) -> bool:
+    def should_resolve(self, resolver: ResolverSpec = None) -> bool:
         if resolver is not None:
             return True
         return self._strategy.resolve_mode is not ResourceResolveMode.OFF
+
+    async def _resolve_with_custom(
+        self,
+        resolver: ResourceResolver,
+        value: object,
+        *,
+        template_base: Path | None,
+    ) -> object:
+        custom_value = value
+        if isinstance(value, (str, Path)):
+            custom_value = self.authorize_local(_candidate(value, template_base))
+        result = resolver.resolve(custom_value, template_base=template_base)
+        return await result if isawaitable(result) else result
+
+    async def _resolve_with_policy(
+        self,
+        policy: TransportPolicy,
+        value: object,
+        *,
+        template_base: Path | None,
+        lease_id: str | None,
+    ) -> object:
+        if policy in (
+            LocalLocalResourcePolicy.PASSTHROUGH,
+            RemoteLocalResourcePolicy.MEMORY,
+        ):
+            return value
+        if policy is RemoteLocalResourcePolicy.ERROR:
+            raise ResourceResolutionError(
+                "Local resources are disabled by the resource strategy."
+            )
+        if policy is LocalLocalResourcePolicy.FILE:
+            if not isinstance(value, (str, Path)):
+                raise ResourceResolutionError(
+                    "The file policy only accepts path values."
+                )
+            return self.authorize_local(_candidate(value, template_base)).as_uri()
+        if policy in (
+            LocalLocalResourcePolicy.FILEHOST,
+            RemoteLocalResourcePolicy.FILEHOST,
+        ):
+            if self._publisher is None:
+                raise ResourceResolutionError(
+                    "The filehost policy requires an AssetPublisher."
+                )
+            publish_value: str | Path | bytes
+            if isinstance(value, str):
+                value = _candidate(value, template_base)
+            if isinstance(value, Path):
+                publish_value = self.authorize_local(value)
+            elif isinstance(value, BytesIO):
+                publish_value = value.getvalue()
+            elif isinstance(value, bytearray):
+                publish_value = bytes(value)
+            elif isinstance(value, bytes):
+                publish_value = value
+            else:
+                raise ResourceResolutionError(
+                    "The filehost policy only accepts paths or bytes."
+                )
+            return await self._publisher.publish(publish_value, lease_id=lease_id)
+        raise ResourceResolutionError(f"Unsupported resource policy: {policy!r}")
 
     async def _resolve_scalar(
         self,
@@ -227,7 +295,7 @@ class ResourceService:
         *,
         template_base: Path | None,
         strict: bool | None,
-        resolver: object | None,
+        resolver: ResolverSpec,
         lease_id: str | None,
     ) -> object:
         policy = self._policy(resolver)
@@ -237,57 +305,22 @@ class ResourceService:
             else strict
         )
         try:
-            if policy == "custom":
-                custom_value = value
-                if isinstance(value, (str, Path)):
-                    custom_value = self.authorize_local(
-                        _candidate(value, template_base),
-                    )
-                custom_resolver = cast("ResourceResolver", resolver)
-                result = custom_resolver.resolve(
-                    custom_value,
+            if isinstance(
+                policy, (LocalLocalResourcePolicy, RemoteLocalResourcePolicy)
+            ):
+                return await self._resolve_with_policy(
+                    policy,
+                    value,
                     template_base=template_base,
+                    lease_id=lease_id,
                 )
-                return await result if isawaitable(result) else result
-            if policy in {"passthrough", "memory"}:
-                return value
-            if policy == "error":
-                raise ResourceResolutionError(
-                    "Local resources are disabled by the resource strategy."
-                )
-            if policy == "file":
-                if not isinstance(value, (str, Path)):
-                    raise ResourceResolutionError(
-                        "The file policy only accepts path values."
-                    )
-                path = self.authorize_local(
-                    _candidate(value, template_base),
-                )
-                return path.as_uri()
-            if policy == "filehost":
-                if self._publisher is None:
-                    raise ResourceResolutionError(
-                        "The filehost policy requires an AssetPublisher."
-                    )
-                publish_value: str | Path | bytes
-                if isinstance(value, str):
-                    value = _candidate(value, template_base)
-                if isinstance(value, Path):
-                    publish_value = self.authorize_local(value)
-                elif isinstance(value, BytesIO):
-                    publish_value = value.getvalue()
-                elif isinstance(value, bytearray):
-                    publish_value = bytes(value)
-                elif isinstance(value, bytes):
-                    publish_value = value
-                else:
-                    raise ResourceResolutionError(
-                        "The filehost policy only accepts paths or bytes."
-                    )
-                return await self._publisher.publish(publish_value, lease_id=lease_id)
-            raise ResourceResolutionError(f"Unsupported resource policy: {policy!r}")
+            return await self._resolve_with_custom(
+                policy,
+                value,
+                template_base=template_base,
+            )
         except Exception as error:
-            if policy == "error" or effective_strict:
+            if policy is RemoteLocalResourcePolicy.ERROR or effective_strict:
                 if isinstance(error, ResourceResolutionError):
                     raise
                 if isinstance(error, FileNotFoundError):
@@ -295,7 +328,7 @@ class ResourceService:
                 if isinstance(error, PermissionError):
                     raise ResourceAccessDenied(str(error)) from error
                 raise ResourceResolutionError(str(error)) from error
-            _logger.warning("Failed to resolve resource %r: %s", value, error)
+            logger.warning("Failed to resolve resource {!r}: {}", value, error)
             return value
 
     async def _resolve_any(
@@ -304,10 +337,10 @@ class ResourceService:
         *,
         template_base: Path | None,
         strict: bool | None,
-        resolver: object | None,
+        resolver: ResolverSpec,
         lease_id: str | None,
     ) -> object:
-        if _is_scalar(value, template_base):
+        if _is_scalar(value):
             return await self._resolve_scalar(
                 value,
                 template_base=template_base,
@@ -375,7 +408,7 @@ class ResourceService:
         *,
         template_base: Path | None,
         strict: bool | None,
-        resolver: object | None,
+        resolver: ResolverSpec,
         lease_id: str | None,
     ) -> list[object]:
         results: list[object] = [None] * len(values)
@@ -406,7 +439,7 @@ class ResourceService:
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> dict[str, Any]:
         if not self.should_resolve(resolver):
@@ -430,7 +463,7 @@ class ResourceService:
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> str:
         result = await self._resolve_any(
@@ -452,7 +485,7 @@ class ResourceService:
         *,
         template_base: str | Path | None = None,
         strict: bool | None = None,
-        resolver: object | None = None,
+        resolver: ResolverSpec = None,
         lease_id: str | None = None,
     ) -> list[str]:
         base = _normalize_template_base(template_base)
@@ -490,4 +523,4 @@ class ResourceService:
         await self._reader.clear()
 
 
-__all__ = ["ResourceService"]
+__all__ = ["ResolverSpec", "ResourceService", "TransportPolicy"]

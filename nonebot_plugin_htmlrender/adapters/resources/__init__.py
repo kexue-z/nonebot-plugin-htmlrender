@@ -6,12 +6,14 @@ from .reader import (
     ConfiguredLocalAccessPolicy,
     build_resource_reader,
 )
+from .remote import ConfiguredRemoteAccessPolicy
 
 __all__ = [
     "AnyioWorkerExecutor",
     "CachingResourceReader",
     "CompositeResourceReader",
     "ConfiguredLocalAccessPolicy",
+    "ConfiguredRemoteAccessPolicy",
     "FilehostAssetPublisher",
     "build_resource_reader",
     "install_filehost_request_guard",

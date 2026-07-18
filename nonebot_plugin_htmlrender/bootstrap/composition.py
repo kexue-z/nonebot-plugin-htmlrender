@@ -16,6 +16,7 @@ from nonebot_plugin_htmlrender.adapters.observability import (
 from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     ConfiguredLocalAccessPolicy,
+    ConfiguredRemoteAccessPolicy,
     FilehostAssetPublisher,
     build_resource_reader,
 )
@@ -32,6 +33,9 @@ from nonebot_plugin_htmlrender.rendering.observers import (
 )
 from nonebot_plugin_htmlrender.resources.config import (
     AssetPublisherSettings,
+    LocalLocalResourcePolicy,
+    RemoteAccessSettings,
+    RemoteLocalResourcePolicy,
     ResourceCacheSettings,
     ResourceStrategy,
 )
@@ -292,6 +296,16 @@ def _cache_settings(settings: RenderSettings) -> ResourceCacheSettings:
     )
 
 
+def _remote_access_settings(settings: RenderSettings) -> RemoteAccessSettings:
+    remote = settings.resources.remote_access
+    return RemoteAccessSettings(
+        allow_private_networks=remote.allow_private_networks,
+        allow_hosts=tuple(remote.allow_hosts),
+        deny_hosts=tuple(remote.deny_hosts),
+        max_redirects=remote.max_redirects,
+    )
+
+
 def _publisher_settings(settings: RenderSettings) -> AssetPublisherSettings:
     filehost = settings.resources.filehost
     return AssetPublisherSettings(
@@ -308,12 +322,9 @@ def _publisher_settings(settings: RenderSettings) -> AssetPublisherSettings:
 
 
 def _uses_publisher(strategy: ResourceStrategy) -> bool:
-    policy = (
-        strategy.remote_local_policy
-        if strategy.is_remote
-        else strategy.local_local_policy
-    )
-    return policy.value == "filehost"
+    if strategy.is_remote:
+        return strategy.remote_local_policy is RemoteLocalResourcePolicy.FILEHOST
+    return strategy.local_local_policy is LocalLocalResourcePolicy.FILEHOST
 
 
 def prepare_runtime(
@@ -348,7 +359,13 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         observer=operation_observer,
         operation_admission=operation_admission,
     )
-    reader = build_resource_reader(cache_settings, cache_observer, worker)
+    remote_access = ConfiguredRemoteAccessPolicy(_remote_access_settings(settings))
+    reader = build_resource_reader(
+        cache_settings,
+        cache_observer,
+        worker,
+        remote_access=remote_access,
+    )
     local = settings.resources.local_access
     local_access = ConfiguredLocalAccessPolicy(
         allowed_roots=local.allowed_paths,
