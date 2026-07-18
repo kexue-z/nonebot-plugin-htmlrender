@@ -167,12 +167,13 @@ def install_filehost_request_guard(settings: AssetPublisherSettings) -> bool:
         request: Request,
         call_next: RequestResponseEndpoint,
     ) -> Response:
-        if (
-            request.url.path.startswith("/filehost/")
-            and request.headers.get(header_name) != header_value
-        ):
+        is_filehost = request.url.path.startswith("/filehost/")
+        if is_filehost and request.headers.get(header_name) != header_value:
             return PlainTextResponse("Forbidden", status_code=403)
-        return await call_next(request)
+        response = await call_next(request)
+        if is_filehost:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        return response
 
     setattr(app.state, state_key, guard)
     _logger.info(

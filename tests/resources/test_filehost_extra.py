@@ -554,13 +554,16 @@ def test_bootstrap_installs_an_idempotent_filehost_request_guard(
 
     assert len(app.user_middleware) == 1
     with TestClient(app) as client:
-        assert client.get("/filehost/ping").status_code == 403
+        rejected = client.get("/filehost/ping")
+        assert rejected.status_code == 403
+        assert "access-control-allow-origin" not in rejected.headers
         response = client.get(
             "/filehost/ping",
             headers={"X-Test-Filehost": "guard-token"},
         )
     assert response.status_code == 200
     assert response.json() == {"ok": True}
+    assert response.headers["access-control-allow-origin"] == "*"
 
 
 def test_request_guard_rejects_installation_after_asgi_startup(
