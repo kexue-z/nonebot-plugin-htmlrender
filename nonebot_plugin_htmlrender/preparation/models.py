@@ -52,6 +52,11 @@ class PreparedHtml:
     base_url: str | None = None
     assets: tuple[PreparedAsset, ...] = ()
     requirements: frozenset[RenderRequirement] = field(default_factory=frozenset)
+    document_base: str | None = None
+    """Resource-resolution base after applying an in-document ``<base href>``.
+
+    Fixed at preparation time so consumers do not re-derive it from markup.
+    """
 
 
 @dataclass(frozen=True, slots=True)

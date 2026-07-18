@@ -8,11 +8,18 @@ from typing import TYPE_CHECKING, final
 import anyio
 
 from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
+from nonebot_plugin_htmlrender.graphics.errors import RasterBackendExecutionError
+from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
-    from .models import RasterScene
+    from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
+    from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
+    from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
+    from nonebot_plugin_htmlrender.resources.ports import WorkerExecutor
+
+    from .models import GraphicsBackendName, RasterScene, RenderRasterSceneRequest
 
 
 @final
@@ -48,4 +55,34 @@ class RasterWorkBudget:
             yield
 
 
-__all__ = ["RasterWorkBudget"]
+async def run_raster_backend(
+    backend: GraphicsBackendName,
+    request: RenderRasterSceneRequest,
+    render_sync: Callable[[RenderRasterSceneRequest], RenderedImage],
+    *,
+    worker: WorkerExecutor,
+    observer: OperationObserver,
+    operation_admission: OperationAdmissionGate,
+    budget: RasterWorkBudget,
+) -> RenderedImage:
+    """Admission, budgeting, observation, and error translation for one scene.
+
+    Backend adapters only supply their synchronous ``render_sync`` body.
+    """
+    async with operation_admission.operation(), budget.reserve(request.scene):
+        with observe_operation(
+            observer,
+            f"graphics.{backend}.render_scene",
+            {
+                "render.backend": backend,
+                "render.format": request.output.format,
+            },
+        ):
+            try:
+                return await worker.run_sync(render_sync, request)
+            except Exception as error:
+                detail = str(error) or type(error).__name__
+                raise RasterBackendExecutionError(backend, detail) from error
+
+
+__all__ = ["RasterWorkBudget", "run_raster_backend"]

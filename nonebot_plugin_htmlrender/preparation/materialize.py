@@ -4,12 +4,13 @@ from __future__ import annotations
 
 from collections import deque
 from dataclasses import replace
-import logging
 import mimetypes
 from pathlib import Path
 from typing import TYPE_CHECKING
 from urllib.parse import unquote, urlsplit
 from urllib.request import url2pathname
+
+from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.resources.errors import ResourceResolutionError
 
@@ -19,8 +20,6 @@ from .references import css_resource_references, inspect_html_references
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
-
-_logger = logging.getLogger(__name__)
 
 
 class AssetMaterializationError(ResourceResolutionError):
@@ -46,6 +45,26 @@ def _validate_local_path(
     return resources.authorize_local(path)
 
 
+def _queue_stylesheet_children(
+    pending: deque[tuple[str, str | None]],
+    expanded_stylesheets: set[str],
+    *,
+    canonical: str,
+    payload: bytes,
+    reference: str,
+) -> None:
+    """Queue url() children of one stylesheet payload exactly once."""
+    if canonical in expanded_stylesheets:
+        return
+    expanded_stylesheets.add(canonical)
+    try:
+        css = payload.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        logger.warning(f"Could not inspect non-UTF-8 stylesheet asset {reference!r}")
+        return
+    pending.extend((child, canonical) for child in css_resource_references(css))
+
+
 async def materialize_local_assets(
     prepared: PreparedHtml,
     *,
@@ -61,13 +80,18 @@ async def materialize_local_assets(
         prepared.html,
         base_url=root_base,
     )
-    document_base = (
-        resolve_document_reference(
-            root_base,
-            inspected.base_href,
-        )
+    # ``prepare_html`` fixes the document base, but it is only authoritative
+    # when the payload carried its own base URL: with an executor-supplied
+    # fallback base a relative ``<base href>`` must resolve against it.
+    recomputed_base = (
+        resolve_document_reference(root_base, inspected.base_href)
         if inspected.base_href
         else root_base
+    )
+    document_base = (
+        prepared.document_base or recomputed_base
+        if prepared.base_url is not None
+        else recomputed_base
     )
     index = PreparedAssetIndex(assets, base_url=document_base)
     references: list[tuple[str, str | None]] = [
@@ -92,21 +116,14 @@ async def materialize_local_assets(
         canonical = resolve_document_reference(base_url, reference)
         existing = index.match(reference, base_url=base_url)
         if existing is not None:
-            if (
-                existing.media_type == "text/css"
-                and canonical not in expanded_stylesheets
-            ):
-                expanded_stylesheets.add(canonical)
-                try:
-                    css = existing.data.decode("utf-8-sig")
-                except UnicodeDecodeError:
-                    _logger.warning(
-                        f"Could not inspect non-UTF-8 stylesheet asset {reference!r}"
-                    )
-                else:
-                    pending.extend(
-                        (child, canonical) for child in css_resource_references(css)
-                    )
+            if existing.media_type == "text/css":
+                _queue_stylesheet_children(
+                    pending,
+                    expanded_stylesheets,
+                    canonical=canonical,
+                    payload=existing.data,
+                    reference=reference,
+                )
             continue
         parsed = urlsplit(canonical)
         if parsed.scheme in {"data", "http", "https"} or canonical.startswith("#"):
@@ -119,7 +136,7 @@ async def materialize_local_assets(
             )
             if strict:
                 raise AssetMaterializationError(message)
-            _logger.warning(message)
+            logger.warning(message)
             continue
 
         try:
@@ -132,8 +149,8 @@ async def materialize_local_assets(
         except Exception as error:
             if strict:
                 raise AssetMaterializationError(str(error)) from error
-            _logger.warning(
-                "Failed to materialize local asset %r: %s", reference, error
+            logger.warning(
+                "Failed to materialize local asset {!r}: {}", reference, error
             )
             continue
 
@@ -146,19 +163,15 @@ async def materialize_local_assets(
         )
         assets.append(asset)
         seen_sources.add(canonical)
-        index = PreparedAssetIndex(assets, base_url=document_base)
-        if asset.media_type == "text/css" and canonical not in expanded_stylesheets:
-            expanded_stylesheets.add(canonical)
-            try:
-                css = payload.decode("utf-8-sig")
-            except UnicodeDecodeError:
-                _logger.warning(
-                    f"Could not inspect non-UTF-8 stylesheet asset {reference!r}"
-                )
-            else:
-                pending.extend(
-                    (child, canonical) for child in css_resource_references(css)
-                )
+        index.add(asset)
+        if asset.media_type == "text/css":
+            _queue_stylesheet_children(
+                pending,
+                expanded_stylesheets,
+                canonical=canonical,
+                payload=payload,
+                reference=reference,
+            )
 
     return replace(prepared, assets=tuple(assets))
 

@@ -17,6 +17,7 @@ from nonebot_plugin_htmlrender.preparation.materialize import (
 from nonebot_plugin_htmlrender.rendering.errors import ResourceResolutionError
 from nonebot_plugin_htmlrender.resources.config import (
     ResourceCacheSettings,
+    ResourceResolveMode,
     ResourceStrategy,
 )
 from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
@@ -128,7 +129,7 @@ async def test_strict_markdown_preparation_exposes_stable_resource_error(
     with pytest.raises(ResourceResolutionError, match="no filesystem base") as captured:
         await preparer.prepare_markdown(
             "![missing](missing.png)",
-            resource_strict=True,
+            resource_mode=ResourceResolveMode.STRICT,
         )
 
     assert isinstance(captured.value, AssetMaterializationError)

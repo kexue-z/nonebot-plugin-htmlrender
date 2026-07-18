@@ -7,9 +7,8 @@ from typing import TYPE_CHECKING, final
 
 from PIL import Image
 
-from nonebot_plugin_htmlrender.graphics.errors import RasterBackendExecutionError
+from nonebot_plugin_htmlrender.graphics.execution import run_raster_backend
 from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
-from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.graphics.execution import RasterWorkBudget
@@ -77,23 +76,15 @@ class PillowRasterSceneRenderer:
         self._budget = budget
 
     async def render(self, request: RenderRasterSceneRequest) -> RenderedImage:
-        async with (
-            self._operation_admission.operation(),
-            self._budget.reserve(request.scene),
-        ):
-            with observe_operation(
-                self._observer,
-                "graphics.pillow.render_scene",
-                {
-                    "render.backend": "pillow",
-                    "render.format": request.output.format,
-                },
-            ):
-                try:
-                    return await self._worker.run_sync(_render_sync, request)
-                except Exception as error:
-                    detail = str(error) or type(error).__name__
-                    raise RasterBackendExecutionError("pillow", detail) from error
+        return await run_raster_backend(
+            "pillow",
+            request,
+            _render_sync,
+            worker=self._worker,
+            observer=self._observer,
+            operation_admission=self._operation_admission,
+            budget=self._budget,
+        )
 
 
 __all__ = ["PillowRasterSceneRenderer"]

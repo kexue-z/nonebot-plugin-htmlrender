@@ -45,22 +45,26 @@ class PreparedAssetIndex:
         self._exact: dict[str, PreparedAsset] = {}
         self._canonical: dict[str, PreparedAsset] = {}
         for asset in assets:
-            source = unescape(asset.source).strip()
-            if not source:
-                raise ValueError("PreparedAsset source must not be empty")
-            if source in self._exact:
-                raise ValueError(
-                    f"PreparedAsset source {source!r} was supplied more than once"
-                )
-            self._exact[source] = asset
-            canonical = resolve_document_reference(base_url, source)
-            existing = self._canonical.get(canonical)
-            if existing is not None and existing.source != source:
-                raise ValueError(
-                    "PreparedAsset sources resolve to the same canonical URL: "
-                    f"{existing.source!r} and {source!r}"
-                )
-            self._canonical[canonical] = asset
+            self.add(asset)
+
+    def add(self, asset: PreparedAsset) -> None:
+        """Index one more asset with the same duplicate checks as construction."""
+        source = unescape(asset.source).strip()
+        if not source:
+            raise ValueError("PreparedAsset source must not be empty")
+        if source in self._exact:
+            raise ValueError(
+                f"PreparedAsset source {source!r} was supplied more than once"
+            )
+        self._exact[source] = asset
+        canonical = resolve_document_reference(self.base_url, source)
+        existing = self._canonical.get(canonical)
+        if existing is not None and existing.source != source:
+            raise ValueError(
+                "PreparedAsset sources resolve to the same canonical URL: "
+                f"{existing.source!r} and {source!r}"
+            )
+        self._canonical[canonical] = asset
 
     def match(
         self,

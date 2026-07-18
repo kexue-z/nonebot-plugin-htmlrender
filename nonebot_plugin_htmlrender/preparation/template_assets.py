@@ -9,30 +9,13 @@ from typing import TYPE_CHECKING, Any
 
 import anyio
 
+from .media import sniff_media_type
 from .models import PreparedAsset
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from nonebot_plugin_htmlrender.resources.service import ResourceService
-
-
-def _media_type(payload: bytes) -> str:
-    if payload.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if payload.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if payload.startswith((b"GIF87a", b"GIF89a")):
-        return "image/gif"
-    if payload.startswith(b"RIFF") and payload[8:12] == b"WEBP":
-        return "image/webp"
-    if payload.startswith(b"wOF2"):
-        return "font/woff2"
-    if payload.startswith(b"wOFF"):
-        return "font/woff"
-    if payload.lstrip().startswith(b"<svg"):
-        return "image/svg+xml"
-    return "application/octet-stream"
 
 
 class _PreparedAssetResolver:
@@ -65,7 +48,7 @@ class _PreparedAssetResolver:
         asset = PreparedAsset(
             source=source,
             data=payload,
-            media_type=_media_type(payload),
+            media_type=sniff_media_type(payload),
         )
         async with self._lock:
             self._assets.setdefault(source, asset)

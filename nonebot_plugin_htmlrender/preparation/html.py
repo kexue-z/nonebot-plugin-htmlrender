@@ -7,6 +7,7 @@ from urllib.parse import urljoin, urlsplit
 
 from nonebot_plugin_htmlrender.errors import PreparationError
 
+from .assets import resolve_document_reference
 from .models import (
     PreparedAsset,
     PreparedHtml,
@@ -58,10 +59,12 @@ def _prepare_html(
     if base_url is not None:
         urlsplit(base_url)
     inspected = inspect_html_references(html, base_url=base_url)
+    # The single place that derives the document base; materialization and
+    # adapters read ``PreparedHtml.document_base`` instead of re-deriving it.
     document_base = (
-        urljoin(base_url, inspected.base_href)
-        if base_url and inspected.base_href
-        else inspected.base_href or base_url
+        resolve_document_reference(base_url, inspected.base_href)
+        if inspected.base_href
+        else base_url
     )
     external_stylesheets = tuple(
         _normalize_stylesheet(stylesheet, base_url=base_url)
@@ -100,6 +103,7 @@ def _prepare_html(
         base_url=base_url,
         assets=tuple(assets),
         requirements=frozenset(requirements),
+        document_base=document_base,
     )
 
 
