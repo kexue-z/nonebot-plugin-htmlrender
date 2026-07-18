@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
     from nonebot_plugin_htmlrender.adapters._lease import ExecutionLeaseProvider
     from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
+    from nonebot_plugin_htmlrender.capabilities.takumi import TakumiExtensionContract
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
 
 
@@ -33,7 +34,7 @@ class TakumiCapabilityAdapter:
         self._observer = observer
 
     @asynccontextmanager
-    async def extension(self) -> AsyncIterator[TakumiExtension]:
+    async def extension(self) -> AsyncIterator[TakumiExtensionContract]:
         async with self._leases.lease() as state:
             yield TakumiExtension(require_runtime_state(state), self._observer)
 

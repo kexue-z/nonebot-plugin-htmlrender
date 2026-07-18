@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from enum import Enum
 from os import cpu_count
 from pathlib import Path
 from typing import ClassVar, Literal
@@ -8,29 +7,12 @@ from typing import ClassVar, Literal
 from nonebot.compat import field_validator
 from pydantic import BaseModel, ConfigDict, Field
 
-
-class FileCachePolicy(str, Enum):
-    """Validation policy for user-provided Takumi font files."""
-
-    IMMUTABLE = "immutable"
-    REVALIDATE = "revalidate"
-
-
-GenericFontFamily = Literal[
-    "serif",
-    "sans-serif",
-    "monospace",
-    "cursive",
-    "fantasy",
-    "system-ui",
-    "ui-serif",
-    "ui-sans-serif",
-    "ui-monospace",
-    "ui-rounded",
-    "emoji",
-    "math",
-    "fangsong",
-]
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    FileCachePolicy as FileCachePolicy,
+)
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    GenericFontFamily as GenericFontFamily,
+)
 
 
 def _default_concurrency() -> int:

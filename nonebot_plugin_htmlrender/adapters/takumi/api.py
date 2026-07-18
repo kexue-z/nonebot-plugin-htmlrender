@@ -1,27 +1,20 @@
 from __future__ import annotations
 
 # Keep Takumi's public ``format=`` spelling in the typed extension API.
-# ruff: noqa: A002
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import (
-    TYPE_CHECKING,
-    Awaitable,
-    Callable,
-    Literal,
-    ParamSpec,
-    TypeAlias,
-    TypeVar,
-    cast,
-)
+from typing import TYPE_CHECKING, Awaitable, Callable, ParamSpec, TypeVar, cast
 
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    FileCachePolicy,
+    TakumiCompiledDocument,
+)
 from nonebot_plugin_htmlrender.preparation import PreparedHtml, prepare_html
 from nonebot_plugin_htmlrender.rendering.observers import (
     NoopOperationObserver,
     observe_operation,
 )
 
-from .config import FileCachePolicy
 from .operations import (
     device_dimension,
     render_prepared_html,
@@ -29,33 +22,36 @@ from .operations import (
 )
 from .runtime import TakumiRuntimeState, render_defaults
 from .source import materialize_takumi_document
-from .types import AnimationImageFormat, StaticImageFormat, TakumiImageResource
+from .types import TakumiImageResource
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
     from pathlib import Path
+    from typing_extensions import Unpack
 
     from takumi_py import (
         AnimationScene,
         CompiledNode,
         CompiledStyleSheet,
-        DitheringAlgorithm,
         FontResourceInput,
-        ImageResourceInput,
         KeyframesInput,
         MeasuredNode,
         NodeInput,
         RawAnimationFrame,
     )
 
+    from nonebot_plugin_htmlrender.capabilities.takumi import (
+        GenericFontFamily,
+        ImageInput,
+        TakumiAnimationOptions,
+        TakumiCacheStats,
+        TakumiFrameEncodeOptions,
+        TakumiMeasureOptions,
+        TakumiRasterOptions,
+        TakumiSequenceOptions,
+        TakumiSvgOptions,
+    )
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
-
-    from .cache import WeightedCacheStats
-
-    ImageInput: TypeAlias = ImageResourceInput | TakumiImageResource
-else:
-    ImageInput: TypeAlias = object
-
 
 P = ParamSpec("P")
 R = TypeVar("R")
@@ -83,84 +79,123 @@ def _tracked(
     return _decorate
 
 
-@dataclass(frozen=True, slots=True)
-class TakumiCompiledDocument:
-    """A compiled document tied to the renderer owned by one Takumi runtime."""
+def _apply_present(
+    native: dict[str, object],
+    options: Mapping[str, object],
+    keys: tuple[str, ...],
+) -> None:
+    for key in keys:
+        value = options.get(key)
+        if value is not None:
+            native[key] = value
 
-    node: CompiledNode
-    stylesheets: tuple[CompiledStyleSheet, ...]
-    images: tuple[object, ...] = ()
+
+def _apply_font_families(
+    native: dict[str, object],
+    families: Sequence[str] | None,
+) -> None:
+    if families is not None:
+        native["font_families"] = tuple(families)
 
 
-def _raster_kwargs(
+def _static_raster_kwargs(
     state: TakumiRuntimeState,
+    options: TakumiRasterOptions | TakumiSequenceOptions,
     *,
-    width: int | None,
-    height: int | None,
-    format: StaticImageFormat,
-    quality: int | None,
-    lossless: bool | None,
-    font_size: float,
-    device_pixel_ratio: float,
-    draw_debug_border: bool,
-    time_ms: int,
-    dithering: DitheringAlgorithm,
+    default_height: int | None,
     images: Sequence[ImageInput] | None,
-    keyframes: KeyframesInput | None,
-    font_families: Sequence[str] | None,
-    lang: str | None,
+    include_time: bool = True,
 ) -> dict[str, object]:
-    ratio = validate_device_pixel_ratio(device_pixel_ratio)
-    options = render_defaults(state, images=cast("Sequence[object] | None", images))
-    options.update(
-        width=device_dimension(width, ratio),
-        height=device_dimension(height, ratio),
-        format=format,
-        font_size=font_size,
+    ratio = validate_device_pixel_ratio(options.get("device_pixel_ratio", 1.0))
+    native = render_defaults(state, images=images)
+    native.update(
+        width=device_dimension(options.get("width", 1200), ratio),
+        height=device_dimension(options.get("height", default_height), ratio),
+        format=options.get("format", "png"),
+        font_size=options.get("font_size", 16.0),
         device_pixel_ratio=ratio,
-        draw_debug_border=draw_debug_border,
-        time_ms=time_ms,
-        dithering=dithering,
+        draw_debug_border=options.get("draw_debug_border", False),
+        dithering=options.get("dithering", "none"),
     )
-    if quality is not None:
-        options["quality"] = quality
-    if lossless is not None:
-        options["lossless"] = lossless
-    if keyframes is not None:
-        options["keyframes"] = keyframes
-    if font_families is not None:
-        options["font_families"] = tuple(font_families)
-    if lang is not None:
-        options["lang"] = lang
-    return options
+    if include_time:
+        native["time_ms"] = cast("TakumiRasterOptions", options).get("time_ms", 0)
+    _apply_present(native, options, ("quality", "lossless", "keyframes", "lang"))
+    _apply_font_families(native, options.get("font_families"))
+    return native
+
+
+def _measure_kwargs(
+    state: TakumiRuntimeState,
+    options: TakumiMeasureOptions,
+    *,
+    default_height: int | None,
+    images: Sequence[ImageInput] | None,
+) -> dict[str, object]:
+    ratio = validate_device_pixel_ratio(options.get("device_pixel_ratio", 1.0))
+    native = render_defaults(state, images=images)
+    native.update(
+        width=device_dimension(options.get("width", 1200), ratio),
+        height=device_dimension(options.get("height", default_height), ratio),
+        font_size=options.get("font_size", 16.0),
+        device_pixel_ratio=ratio,
+        draw_debug_border=options.get("draw_debug_border", False),
+        time_ms=options.get("time_ms", 0),
+        dithering=options.get("dithering", "none"),
+    )
+    _apply_present(native, options, ("keyframes", "lang"))
+    _apply_font_families(native, options.get("font_families"))
+    return native
 
 
 def _svg_kwargs(
     state: TakumiRuntimeState,
+    options: TakumiSvgOptions,
     *,
-    width: int | None,
-    height: int | None,
-    font_size: float,
-    time_ms: int,
     images: Sequence[ImageInput] | None,
-    keyframes: KeyframesInput | None,
-    font_families: Sequence[str] | None,
-    lang: str | None,
 ) -> dict[str, object]:
-    options = render_defaults(state, images=cast("Sequence[object] | None", images))
-    options.update(
-        width=width,
-        height=height,
-        font_size=font_size,
-        time_ms=time_ms,
+    native = render_defaults(state, images=images)
+    native.update(
+        width=options.get("width", 1200),
+        height=options.get("height", 630),
+        font_size=options.get("font_size", 16.0),
+        time_ms=options.get("time_ms", 0),
     )
-    if keyframes is not None:
-        options["keyframes"] = keyframes
-    if font_families is not None:
-        options["font_families"] = tuple(font_families)
-    if lang is not None:
-        options["lang"] = lang
-    return options
+    _apply_present(native, options, ("keyframes", "lang"))
+    _apply_font_families(native, options.get("font_families"))
+    return native
+
+
+def _frame_encode_kwargs(options: TakumiFrameEncodeOptions) -> dict[str, object]:
+    native: dict[str, object] = {
+        "format": options.get("format", "webp"),
+        "webp_blend": options.get("webp_blend", True),
+        "webp_dispose": options.get("webp_dispose", False),
+    }
+    _apply_present(native, options, ("quality", "lossless", "loop_count", "webp_speed"))
+    return native
+
+
+def _animation_kwargs(
+    state: TakumiRuntimeState,
+    options: TakumiAnimationOptions,
+    *,
+    images: Sequence[ImageInput] | None,
+) -> dict[str, object]:
+    ratio = validate_device_pixel_ratio(options.get("device_pixel_ratio", 1.0))
+    native = render_defaults(state, images=images)
+    native.update(
+        width=device_dimension(options.get("width", 1200), ratio),
+        height=device_dimension(options.get("height", 630), ratio),
+        font_size=options.get("font_size", 16.0),
+        device_pixel_ratio=ratio,
+        draw_debug_border=options.get("draw_debug_border", False),
+        dithering=options.get("dithering", "none"),
+        fps=options.get("fps", 30),
+    )
+    native.update(_frame_encode_kwargs(options))
+    _apply_present(native, options, ("keyframes", "lang"))
+    _apply_font_families(native, options.get("font_families"))
+    return native
 
 
 def _expect_bytes(value: object) -> bytes:
@@ -196,10 +231,15 @@ class TakumiExtension:
         return self._state.registered_font_families
 
     @property
-    def compiled_cache_stats(self) -> WeightedCacheStats:
+    def compiled_cache_stats(self) -> TakumiCacheStats:
         """Return an immutable snapshot of this runtime's compiled cache."""
 
         return self._state.compiled_cache_stats
+
+    def _prepared(self, html: str | PreparedHtml, base_url: str | None) -> PreparedHtml:
+        if isinstance(html, PreparedHtml):
+            return html
+        return prepare_html(html, base_url=base_url)
 
     @_tracked("takumi.extension.compile_html")
     async def compile_html(
@@ -210,16 +250,11 @@ class TakumiExtension:
         images: Sequence[ImageInput] | None = None,
         base_url: str | None = None,
     ) -> TakumiCompiledDocument:
-        prepared = (
-            html
-            if isinstance(html, PreparedHtml)
-            else prepare_html(html, base_url=base_url)
-        )
         document = await materialize_takumi_document(
-            prepared,
+            self._prepared(html, base_url),
             resources=self._state.resources,
             stylesheets=stylesheets,
-            images=cast("Sequence[object] | None", images),
+            images=images,
         )
         node, compiled_stylesheets = await self._state.compile_document(
             document.html,
@@ -271,86 +306,45 @@ class TakumiExtension:
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
         base_url: str | None = None,
-        width: int | None = 1200,
-        height: int | None = None,
-        format: StaticImageFormat = "png",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
+        **options: Unpack[TakumiRasterOptions],
     ) -> bytes:
-        prepared = (
-            html
-            if isinstance(html, PreparedHtml)
-            else prepare_html(html, base_url=base_url)
-        )
         return await render_prepared_html(
             self._state,
-            prepared,
+            self._prepared(html, base_url),
             stylesheets=stylesheets,
-            images=cast("Sequence[object] | None", images),
-            width=width,
-            height=height,
-            image_format=format,
-            quality=quality,
-            lossless=lossless,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
-            lang=lang,
-            font_families=font_families,
-            keyframes=keyframes,
+            images=images,
+            width=options.get("width", 1200),
+            height=options.get("height"),
+            image_format=options.get("format", "png"),
+            quality=options.get("quality"),
+            lossless=options.get("lossless"),
+            font_size=options.get("font_size", 16.0),
+            device_pixel_ratio=options.get("device_pixel_ratio", 1.0),
+            draw_debug_border=options.get("draw_debug_border", False),
+            time_ms=options.get("time_ms", 0),
+            dithering=options.get("dithering", "none"),
+            lang=options.get("lang"),
+            font_families=options.get("font_families"),
+            keyframes=options.get("keyframes"),
         )
 
     @_tracked("takumi.extension.render_compiled")
     async def render_compiled(
         self,
         document: TakumiCompiledDocument,
-        *,
-        width: int | None = 1200,
-        height: int | None = None,
-        format: StaticImageFormat = "png",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
+        **options: Unpack[TakumiRasterOptions],
     ) -> bytes:
-        options = _raster_kwargs(
+        native = _static_raster_kwargs(
             self._state,
-            width=width,
-            height=height,
-            format=format,
-            quality=quality,
-            lossless=lossless,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
+            options,
+            default_height=None,
             images=cast("Sequence[ImageInput]", document.images),
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
         rendered = await self._state.call_renderer(
             "render_compiled",
             document.node,
             stylesheets=document.stylesheets,
-            **options,
+            **native,
         )
         return _expect_bytes(rendered)
 
@@ -362,51 +356,25 @@ class TakumiExtension:
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
         base_url: str | None = None,
-        width: int | None = 1200,
-        height: int | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
+        **options: Unpack[TakumiMeasureOptions],
     ) -> MeasuredNode:
-        prepared = (
-            html
-            if isinstance(html, PreparedHtml)
-            else prepare_html(html, base_url=base_url)
-        )
         document = await materialize_takumi_document(
-            prepared,
+            self._prepared(html, base_url),
             resources=self._state.resources,
             stylesheets=stylesheets,
-            images=cast("Sequence[object] | None", images),
+            images=images,
         )
-        options = _raster_kwargs(
+        native = _measure_kwargs(
             self._state,
-            width=width,
-            height=height,
-            format="png",
-            quality=None,
-            lossless=None,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
+            options,
+            default_height=None,
             images=cast("Sequence[ImageInput]", document.images),
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
-        options.pop("format")
         measured = await self._state.call_document(
             "measure_compiled",
             document.html,
             document.stylesheets,
-            **options,
+            **native,
         )
         return cast("MeasuredNode", measured)
 
@@ -414,41 +382,19 @@ class TakumiExtension:
     async def measure_compiled(
         self,
         document: TakumiCompiledDocument,
-        *,
-        width: int | None = 1200,
-        height: int | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
+        **options: Unpack[TakumiMeasureOptions],
     ) -> MeasuredNode:
-        options = _raster_kwargs(
+        native = _measure_kwargs(
             self._state,
-            width=width,
-            height=height,
-            format="png",
-            quality=None,
-            lossless=None,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
+            options,
+            default_height=None,
             images=cast("Sequence[ImageInput]", document.images),
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
-        options.pop("format")
         measured = await self._state.call_renderer(
             "measure_compiled",
             document.node,
             stylesheets=document.stylesheets,
-            **options,
+            **native,
         )
         return cast("MeasuredNode", measured)
 
@@ -460,41 +406,24 @@ class TakumiExtension:
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
         base_url: str | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        font_size: float = 16.0,
-        time_ms: int = 0,
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
+        **options: Unpack[TakumiSvgOptions],
     ) -> str:
-        prepared = (
-            html
-            if isinstance(html, PreparedHtml)
-            else prepare_html(html, base_url=base_url)
-        )
         document = await materialize_takumi_document(
-            prepared,
+            self._prepared(html, base_url),
             resources=self._state.resources,
             stylesheets=stylesheets,
-            images=cast("Sequence[object] | None", images),
+            images=images,
         )
-        options = _svg_kwargs(
+        native = _svg_kwargs(
             self._state,
-            width=width,
-            height=height,
-            font_size=font_size,
-            time_ms=time_ms,
+            options,
             images=cast("Sequence[ImageInput]", document.images),
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
         rendered = await self._state.call_document(
             "render_svg_compiled",
             document.html,
             document.stylesheets,
-            **options,
+            **native,
         )
         return _expect_svg(rendered)
 
@@ -502,31 +431,18 @@ class TakumiExtension:
     async def render_svg_compiled(
         self,
         document: TakumiCompiledDocument,
-        *,
-        width: int | None = 1200,
-        height: int | None = 630,
-        font_size: float = 16.0,
-        time_ms: int = 0,
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
+        **options: Unpack[TakumiSvgOptions],
     ) -> str:
-        options = _svg_kwargs(
+        native = _svg_kwargs(
             self._state,
-            width=width,
-            height=height,
-            font_size=font_size,
-            time_ms=time_ms,
+            options,
             images=cast("Sequence[ImageInput]", document.images),
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
         rendered = await self._state.call_renderer(
             "render_svg_compiled",
             document.node,
             stylesheets=document.stylesheets,
-            **options,
+            **native,
         )
         return _expect_svg(rendered)
 
@@ -537,44 +453,21 @@ class TakumiExtension:
         *,
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        format: StaticImageFormat = "png",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
         validate: bool = False,
+        **options: Unpack[TakumiRasterOptions],
     ) -> bytes:
-        options = _raster_kwargs(
+        native = _static_raster_kwargs(
             self._state,
-            width=width,
-            height=height,
-            format=format,
-            quality=quality,
-            lossless=lossless,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
+            options,
+            default_height=630,
             images=images,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
         rendered = await self._state.call_renderer(
             "render_node",
             node,
             stylesheets=tuple(stylesheets),
             validate=validate,
-            **options,
+            **native,
         )
         return _expect_bytes(rendered)
 
@@ -585,42 +478,21 @@ class TakumiExtension:
         *,
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        time_ms: int = 0,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
         validate: bool = False,
+        **options: Unpack[TakumiMeasureOptions],
     ) -> MeasuredNode:
-        options = _raster_kwargs(
+        native = _measure_kwargs(
             self._state,
-            width=width,
-            height=height,
-            format="png",
-            quality=None,
-            lossless=None,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=time_ms,
-            dithering=dithering,
+            options,
+            default_height=630,
             images=images,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
         )
-        options.pop("format")
         measured = await self._state.call_renderer(
             "measure_node",
             node,
             stylesheets=tuple(stylesheets),
             validate=validate,
-            **options,
+            **native,
         )
         return cast("MeasuredNode", measured)
 
@@ -631,32 +503,16 @@ class TakumiExtension:
         *,
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        font_size: float = 16.0,
-        time_ms: int = 0,
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
         validate: bool = False,
+        **options: Unpack[TakumiSvgOptions],
     ) -> str:
-        options = _svg_kwargs(
-            self._state,
-            width=width,
-            height=height,
-            font_size=font_size,
-            time_ms=time_ms,
-            images=images,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
-        )
+        native = _svg_kwargs(self._state, options, images=images)
         rendered = await self._state.call_renderer(
             "render_svg_node",
             node,
             stylesheets=tuple(stylesheets),
             validate=validate,
-            **options,
+            **native,
         )
         return _expect_svg(rendered)
 
@@ -667,64 +523,16 @@ class TakumiExtension:
         *,
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
-        fps: int = 30,
-        format: AnimationImageFormat = "webp",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        loop_count: int | None = None,
-        webp_blend: bool = True,
-        webp_dispose: bool = False,
-        webp_speed: int | None = None,
         validate: bool = False,
+        **options: Unpack[TakumiAnimationOptions],
     ) -> bytes:
-        options = _raster_kwargs(
-            self._state,
-            width=width,
-            height=height,
-            format="png",
-            quality=None,
-            lossless=None,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=0,
-            dithering=dithering,
-            images=images,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
-        )
-        options.pop("format")
-        options.pop("time_ms")
-        options.update(
-            fps=fps,
-            format=format,
-            webp_blend=webp_blend,
-            webp_dispose=webp_dispose,
-            validate=validate,
-        )
-        if quality is not None:
-            options["quality"] = quality
-        if lossless is not None:
-            options["lossless"] = lossless
-        if loop_count is not None:
-            options["loop_count"] = loop_count
-        if webp_speed is not None:
-            options["webp_speed"] = webp_speed
+        native = _animation_kwargs(self._state, options, images=images)
         rendered = await self._state.call_renderer(
             "render_animation",
             tuple(scenes),
             stylesheets=tuple(stylesheets),
-            **options,
+            validate=validate,
+            **native,
         )
         return _expect_bytes(rendered)
 
@@ -736,45 +544,23 @@ class TakumiExtension:
         *,
         stylesheets: Sequence[str] = (),
         images: Sequence[ImageInput] | None = None,
-        width: int | None = 1200,
-        height: int | None = 630,
-        format: StaticImageFormat = "png",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        font_size: float = 16.0,
-        device_pixel_ratio: float = 1.0,
-        draw_debug_border: bool = False,
-        dithering: DitheringAlgorithm = "none",
-        keyframes: KeyframesInput | None = None,
-        font_families: Sequence[str] | None = None,
-        lang: str | None = None,
         validate: bool = False,
+        **options: Unpack[TakumiSequenceOptions],
     ) -> bytes:
-        options = _raster_kwargs(
+        native = _static_raster_kwargs(
             self._state,
-            width=width,
-            height=height,
-            format=format,
-            quality=quality,
-            lossless=lossless,
-            font_size=font_size,
-            device_pixel_ratio=device_pixel_ratio,
-            draw_debug_border=draw_debug_border,
-            time_ms=0,
-            dithering=dithering,
+            options,
+            default_height=630,
             images=images,
-            keyframes=keyframes,
-            font_families=font_families,
-            lang=lang,
+            include_time=False,
         )
-        options.pop("time_ms")
-        options["validate"] = validate
         rendered = await self._state.call_renderer(
             "render_sequence_at_time",
             tuple(scenes),
             time_ms,
             stylesheets=tuple(stylesheets),
-            **options,
+            validate=validate,
+            **native,
         )
         return _expect_bytes(rendered)
 
@@ -782,32 +568,12 @@ class TakumiExtension:
     async def encode_frames(
         self,
         frames: Sequence[RawAnimationFrame],
-        *,
-        format: AnimationImageFormat = "webp",
-        quality: int | None = None,
-        lossless: bool | None = None,
-        loop_count: int | None = None,
-        webp_blend: bool = True,
-        webp_dispose: bool = False,
-        webp_speed: int | None = None,
+        **options: Unpack[TakumiFrameEncodeOptions],
     ) -> bytes:
-        options: dict[str, object] = {
-            "format": format,
-            "webp_blend": webp_blend,
-            "webp_dispose": webp_dispose,
-        }
-        if quality is not None:
-            options["quality"] = quality
-        if lossless is not None:
-            options["lossless"] = lossless
-        if loop_count is not None:
-            options["loop_count"] = loop_count
-        if webp_speed is not None:
-            options["webp_speed"] = webp_speed
         rendered = await self._state.call_renderer(
             "encode_frames",
             tuple(frames),
-            **options,
+            **_frame_encode_kwargs(options),
         )
         return _expect_bytes(rendered)
 
@@ -841,22 +607,7 @@ class TakumiExtension:
         weight: float | None = None,
         style: str | None = None,
         subset_of: str | None = None,
-        generic_family: Literal[
-            "serif",
-            "sans-serif",
-            "monospace",
-            "cursive",
-            "fantasy",
-            "system-ui",
-            "ui-serif",
-            "ui-sans-serif",
-            "ui-monospace",
-            "ui-rounded",
-            "emoji",
-            "math",
-            "fangsong",
-        ]
-        | None = None,
+        generic_family: GenericFontFamily | None = None,
         cache_policy: FileCachePolicy = FileCachePolicy.REVALIDATE,
     ) -> tuple[str, ...]:
         return await self._state.register_font_file(

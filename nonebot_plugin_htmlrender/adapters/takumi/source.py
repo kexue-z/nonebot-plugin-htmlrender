@@ -236,7 +236,9 @@ async def materialize_takumi_document(
 ) -> TakumiDocument:
     """Apply the effective resource mode before native Takumi validation."""
 
-    _, document_base = _inspect_document(prepared)
+    # Staging changes assets and stylesheets but never the markup, so one
+    # inspection serves both the staging step and the final document build.
+    snapshot, document_base = _inspect_document(prepared)
     _, candidates = _merge_image_candidates(
         prepared,
         images,
@@ -257,12 +259,12 @@ async def materialize_takumi_document(
                 ),
             ),
         )
-    for index, stylesheet in enumerate(staged.stylesheets):
-        _validate_stylesheet(stylesheet, field=f"stylesheets[{index}]")
     mode = resolve_mode or resources.strategy.resolve_mode
     if mode is ResourceResolveMode.OFF:
-        return prepare_takumi_document(
+        return _build_takumi_document(
             staged,
+            snapshot=snapshot,
+            document_base=document_base,
             images=images,
             strict=False,
         )
@@ -274,8 +276,10 @@ async def materialize_takumi_document(
         )
     except AssetMaterializationError as error:
         raise TakumiResourceError(str(error)) from error
-    return prepare_takumi_document(
+    return _build_takumi_document(
         materialized,
+        snapshot=snapshot,
+        document_base=document_base,
         images=images,
         strict=mode is ResourceResolveMode.STRICT,
     )
@@ -291,7 +295,25 @@ def prepare_takumi_document(
     """Validate and adapt one backend-neutral document for Takumi 0.2.0."""
 
     snapshot, document_base = _inspect_document(prepared)
+    return _build_takumi_document(
+        prepared,
+        snapshot=snapshot,
+        document_base=document_base,
+        stylesheets=stylesheets,
+        images=images,
+        strict=strict,
+    )
 
+
+def _build_takumi_document(
+    prepared: PreparedHtml,
+    *,
+    snapshot: HtmlReferenceSnapshot,
+    document_base: str | None,
+    stylesheets: Sequence[str] = (),
+    images: Sequence[object] | None = None,
+    strict: bool = True,
+) -> TakumiDocument:
     shared_stylesheets = tuple(prepared.stylesheets)
     backend_stylesheets = tuple(
         PreparedStylesheet(css=css, base_url=document_base) for css in stylesheets

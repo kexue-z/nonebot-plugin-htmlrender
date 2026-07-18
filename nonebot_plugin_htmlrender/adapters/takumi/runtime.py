@@ -36,7 +36,6 @@ if TYPE_CHECKING:
 
 T = TypeVar("T")
 _MISSING = object()
-_CLOSE_WAIT_TIMEOUT = 30.0
 
 _GENERIC_FONT_FAMILIES = frozenset(
     {
@@ -250,18 +249,12 @@ class TakumiRuntimeState:
         init=False,
         repr=False,
     )
-    _drained: threading.Event = field(
+    _poisoned: threading.Event = field(
         default_factory=threading.Event,
         init=False,
         repr=False,
     )
-    _closed_event: threading.Event = field(
-        default_factory=threading.Event,
-        init=False,
-        repr=False,
-    )
-    _lifecycle: str = field(default="open", init=False, repr=False)
-    _active_calls: int = field(default=0, init=False, repr=False)
+    _closed_flag: bool = field(default=False, init=False, repr=False)
     _font_registrations: dict[str, _FontRegistration] = field(
         default_factory=dict,
         init=False,
@@ -280,17 +273,19 @@ class TakumiRuntimeState:
             observer=observer,
             cache_name="takumi_compiled",
         )
-        self._drained.set()
 
     @property
     def closed(self) -> bool:
         with self._lifecycle_lock:
-            return self._lifecycle == "closed"
+            return self._closed_flag
 
     @property
-    def closing(self) -> bool:
-        with self._lifecycle_lock:
-            return self._lifecycle == "closing"
+    def healthy(self) -> bool:
+        """False once a native panic may have corrupted the runtime."""
+        return not self._poisoned.is_set()
+
+    def _mark_poisoned(self) -> None:
+        self._poisoned.set()
 
     @property
     def compiled_cache_stats(self) -> WeightedCacheStats:
@@ -298,25 +293,10 @@ class TakumiRuntimeState:
 
     def _ensure_open(self) -> None:
         with self._lifecycle_lock:
-            if self._lifecycle != "open":
+            if self._closed_flag:
                 raise TakumiRuntimeError(
-                    f"Takumi runtime is {self._lifecycle}; new calls are rejected."
+                    "Takumi runtime is closed; new calls are rejected."
                 )
-
-    def _begin_call(self) -> None:
-        with self._lifecycle_lock:
-            if self._lifecycle != "open":
-                raise TakumiRuntimeError(
-                    f"Takumi runtime is {self._lifecycle}; new calls are rejected."
-                )
-            self._active_calls += 1
-            self._drained.clear()
-
-    def _end_call(self) -> None:
-        with self._lifecycle_lock:
-            self._active_calls -= 1
-            if self._active_calls == 0:
-                self._drained.set()
 
     def _renderer_for_admitted_call(self) -> NativeRenderer:
         with self._lifecycle_lock:
@@ -334,19 +314,23 @@ class TakumiRuntimeState:
     async def run(
         self, func: Callable[..., T], /, *args: object, **kwargs: object
     ) -> T:
-        self._begin_call()
-        try:
-            operation = getattr(func, "__name__", type(func).__name__)
-            return await run_sync(
-                partial(
-                    _invoke_native,
-                    operation,
-                    partial(func, *args, **kwargs),
-                ),
-                limiter=self.limiter,
-            )
-        finally:
-            self._end_call()
+        """Run one native call under the concurrency limiter.
+
+        Drain-before-close is owned by the shared ``ExecutionLeaseProvider``;
+        this state only rejects calls after ``aclose`` and lets in-flight
+        calls finish on the renderer reference they already hold.
+        """
+        self._ensure_open()
+        operation = getattr(func, "__name__", type(func).__name__)
+        return await run_sync(
+            partial(
+                _invoke_native,
+                operation,
+                partial(func, *args, **kwargs),
+                on_panic=self._mark_poisoned,
+            ),
+            limiter=self.limiter,
+        )
 
     async def call_renderer(
         self, method_name: str, /, *args: object, **kwargs: object
@@ -600,57 +584,44 @@ class TakumiRuntimeState:
             self.renderer = None
 
     async def aclose(self) -> None:
-        owner = False
         with self._lifecycle_lock:
-            if self._lifecycle == "closed":
+            if self._closed_flag:
                 return
-            if self._lifecycle == "open":
-                self._lifecycle = "closing"
-                owner = True
-
+            self._closed_flag = True
         with anyio.CancelScope(shield=True):
-            if not owner:
-                await _wait_for_close(self._closed_event)
-                return
-            await run_sync(self._drained.wait)
-            try:
-                await run_sync(self._release_resources)
-                with self._lifecycle_lock:
-                    self._lifecycle = "closed"
-            finally:
-                self._closed_event.set()
+            await run_sync(self._release_resources)
+
+
+def _is_panic(error: BaseException) -> bool:
+    return (
+        type(error).__module__ == "pyo3_runtime"
+        and type(error).__name__ == "PanicException"
+    )
 
 
 def _is_native_error(error: BaseException) -> bool:
     import takumi_py  # noqa: PLC0415
 
     native_error = getattr(takumi_py, "TakumiError", ())
-    return isinstance(error, native_error) or (
-        type(error).__module__ == "pyo3_runtime"
-        and type(error).__name__ == "PanicException"
-    )
+    return isinstance(error, native_error) or _is_panic(error)
 
 
-def _invoke_native(operation: str, func: Callable[[], T]) -> T:
+def _invoke_native(
+    operation: str,
+    func: Callable[[], T],
+    *,
+    on_panic: Callable[[], None] | None = None,
+) -> T:
     try:
         return func()
     except BaseException as error:
+        if on_panic is not None and _is_panic(error):
+            on_panic()
         if _is_native_error(error):
             raise TakumiRuntimeError(
                 f"Takumi native operation {operation!r} failed: {error}"
             ) from error
         raise
-
-
-async def _wait_for_close(event: threading.Event) -> None:
-    try:
-        with anyio.fail_after(_CLOSE_WAIT_TIMEOUT):
-            while not event.is_set():  # noqa: ASYNC110 - avoids one worker per waiter
-                await anyio.sleep(0.01)
-    except TimeoutError as error:
-        raise TakumiRuntimeError(
-            "Timed out waiting for another caller to close the Takumi runtime."
-        ) from error
 
 
 async def _load_font_payloads(

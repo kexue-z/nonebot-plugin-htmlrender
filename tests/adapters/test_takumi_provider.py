@@ -12,6 +12,7 @@ from nonebot_plugin_htmlrender.adapters.takumi import (
     capabilities as capabilities_module,
 )
 from nonebot_plugin_htmlrender.adapters.takumi import provider as provider_module
+from nonebot_plugin_htmlrender.adapters.takumi import render as render_module
 from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
 from nonebot_plugin_htmlrender.adapters.takumi.errors import (
     TakumiRuntimeError,
@@ -54,6 +55,7 @@ OPTIONS = RasterOptions(width=320, height=240, device_pixel_ratio=2.0)
 class _FakeState:
     def __init__(self) -> None:
         self.closed = False
+        self.healthy = True
 
     async def aclose(self) -> None:
         self.closed = True
@@ -104,9 +106,14 @@ def _install_runtime_fakes(
         return render_result
 
     mocker.patch.object(
-        provider_module,
+        render_module,
         "create_runtime_state",
         fake_create_runtime_state,
+    )
+    mocker.patch.object(
+        render_module,
+        "require_runtime_state",
+        fake_require_runtime_state,
     )
     mocker.patch.object(
         provider_module,
@@ -264,6 +271,26 @@ async def test_executor_rebuilds_after_runtime_death(
     assert len(created) == 2
 
 
+async def test_executor_rebuilds_after_runtime_poisoning(
+    mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
+) -> None:
+    created, rendered = _install_runtime_fakes(mocker)
+    bindings = TakumiProvider().compose(
+        TakumiConfig(),
+        _dependencies(operation_observer),
+    )
+    executor = bindings.prepared_html_executor
+    assert executor is not None
+
+    await executor.execute(PREPARED, OPTIONS)
+    created[0].healthy = False
+    await executor.execute(PREPARED, OPTIONS)
+
+    assert len(created) == 2
+    assert rendered[-1][0] is created[1]
+
+
 async def test_concurrent_leases_build_single_runtime(
     mocker: MockerFixture,
     operation_observer: RecordingOperationObserver,
@@ -374,7 +401,7 @@ async def test_startup_failure_translates_and_allows_retry(
         created.append(state)
         return state
 
-    mocker.patch.object(provider_module, "create_runtime_state", flaky_create)
+    mocker.patch.object(render_module, "create_runtime_state", flaky_create)
     bindings = TakumiProvider().compose(
         TakumiConfig(),
         _dependencies(operation_observer),

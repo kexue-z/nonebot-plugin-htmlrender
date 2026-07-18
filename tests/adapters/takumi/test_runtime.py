@@ -444,16 +444,64 @@ async def test_panic_exception_is_translated_to_backend_error(
 
 
 @pytest.mark.anyio
-async def test_non_owner_close_wait_is_bounded(
+async def test_panic_poisons_runtime_health(
+    fake_takumi_module: None,
+) -> None:
+    del fake_takumi_module
+    panic_type = type(
+        "PanicException",
+        (BaseException,),
+        {"__module__": "pyo3_runtime"},
+    )
+
+    class PanickingRenderer(_FakeRenderer):
+        def where(self) -> int:
+            raise panic_type("panic")
+
+    state = _state(PanickingRenderer())
+    assert state.healthy
+
+    with pytest.raises(TakumiBackendError, match="panic"):
+        await state.call_renderer("where")
+
+    assert not state.healthy
+
+
+@pytest.mark.anyio
+async def test_ordinary_native_error_keeps_runtime_healthy(
+    fake_takumi_module: None,
     monkeypatch: MonkeyPatch,
 ) -> None:
-    state = _state(_FakeRenderer())
-    with state._lifecycle_lock:
-        state._lifecycle = "closing"
-    monkeypatch.setattr(takumi_runtime, "_CLOSE_WAIT_TIMEOUT", 0.02)
+    del fake_takumi_module
 
-    with pytest.raises(TakumiRuntimeError, match="Timed out"):
-        await state.aclose()
+    class NativeError(Exception):
+        pass
+
+    module = sys.modules["takumi_py"]
+    monkeypatch.setattr(module, "TakumiError", NativeError, raising=False)
+
+    class FailingRenderer(_FakeRenderer):
+        def where(self) -> int:
+            raise NativeError("native failure")
+
+    state = _state(FailingRenderer())
+
+    with pytest.raises(TakumiBackendError, match="native failure"):
+        await state.call_renderer("where")
+
+    assert state.healthy
+
+
+@pytest.mark.anyio
+async def test_concurrent_aclose_is_idempotent() -> None:
+    state = _state(_FakeRenderer())
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(state.aclose)
+        task_group.start_soon(state.aclose)
+
+    assert state.closed
+    assert state.renderer is None
 
 
 @pytest.mark.anyio
@@ -568,9 +616,15 @@ async def test_dynamic_font_strings_are_validated_before_native_registration(
 
 
 @pytest.mark.anyio
-async def test_close_rejects_new_calls_waits_for_workers_and_clears_state(
+async def test_close_rejects_new_calls_and_lets_in_flight_calls_finish(
     fake_takumi_module: None,
 ) -> None:
+    """Drain-before-close is owned by ExecutionLeaseProvider.
+
+    The state itself only rejects calls admitted after ``aclose``; an
+    in-flight call keeps rendering on the renderer reference it already
+    resolved before the close released the state-held reference.
+    """
     del fake_takumi_module
 
     class BlockingRenderer(_FakeRenderer):
@@ -591,28 +645,19 @@ async def test_close_rejects_new_calls_waits_for_workers_and_clears_state(
     await state.call_document("render_compiled", "<p>cached</p>", ())
     assert state.compiled_cache_stats.entries == 1
     result: list[object] = []
-    close_finished = anyio.Event()
 
     async def render() -> None:
         result.append(await state.call_renderer("render_node", {"type": "container"}))
 
-    async def close() -> None:
-        await state.aclose()
-        close_finished.set()
-
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(render)
         await run_sync_in_worker(renderer.render_started.wait)
-        task_group.start_soon(close)
-        await run_sync_in_worker(_wait_until, lambda: state.closing)
-        with pytest.raises(TakumiRuntimeError, match="closing"):
+        await state.aclose()
+        with pytest.raises(TakumiRuntimeError, match="closed"):
             await state.call_renderer("where")
-        assert state.renderer is renderer
-        assert not close_finished.is_set()
         renderer.render_release.set()
 
     assert result == [b"node"]
-    assert close_finished.is_set()
     assert state.closed
     assert state.renderer is None
     assert state.compiled_cache_stats.entries == 0

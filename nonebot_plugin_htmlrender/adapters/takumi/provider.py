@@ -17,16 +17,16 @@ from nonebot_plugin_htmlrender.adapters.takumi.errors import (
     TakumiBackendError,
     TakumiInputError,
     TakumiResourceError,
-    TakumiRuntimeError,
     TakumiUnsupportedError,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.operations import (
     rasterize_html as takumi_rasterize_html,
 )
-from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
-    create_runtime_state,
-    require_runtime_state,
+from nonebot_plugin_htmlrender.adapters.takumi.render import (
+    OBSERVATION_ATTRIBUTES as _OBSERVATION_ATTRIBUTES,
 )
+from nonebot_plugin_htmlrender.adapters.takumi.render import TakumiEngine
+from nonebot_plugin_htmlrender.adapters.takumi.runtime import require_runtime_state
 from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 from nonebot_plugin_htmlrender.providers.sdk import (
@@ -45,7 +45,6 @@ from nonebot_plugin_htmlrender.rendering.errors import (
     ResourceResolutionError,
     UnsupportedRequirement,
 )
-from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 from nonebot_plugin_htmlrender.rendering.requests import (
     effective_resource_resolve_mode,
 )
@@ -59,14 +58,10 @@ if TYPE_CHECKING:
 
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
     from nonebot_plugin_htmlrender.providers.sdk import PluginRequirement
-    from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
-    from nonebot_plugin_htmlrender.resources.observation import CacheObserver
-    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
     from .runtime import TakumiRuntimeState
 
-_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": TAKUMI_PROVIDER_ID}
 _PROBE_HTML = '<div style="width:1px;height:1px"></div>'
 
 
@@ -90,51 +85,6 @@ def _translate(
         raise runtime_error(f"Takumi {operation} failed: {error}") from error
     except Exception as error:
         raise runtime_error(f"Takumi {operation} failed: {error}") from error
-
-
-@final
-class TakumiEngine:
-    """Own one native Takumi runtime using injected settings and observers."""
-
-    def __init__(
-        self,
-        *,
-        config: TakumiConfig,
-        operation_observer: OperationObserver,
-        cache_observer: CacheObserver,
-        resources: ProviderResources,
-    ) -> None:
-        self._config = config
-        self._operation_observer = operation_observer
-        self._cache_observer = cache_observer
-        self._resources = resources
-
-    async def create_lease(self) -> TakumiRuntimeState:
-        with observe_operation(
-            self._operation_observer,
-            "takumi.open_runtime",
-            _OBSERVATION_ATTRIBUTES,
-        ):
-            return await create_runtime_state(
-                self._config,
-                resources=self._resources,
-                cache_observer=self._cache_observer,
-            )
-
-    def is_alive(self, state: TakumiRuntimeState) -> bool:
-        try:
-            require_runtime_state(state)
-        except TakumiRuntimeError:
-            return False
-        return True
-
-    async def close_lease(self, state: TakumiRuntimeState) -> None:
-        with observe_operation(
-            self._operation_observer,
-            "takumi.close_runtime",
-            _OBSERVATION_ATTRIBUTES,
-        ):
-            await state.aclose()
 
 
 async def _rasterize(

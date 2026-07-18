@@ -1,39 +1,33 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, Protocol, TypeAlias
+from typing import TYPE_CHECKING
+
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    AnimationImageFormat as AnimationImageFormat,
+)
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    ImageCacheMode as ImageCacheMode,
+)
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    StaticImageFormat as StaticImageFormat,
+)
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    TakumiImageInput as TakumiImageInput,
+)
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    TakumiImageResource as TakumiImageResource,
+)
+from nonebot_plugin_htmlrender.capabilities.takumi import (
+    TakumiImageResourceLike as TakumiImageResourceLike,
+)
 
 if TYPE_CHECKING:
+    from typing import TypeAlias
+
     from takumi_py import CompiledHtml, Renderer
 
     NativeCompiledHtml: TypeAlias = CompiledHtml
     NativeRenderer: TypeAlias = Renderer
-
-ImageCacheMode: TypeAlias = Literal["auto", "none"]
-StaticImageFormat: TypeAlias = Literal["png", "jpeg", "jpg", "webp", "ico", "raw"]
-AnimationImageFormat: TypeAlias = Literal["webp", "apng", "gif"]
-
-
-@dataclass(frozen=True, slots=True)
-class TakumiImageResource:
-    """An image made available under an exact HTML/CSS source key."""
-
-    src: str
-    data: bytes
-    cache: ImageCacheMode = "auto"
-
-
-class TakumiImageResourceLike(Protocol):
-    """Promised image duck type accepted without a takumi-py import."""
-
-    src: str
-    data: bytes
-
-
-TakumiImageInput: TypeAlias = (
-    TakumiImageResource | tuple[str, bytes] | TakumiImageResourceLike
-)
-
 
 __all__ = [
     "AnimationImageFormat",
