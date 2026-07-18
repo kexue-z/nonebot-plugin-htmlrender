@@ -51,9 +51,9 @@ HTMLKit 三套选择配置。HTMLKit 仍只支持其文档声明的静态 HTML/C
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
-playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+playwright = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
 async with playwright.page(viewport={"width": 1280, "height": 800}) as page:
     await page.goto("https://example.com", wait_until="networkidle")
     raw = await page.screenshot(full_page=True, type="png")
@@ -75,7 +75,7 @@ Provider 配置中选择。
 from nonebot_plugin_htmlrender import get_default_application
 from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 
-takumi = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
+takumi = get_default_application().extensions.require(TAKUMI_CAPABILITIES)
 async with takumi.extension() as extension:
     raw = await extension.render_html(
         "<strong>Takumi</strong>",
@@ -100,7 +100,7 @@ from nonebot_plugin_htmlrender.graphics import (
     RenderRasterSceneRequest,
 )
 
-pillow = get_default_application().capabilities.require(PILLOW_RASTER_SCENE_RENDERER)
+pillow = get_default_application().extensions.require(PILLOW_RASTER_SCENE_RENDERER)
 image = await pillow.render(RenderRasterSceneRequest(RasterScene(640, 360)))
 ```
 

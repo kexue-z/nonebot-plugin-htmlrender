@@ -40,7 +40,7 @@ takumi_card = on_alconna(Alconna("takumi_card", Args["title?", str]))
 
 @takumi_card.handle()
 async def _(title: str = "Takumi Capability") -> None:
-    capability = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
+    capability = get_default_application().extensions.require(TAKUMI_CAPABILITIES)
     html = (
         '<div class="card">'
         f'<div class="title">{escape(title)}</div>'

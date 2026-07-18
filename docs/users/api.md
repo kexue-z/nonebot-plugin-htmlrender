@@ -179,8 +179,8 @@ from nonebot_plugin_htmlrender.graphics import (
 )
 
 app = get_default_application()
-pillow = app.capabilities.require(PILLOW_RASTER_SCENE_RENDERER)
-skia = app.capabilities.require(SKIA_RASTER_SCENE_RENDERER)
+pillow = app.extensions.require(PILLOW_RASTER_SCENE_RENDERER)
+skia = app.extensions.require(SKIA_RASTER_SCENE_RENDERER)
 
 request = RenderRasterSceneRequest(
     scene=RasterScene(
@@ -220,9 +220,9 @@ Provider discovery 或通用 HTML request。它们由 `render.graphics.backends`
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
-playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+playwright = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
 async with playwright.page(
     viewport={"width": 1280, "height": 800},
     locale="zh-CN",
@@ -247,7 +247,7 @@ Takumi 的 node、measure、SVG、animation 与动态字体 API 通过专属 Cap
 from nonebot_plugin_htmlrender import get_default_application
 from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 
-takumi = get_default_application().capabilities.require(TAKUMI_CAPABILITIES)
+takumi = get_default_application().extensions.require(TAKUMI_CAPABILITIES)
 async with takumi.extension() as extension:
     svg = await extension.render_svg_html("<strong>Hello</strong>", width=320)
 ```

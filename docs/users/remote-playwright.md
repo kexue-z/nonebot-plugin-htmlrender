@@ -50,9 +50,9 @@ Provider 配置与资源 transport。
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
-capability = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+capability = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
 async with capability.page(viewport={"width": 1280, "height": 800}) as page:
     await page.goto("https://example.com", wait_until="networkidle", timeout=30_000)
     raw = await page.screenshot(full_page=True, type="png")

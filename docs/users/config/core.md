@@ -53,6 +53,20 @@ Playwright 未显式设置 `render.provider_config.storage_path` 时，会在插
 `allowed_paths` 内。白名单应使用最小目录，不要把 `/`、用户主目录或容器根
 加入生产配置。
 
+## 远程访问策略
+
+| 路径 | 默认值 | 说明 |
+| --- | --- | --- |
+| `render.resources.remote_access.allow_private_networks` | `false` | 是否放行 loopback / 链路本地 / 私网段目标 |
+| `render.resources.remote_access.allow_hosts` | `[]` | 允许绕过私网封锁的 host 白名单（含子域） |
+| `render.resources.remote_access.deny_hosts` | `[]` | 始终拒绝的 host 黑名单，优先级最高 |
+| `render.resources.remote_access.max_redirects` | `5` | 远程抓取允许的最大重定向次数 |
+
+远程资源默认拒绝解析到 loopback、链路本地（含云 metadata `169.254.169.254`）、
+RFC1918 私网及保留网段的目标；DNS 每次解析与每一跳重定向都会重新校验，
+连接固定在通过校验的地址上以抵御 DNS rebinding。仅 `http`/`https` scheme
+可用。需要访问内网资源时把具体 host 加入 `allow_hosts`。
+
 ## Filehost publisher
 
 这些核心字段仅在 ResourceStrategy 选择 filehost publisher 时生效：

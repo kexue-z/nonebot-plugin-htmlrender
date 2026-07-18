@@ -25,13 +25,13 @@ I/O 边界使用 `bytes(artifact)` 或 `artifact.data`。
 ## 如何操作 Playwright Page？
 
 从 `get_default_application().capabilities` 中按
-`PLAYWRIGHT_CAPABILITIES` 获取 typed Capability，再使用 `page()` 上下文。
+`PLAYWRIGHT_PAGE` 获取 typed Capability，再使用 `page()` 上下文。
 通用 `render_*` 不接受浏览器专属参数。
 
 ## 如何判断当前 composition 是否提供某项能力？
 
 通用渲染使用 `app.renderer.supports("render_html")`；Provider 专属能力使用
-`app.capabilities.get(KEY)` 或 `require(KEY)`。后者缺失时抛出
+`app.extensions.get(KEY)` 或 `require(KEY)`。后者缺失时抛出
 `CapabilityUnavailable`。
 
 ## `base_url` 会让浏览器导航吗？

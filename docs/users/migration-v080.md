@@ -118,17 +118,17 @@ media_type = artifact.media_type
 | 已删除的 0.7 契约 | 0.8 |
 | --- | --- |
 | `startup_render()` / `shutdown_render()` | `Application.startup()` / `Application.aclose()` |
-| `get_render_context()` / `get_new_page()` | `PLAYWRIGHT_CAPABILITIES.page()` |
-| `capture_html_element(...)` | `PLAYWRIGHT_CAPABILITIES.capture_element(...)` |
+| `get_render_context()` / `get_new_page()` | `PLAYWRIGHT_PAGE.page()` |
+| `capture_html_element(...)` | `PLAYWRIGHT_CAPTURE.capture_element(...)` |
 | `list_render_backend_statuses()` 等状态 API | `Application.probe()` 与 Capability 探测 |
-| `require_render_extension(TAKUMI_EXTENSION)` | `async with app.capabilities.require(TAKUMI_CAPABILITIES).extension()` |
+| `require_render_extension(TAKUMI_EXTENSION)` | `async with app.extensions.require(TAKUMI_CAPABILITIES).extension()` |
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
 app = get_default_application()
-playwright = app.capabilities.require(PLAYWRIGHT_CAPABILITIES)
+playwright = app.extensions.require(PLAYWRIGHT_PAGE)
 async with playwright.page(viewport={"width": 800, "height": 600}) as page:
     await page.goto("https://example.com")
 ```

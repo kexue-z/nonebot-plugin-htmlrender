@@ -28,7 +28,7 @@ async def _(backend: str = "pillow") -> None:
     else:
         await graphics_scene.finish("backend must be pillow or skia")
 
-    renderer = get_default_application().capabilities.require(key)
+    renderer = get_default_application().extensions.require(key)
     image = await renderer.render(
         RenderRasterSceneRequest(
             RasterScene(

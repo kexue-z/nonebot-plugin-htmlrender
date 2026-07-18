@@ -6,14 +6,14 @@ from arclet.alconna import Alconna, Args
 from nonebot_plugin_alconna import Image, UniMessage, on_alconna
 
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPTURE, PLAYWRIGHT_PAGE
 
 screenshot = on_alconna(Alconna("screenshot", Args["url?", str]))
 
 
 @screenshot.handle()
 async def _(url: str = "https://github.com") -> None:
-    playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+    playwright = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
     async with playwright.page(
         viewport={"width": 1280, "height": 800},
     ) as page:
@@ -28,7 +28,7 @@ capture = on_alconna(Alconna("capture", Args["selector", str]))
 
 @capture.handle()
 async def _(selector: str = "div.application-main") -> None:
-    playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+    playwright = get_default_application().extensions.require(PLAYWRIGHT_CAPTURE)
     img = await playwright.capture_element(
         "https://github.com",
         selector,

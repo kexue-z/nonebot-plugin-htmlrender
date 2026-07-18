@@ -9,7 +9,7 @@ from nonebot_plugin_htmlrender import (
     get_default_application,
     render_markdown,
 )
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
 status = on_alconna(Alconna("render_status"))
 
@@ -18,7 +18,7 @@ status = on_alconna(Alconna("render_status"))
 async def _() -> None:
     app = get_default_application()
     await app.probe()
-    names = ", ".join(sorted(app.capabilities.names())) or "none"
+    names = ", ".join(sorted(app.extensions.names())) or "none"
     await status.finish(f"Provider is ready. Capabilities: {names}")
 
 
@@ -27,7 +27,7 @@ remote_screenshot = on_alconna(Alconna("rshot", Args["url?", str]))
 
 @remote_screenshot.handle()
 async def _(url: str = "https://github.com") -> None:
-    playwright = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+    playwright = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
     async with playwright.page(
         viewport={"width": 1280, "height": 800},
     ) as page:

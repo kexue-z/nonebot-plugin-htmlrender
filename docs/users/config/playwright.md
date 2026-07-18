@@ -99,13 +99,13 @@ filehost 运行参数由核心 Resource Service 管理，位于 `render.resource
 ## typed Capability
 
 通用 `render_*` 不接受导航、header 或 User-Agent。页面控制通过
-`PLAYWRIGHT_CAPABILITIES` 获取：
+`PLAYWRIGHT_PAGE` 获取：
 
 ```python
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
-capability = get_default_application().capabilities.require(PLAYWRIGHT_CAPABILITIES)
+capability = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
 async with capability.page(
     viewport={"width": 1280, "height": 800},
     extra_http_headers={"X-Trace": "example"},
