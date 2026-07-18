@@ -61,6 +61,9 @@ theme:
 extra_css:
   - stylesheets/extra.css
 
+extra_javascript:
+  - assets/javascripts/mermaid-11.16.0.min.js
+
 # Plugins
 plugins:
   - search

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass
+from hashlib import sha256
 from pathlib import Path
 import re
 import textwrap
@@ -16,6 +17,13 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "nonebot_plugin_htmlrender"
 PACKAGE_ROOT = ROOT / PACKAGE
 SETTINGS_PATH = PACKAGE_ROOT / "bootstrap" / "settings.py"
+MERMAID_RUNTIME_PATH = (
+    ROOT / "docs" / "assets" / "javascripts" / "mermaid-11.16.0.min.js"
+)
+MERMAID_LICENSE_PATH = ROOT / "docs" / "assets" / "licenses" / "mermaid-11.16.0.txt"
+MERMAID_RUNTIME_SHA256 = (
+    "74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b"
+)
 
 MIGRATION_CONTRACT_ALLOWLIST: Mapping[Path, str] = {
     Path("docs/users/migration-v080.md"): "0.7 to 0.8 contract mapping",
@@ -292,6 +300,18 @@ def _parse_python_sources() -> tuple[list[tuple[PythonSource, ast.Module]], list
 def test_python_examples_and_documentation_fences_parse() -> None:
     _, errors = _parse_python_sources()
     assert not errors, "Invalid Python examples:\n  " + "\n  ".join(errors)
+
+
+def test_mermaid_runtime_is_pinned_and_self_hosted() -> None:
+    config = (ROOT / "mkdocs.yml").read_text("utf-8")
+    runtime = MERMAID_RUNTIME_PATH.read_bytes()
+    license_text = MERMAID_LICENSE_PATH.read_text("utf-8")
+
+    assert "assets/javascripts/mermaid-11.16.0.min.js" in config
+    assert "name: mermaid" in config
+    assert sha256(runtime).hexdigest() == MERMAID_RUNTIME_SHA256
+    assert b'globalThis["mermaid"]' in runtime
+    assert "The MIT License (MIT)" in license_text
 
 
 def _top_level_exports() -> frozenset[str]:

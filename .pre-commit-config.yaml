@@ -3,6 +3,7 @@ fail_fast: false
 exclude: |
   (?x)^(
     nonebot_plugin_htmlrender/templates/.*
+    | docs/assets/javascripts/mermaid-.*\.min\.js
   )$
 
 repos:
