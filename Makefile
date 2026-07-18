@@ -114,15 +114,15 @@ remote-smoke-down: ## Stop remote browser smoke services and remove named volume
 .PHONY: ruff-format ruff-format-check ruff-check lint basedpyright type-completeness ty typecheck check
 ruff-format: ensure-uv ## Format Python files with Ruff.
 	@echo "==> Formatting Python files with Ruff"
-	$(UV) run ruff format nonebot_plugin_htmlrender tests
+	$(UV) run ruff format nonebot_plugin_htmlrender tests examples
 
 ruff-format-check: ensure-uv ## Check Python formatting without modifying files.
 	@echo "==> Checking Python formatting with Ruff"
-	$(UV) run ruff format --check nonebot_plugin_htmlrender tests
+	$(UV) run ruff format --check nonebot_plugin_htmlrender tests examples
 
 ruff-check: ensure-uv ## Run Ruff lint checks.
 	@echo "==> Running Ruff checks"
-	$(UV) run ruff check nonebot_plugin_htmlrender tests pyproject.toml
+	$(UV) run ruff check nonebot_plugin_htmlrender tests examples pyproject.toml
 
 lint: ruff-check ## Alias for ruff-check.
 
@@ -136,7 +136,7 @@ type-completeness: ensure-uv ## Verify the installed package's public type surfa
 
 ty: ensure-uv ## Run ty type checking.
 	@echo "==> Running ty"
-	$(UV) run ty check
+	$(UV) run ty check nonebot_plugin_htmlrender tests examples
 
 typecheck: basedpyright type-completeness ## Run source and public API type checks.
 

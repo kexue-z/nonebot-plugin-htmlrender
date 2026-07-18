@@ -259,9 +259,10 @@ keep-runtime-typing = true
 pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-include = ["nonebot_plugin_htmlrender", "tests"]
+include = ["nonebot_plugin_htmlrender", "tests", "examples"]
 executionEnvironments = [
     { root = "./tests", extraPaths = ["./"] },
+    { root = "./examples", extraPaths = ["./"] },
     { root = "./" },
 ]
 exclude = [
