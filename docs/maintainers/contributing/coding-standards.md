@@ -82,6 +82,7 @@ make test-ci
 
 | 层级 | 必须验证的行为 | 典型入口 |
 | --- | --- | --- |
+| 仓库级 hooks | 冲突、文件格式、元数据、拼写、源码与文档修复器 | `prek run --all-files` |
 | 静态质量 | Ruff format/check、`basedpyright`、`ty` | `make ruff-format-check ruff-check typecheck ty` |
 | 单元与集成 | 非浏览器 pytest；CI 额外采集 coverage | `make test-ci` / CI `Coverage` |
 | 插件加载 | 隔离安装、NoneBot import/load、元数据与配置 | CI `noneload` matrix |
@@ -91,6 +92,11 @@ make test-ci
 | 远程浏览器 | Docker 多容器、WebSocket 与资源可达性 | `make remote-smoke` |
 
 浏览器和 Docker smoke 是条件门禁：只要改动触及页面生命周期、Playwright transport、资源解析、Filehost、模板注入或容器配置，就应运行对应层，而不是仅凭单元测试判断。
+
+`prek` 与静态质量不是重复门禁：前者还覆盖 YAML、Markdown、拼写、冲突标记、
+项目元数据与 workflow，并可能执行自动修复；后者完整检查 Python 类型和测试行为。
+修改 workflow 时还需运行 manual `actionlint`，完整命令与重跑规则见
+[工程协作与规范](engineering-guide.md#prek-gates)。
 
 ## 文档同步规范
 

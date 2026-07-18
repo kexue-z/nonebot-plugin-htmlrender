@@ -62,14 +62,18 @@ XML 上传 Codecov，日志与 XML 同时作为 `coverage-debug-*` artifact 保�
 
 ### Prek
 
-`Prek` 复用 `.pre-commit-config.yaml`。本地对应命令：
+`Prek` 复用 `.pre-commit-config.yaml`，并在 CI 中固定工具版本。workflow 对每次
+push、PR 和手动运行执行两层检查：
 
 ```bash
-prek run --all-files
-prek run --all-files --hook-stage=manual
+prek run --all-files --show-diff-on-failure --color=always
+prek run actionlint --all-files --hook-stage=manual --show-diff-on-failure --color=always
 ```
 
-第二条包含 `actionlint` 等 manual-stage 检查，修改 workflow 时必须执行。
+第一条执行默认 stage 的仓库级 hooks；第二条显式执行较慢的 `actionlint` 及其
+ShellCheck 集成。CI 始终运行两条，本地至少运行第一条，修改 workflow 时必须同时
+运行第二条。hook 的自动修复、`commit-msg` 和增量检查契约见
+[工程协作与规范](../contributing/engineering-guide.md#prek-gates)。
 
 ### noneload 的边界
 
@@ -162,6 +166,8 @@ PR preview 只是同一 GitHub Pages origin 下的路径命名空间，并不是
 | CI 层 | 本地命令 |
 | --- | --- |
 | 同步锁定开发环境 | `make sync-all` |
+| Prek 默认 hooks | `prek run --all-files` |
+| Prek workflow hooks | `prek run actionlint --all-files --hook-stage=manual` |
 | Ruff 格式化 | `make ruff-format` |
 | Ruff 格式验证 | `make ruff-format-check` |
 | Ruff lint | `make ruff-check` |

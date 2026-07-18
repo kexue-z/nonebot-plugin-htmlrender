@@ -43,6 +43,10 @@ docs(maintainers): add coding standards and contribution guide
 - `chore`：杂项维护
 - `revert`：回滚提交
 
+`make install-prek` 会安装 `commit-msg` hook，并按 `.pre-commit-config.yaml` 拒绝
+不在上述集合中的 `type`。该 hook 只验证本地 commit subject 的结构与 type，不判断
+scope 是否准确、subject 是否清晰，也不会替代 squash 前对 PR 标题的人工检查。
+
 ## scope 建议
 
 - `core`

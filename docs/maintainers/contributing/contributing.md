@@ -44,12 +44,8 @@ make install-browser   # 仅需要真实浏览器测试时执行
 
 ```bash
 make ruff-format
-make ruff-format-check
-make ruff-check
-make typecheck
-make ty
-make test-ci
-uvx prek run --all-files
+make check
+prek run --all-files
 make docs-build          # 文档、配置或文档工具链变更
 ```
 
@@ -59,8 +55,12 @@ make docs-build          # 文档、配置或文档工具链变更
 make test-local          # 本地 Playwright / Chromium 行为
 make remote-smoke        # 远程 Playwright 或跨容器资源行为
 make build-artifacts     # 依赖、包结构、元数据或发布逻辑
-uvx prek run -a actionlint --hook-stage=manual  # workflow 变更
+prek run actionlint --all-files --hook-stage=manual  # workflow 变更
 ```
+
+Prek hook 可能自动修改文件；必须检查 diff 并重跑到无新增修改且成功退出。增量开发
+可以使用 `prek run --files <path>...`，但不能代替 PR 前的 `--all-files`。stage、
+自动修复与排除规则见[工程协作与规范](engineering-guide.md#prek-gates)。
 
 CI 会在 Python 3.10–3.14 上运行 pytest/coverage 与 [`noneload`](https://github.com/BalconyJH/noneload) 插件加载矩阵。本地单一版本通过不能替代矩阵结果。
 
