@@ -106,3 +106,30 @@ make test-ci
 
 - `docs/users/`（用户视角）
 - `docs/maintainers/`（维护者视角）
+
+### 文档表达层级
+
+具体语法以 [Zensical Authoring](https://zensical.org/docs/authoring/markdown/) 为准。
+Zensical 组件用于表达语义，不用于装饰页面：
+
+- admonition 放置不应打断主叙事、但不能被忽略的提示、约束或风险；标题必须直接
+  说明结论，避免只有“注意”或“提示”；
+- collapsible details 收纳按症状展开的排障、兼容背景和其他可选细节，不隐藏完成
+  当前任务必需的步骤；
+- content tabs 只组织互斥实现、环境或协议；有先后关系的步骤继续使用有序列表；
+- data table 表达字段映射、精确对比和测试矩阵，card grid 只用于入口页或同级导航；
+- code annotations 把解释贴到配置或代码的对应行，不重复解释整个代码块；
+- Mermaid 表达跨越至少三个参与者的依赖、流程或生命周期，不替代简单列表；浏览器
+  runtime 必须使用仓库自托管的固定版本，不依赖构建或阅读时访问外部 CDN；
+- button 只标记页面的主要行动入口；footnote 与 tooltip 只承载不影响主结论的出处、
+  缩写和补充定义。
+
+任何新增组件都必须在窄屏下保持主叙事顺序，并通过 `make docs-build` 的 strict
+链接、anchor、引用和配置验证。
+
+当前 Mermaid runtime 固定为 `11.16.0`，来自 npm 发布包的
+`dist/mermaid.min.js`；原始 MIT 许可证位于
+[`docs/assets/licenses/mermaid-11.16.0.txt`](../../assets/licenses/mermaid-11.16.0.txt)。
+升级时使用 `npm pack mermaid@<version>` 提取发布产物，同时更新文件名、配置引用、
+许可证与 documentation contract 中的 SHA-256；不得改回 `mermaid@11` 这类 moving
+major CDN URL。

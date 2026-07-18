@@ -14,22 +14,33 @@ icon: lucide/image
 
 ## 从这里开始
 
-=== "使用渲染 API"
+<div class="grid cards" markdown>
 
-    1. [快速开始](users/quickstart.md)
-    2. [配置 Provider](users/config/index.md)
-    3. [API 与类型化产物](users/api.md)
+-   :octicons-rocket-24:{ .lg .middle } __使用渲染 API__
 
-=== "从 0.7 迁移"
+    ---
 
-    1. [v0.8 迁移指南](users/migration-v080.md)
-    2. [排障](users/troubleshooting.md)
+    安装所需 Provider，完成第一张图片，并理解类型化渲染产物。
 
-=== "开发 Provider"
+    [:octicons-arrow-right-24: 快速开始](users/quickstart.md)
 
-    1. [分层架构](maintainers/architecture/architecture.md)
-    2. [自定义 Provider](maintainers/architecture/custom-providers.md)
-    3. [Provider 开发流程](maintainers/architecture/provider-development.md)
+-   :octicons-arrow-switch-24:{ .lg .middle } __从 0.7 迁移__
+
+    ---
+
+    按公共 API、配置和资源 transport 的破坏性变化逐项迁移。
+
+    [:octicons-arrow-right-24: v0.8 迁移指南](users/migration-v080.md)
+
+-   :octicons-plug-24:{ .lg .middle } __开发 Provider__
+
+    ---
+
+    从依赖方向与 Provider SDK 开始，接入新的 HTML 渲染引擎。
+
+    [:octicons-arrow-right-24: Provider 开发流程](maintainers/architecture/provider-development.md)
+
+</div>
 
 ## 核心概念
 
