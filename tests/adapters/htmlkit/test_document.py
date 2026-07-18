@@ -12,13 +12,15 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
 )
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation import PreparedAsset, PreparedHtml
 from nonebot_plugin_htmlrender.resources import (
     ResourceNotFound,
     ResourceResolutionError,
 )
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
@@ -33,10 +35,10 @@ if TYPE_CHECKING:
 
 def _resources(
     root: Path,
-) -> tuple[ResourceService, CompositeResourceReader]:
+) -> ResourceService:
     worker = AnyioWorkerExecutor()
     reader = CompositeResourceReader(worker)
-    resources = ResourceService(
+    return ResourceService(
         reader=reader,
         local_access=ConfiguredLocalAccessPolicy(
             allowed_roots=(root,),
@@ -44,13 +46,12 @@ def _resources(
         ),
         strategy=ResourceStrategy(),
     )
-    return resources, reader
 
 
 async def test_local_resources_are_authorized_and_materialized(tmp_path: Path) -> None:
     image = tmp_path / "image.png"
     image.write_bytes(b"local-image")
-    resources, reader = _resources(tmp_path)
+    resources = _resources(tmp_path)
     prepared = PreparedHtml(
         html='<img src="image.png">',
         base_url=f"{tmp_path.as_uri()}/",
@@ -59,7 +60,6 @@ async def test_local_resources_are_authorized_and_materialized(tmp_path: Path) -
     document = await build_htmlkit_document(
         prepared,
         resources=resources,
-        reader=reader,
         resolve_mode=ResourceResolveMode.STRICT,
     )
 
@@ -72,7 +72,7 @@ async def test_strict_local_access_failure_is_not_hidden(tmp_path: Path) -> None
     allowed.mkdir()
     outside = tmp_path / "outside.png"
     outside.write_bytes(b"forbidden")
-    resources, reader = _resources(allowed)
+    resources = _resources(allowed)
     prepared = PreparedHtml(
         html=f'<img src="{outside.as_uri()}">',
         base_url=f"{allowed.as_uri()}/",
@@ -82,7 +82,6 @@ async def test_strict_local_access_failure_is_not_hidden(tmp_path: Path) -> None
         await build_htmlkit_document(
             prepared,
             resources=resources,
-            reader=reader,
             resolve_mode=ResourceResolveMode.STRICT,
         )
 
@@ -90,7 +89,7 @@ async def test_strict_local_access_failure_is_not_hidden(tmp_path: Path) -> None
 async def test_prepared_assets_work_without_a_second_io_channel(
     tmp_path: Path,
 ) -> None:
-    resources, reader = _resources(tmp_path)
+    resources = _resources(tmp_path)
     prepared = PreparedHtml(
         html='<img src="memory:image">',
         assets=(
@@ -105,7 +104,6 @@ async def test_prepared_assets_work_without_a_second_io_channel(
     document = await build_htmlkit_document(
         prepared,
         resources=resources,
-        reader=reader,
         resolve_mode=ResourceResolveMode.OFF,
     )
 
@@ -158,7 +156,6 @@ async def test_callback_failures_follow_resource_strictness(
     document = await build_htmlkit_document(
         PreparedHtml(html='<img src="https://example.test/missing.png">'),
         resources=resources,
-        reader=reader,
         resolve_mode=mode,
     )
 

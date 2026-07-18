@@ -11,8 +11,8 @@ generics over dynamically discovered classes.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, TypeAlias, TypeVar, runtime_checkable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Final, Protocol, TypeAlias, TypeVar, runtime_checkable
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -26,11 +26,8 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
     from nonebot_plugin_htmlrender.resources.ports import (
         AssetPublisher,
-        LocalAccessPolicy,
-        ResourceReader,
-        WorkerExecutor,
+        ProviderResources,
     )
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
@@ -39,13 +36,20 @@ SettingsT = TypeVar("SettingsT")
 
 ENTRY_POINT_GROUP = "nonebot_plugin_htmlrender.providers"
 
+HTMLKIT_PROVIDER_ID: Final[EngineId] = "htmlkit"
+PLAYWRIGHT_PROVIDER_ID: Final[EngineId] = "playwright"
+TAKUMI_PROVIDER_ID: Final[EngineId] = "takumi"
+
 RESERVED_PROVIDER_IDS: frozenset[EngineId] = frozenset(
-    {"htmlkit", "playwright", "takumi"}
+    {HTMLKIT_PROVIDER_ID, PLAYWRIGHT_PROVIDER_ID, TAKUMI_PROVIDER_ID}
 )
 
 __all__ = [
     "ENTRY_POINT_GROUP",
+    "HTMLKIT_PROVIDER_ID",
+    "PLAYWRIGHT_PROVIDER_ID",
     "RESERVED_PROVIDER_IDS",
+    "TAKUMI_PROVIDER_ID",
     "EngineBindings",
     "EngineId",
     "EngineProvider",
@@ -82,10 +86,7 @@ class ProviderDependencies:
 
     operation_observer: OperationObserver
     cache_observer: CacheObserver
-    worker_executor: WorkerExecutor
-    resource_reader: ResourceReader
-    local_access_policy: LocalAccessPolicy
-    resource_service: ResourceService
+    resources: ProviderResources
     asset_publisher: AssetPublisher | None
 
 
@@ -100,8 +101,6 @@ class EngineBindings:
     lifecycle: ApplicationLifecycle
     prepared_html_executor: PreparedHtmlExecutor | None = None
     provider_capabilities: CapabilityCatalog | None = None
-    description: str = ""
-    observation_attributes: Mapping[str, str] = field(default_factory=dict)
 
 
 @runtime_checkable

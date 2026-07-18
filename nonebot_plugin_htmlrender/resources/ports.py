@@ -6,6 +6,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
     from pathlib import Path
 
+    from .config import ResourceStrategy
     from .models import ResourceContent, ResourceRef, ResourceRevision
     from .templating import ExtensionSpec, FilterCallable, TemplateSource
 
@@ -25,6 +26,22 @@ class ResourceReader(Protocol):
     async def invalidate(self, reference: ResourceRef) -> None: ...
 
     async def clear(self) -> None: ...
+
+
+class ProviderResources(Protocol):
+    """Policy-bound resource operations available to engine providers."""
+
+    @property
+    def strategy(self) -> ResourceStrategy: ...
+
+    def authorize_local(self, path: Path) -> Path: ...
+
+    async def read_bytes(
+        self,
+        reference: str | Path | ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> bytes: ...
 
 
 class LocalAccessPolicy(Protocol):
@@ -72,28 +89,6 @@ class TemplateCompiler(Protocol):
     async def clear(self) -> None: ...
 
 
-class ResourceValueResolver(Protocol):
-    async def resolve_template_vars(
-        self,
-        template_vars: Mapping[str, Any],
-        *,
-        template_base: str | Path | None = None,
-        strict: bool = False,
-        resolver: object | None = None,
-        lease_id: str | None = None,
-    ) -> dict[str, Any]: ...
-
-    async def to_resource_url(
-        self,
-        value: str | Path | bytes,
-        *,
-        template_base: str | Path | None = None,
-        strict: bool = False,
-        resolver: object | None = None,
-        lease_id: str | None = None,
-    ) -> str: ...
-
-
 class ResourceResolver(Protocol):
     def resolve(
         self,
@@ -106,9 +101,9 @@ class ResourceResolver(Protocol):
 __all__ = [
     "AssetPublisher",
     "LocalAccessPolicy",
+    "ProviderResources",
     "ResourceReader",
     "ResourceResolver",
-    "ResourceValueResolver",
     "TemplateCompiler",
     "WorkerExecutor",
 ]

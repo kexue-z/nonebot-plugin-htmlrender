@@ -16,13 +16,15 @@ from nonebot_plugin_htmlrender.adapters.takumi.source import (
     normalize_image_input,
     prepare_takumi_document,
 )
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedStylesheet,
     prepare_html,
 )
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 from tests.adapters.takumi.helpers import resource_service
 
 if TYPE_CHECKING:

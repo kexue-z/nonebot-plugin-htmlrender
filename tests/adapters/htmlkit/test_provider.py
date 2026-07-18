@@ -20,7 +20,6 @@ from nonebot_plugin_htmlrender.adapters.resources import (
 )
 from nonebot_plugin_htmlrender.bootstrap.composition import prepare_runtime
 from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation import (
     PreparedHtml,
     PreparedStylesheet,
@@ -40,7 +39,10 @@ from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRequirement,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 from nonebot_plugin_htmlrender.resources.service import ResourceService
 from tests.image_fixtures import encoded_image
 
@@ -132,10 +134,7 @@ def _dependencies(
     return ProviderDependencies(
         operation_observer=observer,
         cache_observer=NoopCacheObserver(),
-        worker_executor=worker,
-        resource_reader=reader,
-        local_access_policy=local_access,
-        resource_service=resources,
+        resources=resources,
         asset_publisher=None,
     )
 

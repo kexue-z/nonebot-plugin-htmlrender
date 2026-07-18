@@ -177,10 +177,9 @@ async def test_available_provider_receives_explicit_dependencies_and_renders() -
     assert [item.plugin_name for item in runtime.plugin_requirements] == ["fake_plugin"]
     assert len(provider.dependencies) == 1
     dependencies = provider.dependencies[0]
-    assert dependencies.resource_service is not application.resources
-    assert dependencies.resource_reader is not None
-    assert dependencies.local_access_policy is not None
-    assert dependencies.worker_executor is not None
+    assert dependencies.resources is not application.resources
+    assert not hasattr(dependencies.resources, "resolve_template_vars")
+    assert not hasattr(dependencies.resources, "reader")
     assert dependencies.asset_publisher is None
     assert application.resources.strategy is strategy
 
@@ -206,7 +205,7 @@ def test_filehost_strategy_injects_asset_publisher() -> None:
     ).build_application()
 
     assert provider.dependencies[0].asset_publisher is not None
-    assert provider.dependencies[0].resource_service is not application.resources
+    assert provider.dependencies[0].resources is not application.resources
 
 
 def test_filehost_strategy_off_keeps_publisher_for_per_call_override() -> None:
@@ -226,7 +225,7 @@ def test_filehost_strategy_off_keeps_publisher_for_per_call_override() -> None:
 
     assert runtime.asset_publisher_settings is not None
     assert provider.dependencies[0].asset_publisher is not None
-    assert provider.dependencies[0].resource_service is not application.resources
+    assert provider.dependencies[0].resources is not application.resources
 
 
 async def test_unavailable_provider_surfaces_reason() -> None:

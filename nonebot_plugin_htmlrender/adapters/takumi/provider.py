@@ -30,6 +30,7 @@ from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
 from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 from nonebot_plugin_htmlrender.providers.sdk import (
+    TAKUMI_PROVIDER_ID,
     EngineBindings,
     EngineId,
     ProviderAvailability,
@@ -48,22 +49,24 @@ from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 from nonebot_plugin_htmlrender.rendering.requests import (
     effective_resource_resolve_mode,
 )
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
 
-    from nonebot_plugin_htmlrender.consts import ResourceResolveMode
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
     from nonebot_plugin_htmlrender.providers.sdk import PluginRequirement
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
     from .runtime import TakumiRuntimeState
 
-_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "takumi"}
+_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": TAKUMI_PROVIDER_ID}
 _PROBE_HTML = '<div style="width:1px;height:1px"></div>'
 
 
@@ -99,7 +102,7 @@ class TakumiEngine:
         config: TakumiConfig,
         operation_observer: OperationObserver,
         cache_observer: CacheObserver,
-        resources: ResourceService,
+        resources: ProviderResources,
     ) -> None:
         self._config = config
         self._operation_observer = operation_observer
@@ -167,7 +170,7 @@ async def _probe(state: TakumiRuntimeState) -> None:
 class TakumiProvider:
     """First-party provider for the Takumi native renderer."""
 
-    id: EngineId = "takumi"
+    id: EngineId = TAKUMI_PROVIDER_ID
 
     def parse_settings(self, raw: Mapping[str, object]) -> TakumiConfig:
         return TakumiConfig.model_validate(dict(raw))
@@ -201,7 +204,7 @@ class TakumiProvider:
             config=config,
             operation_observer=dependencies.operation_observer,
             cache_observer=dependencies.cache_observer,
-            resources=dependencies.resource_service,
+            resources=dependencies.resources,
         )
         leases = ExecutionLeaseProvider(
             create=engine.create_lease,
@@ -224,7 +227,7 @@ class TakumiProvider:
                 prepared,
                 options,
                 resource_policy,
-                default_resolve_mode=dependencies.resource_service.strategy.resolve_mode,
+                default_resolve_mode=dependencies.resources.strategy.resolve_mode,
             )
 
         executor = PreparedHtmlLeaseExecutor(
@@ -243,8 +246,6 @@ class TakumiProvider:
             lifecycle=leases,
             prepared_html_executor=executor,
             provider_capabilities=capabilities,
-            description="Takumi native HTML renderer",
-            observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
 
     @staticmethod

@@ -12,12 +12,12 @@ from nonebot_plugin_htmlrender.adapters.resources.reader import (
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
 )
-from nonebot_plugin_htmlrender.consts import (
+from nonebot_plugin_htmlrender.resources.config import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
     ResourceResolveMode,
+    ResourceStrategy,
 )
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
@@ -67,15 +67,13 @@ def _write_font_stylesheet(root: Path) -> Path:
     return stylesheet
 
 
-def test_page_config_migrates_deprecated_base_url() -> None:
+def test_page_config_roundtrips_document_url() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
         PageConfig,
         RenderConfig,
     )
 
-    with pytest.warns(DeprecationWarning, match="base_url is deprecated"):
-        page = PageConfig(base_url="https://render/document")
-    assert page.base_url == "https://render/document"
+    page = PageConfig(document_url="https://render/document")
     assert page.document_url == "https://render/document"
     page_dump = page.model_dump()
     assert page_dump["document_url"] == "https://render/document"
@@ -85,23 +83,11 @@ def test_page_config_migrates_deprecated_base_url() -> None:
     render = RenderConfig(page=page)
     restored_render = RenderConfig.model_validate_json(render.model_dump_json())
     assert restored_render == render
-    assert restored_render.page.base_url == "https://render/document"
-
-    with pytest.raises(ValueError, match="provide only document_url"):
-        PageConfig(
-            base_url="https://legacy.example/document",
-            document_url="https://new.example/document",
-        )
-
-    assigned = PageConfig()
-    with pytest.warns(DeprecationWarning, match="base_url is deprecated"):
-        assigned.base_url = "https://assigned.example/document"
-    assert assigned.base_url == "https://assigned.example/document"
-    assert assigned.document_url == "https://assigned.example/document"
+    assert restored_render.page.document_url == "https://render/document"
 
 
 @pytest.mark.anyio
-async def test_remote_http_navigation_is_resource_fallback_for_both_url_fields(
+async def test_remote_http_navigation_is_resource_fallback(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
@@ -115,9 +101,7 @@ async def test_remote_http_navigation_is_resource_fallback_for_both_url_fields(
     from nonebot_plugin_htmlrender.preparation import prepare_html  # noqa: PLC0415
 
     document_url = "https://render.example/cards/card.html"
-    direct = PageConfig(document_url=document_url)
-    with pytest.warns(DeprecationWarning, match="base_url is deprecated"):
-        legacy = PageConfig(base_url=document_url)
+    page = PageConfig(document_url=document_url)
     execute = mocker.patch.object(
         operations,
         "_execute_browser_load_plan",
@@ -126,21 +110,20 @@ async def test_remote_http_navigation_is_resource_fallback_for_both_url_fields(
     resources = _resources()
     prepared = prepare_html('<img src="avatar.png">')
 
-    for page in (direct, legacy):
-        assert (
-            await operations.render_prepared_html(
-                prepared,
-                content=ContentConfig(html=prepared.html),
-                render=RenderConfig(page=page),
-                lease=_lease("remote_ws"),
-                resources=resources,
-                asset_publisher=None,
-                resolve_mode=ResourceResolveMode.STRICT,
-            )
-            == b"image"
+    assert (
+        await operations.render_prepared_html(
+            prepared,
+            content=ContentConfig(html=prepared.html),
+            render=RenderConfig(page=page),
+            lease=_lease("remote_ws"),
+            resources=resources,
+            asset_publisher=None,
+            resolve_mode=ResourceResolveMode.STRICT,
         )
+        == b"image"
+    )
 
-    assert execute.await_count == 2
+    assert execute.await_count == 1
     for call in execute.await_args_list:
         plan = call.args[0]
         assert plan.document_url == document_url

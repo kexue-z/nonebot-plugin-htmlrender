@@ -16,9 +16,9 @@ from .models import (
 from .ports import (
     AssetPublisher,
     LocalAccessPolicy,
+    ProviderResources,
     ResourceReader,
     ResourceResolver,
-    ResourceValueResolver,
     TemplateCompiler,
     WorkerExecutor,
 )
@@ -33,6 +33,7 @@ __all__ = [
     "LocalAccessPolicy",
     "PackageResourceRef",
     "PackageResourceSource",
+    "ProviderResources",
     "RemoteResourceRef",
     "ResourceAccessDenied",
     "ResourceContent",
@@ -44,7 +45,6 @@ __all__ = [
     "ResourceRevision",
     "ResourceService",
     "ResourceSizeExceeded",
-    "ResourceValueResolver",
     "TemplateCompiler",
     "WorkerExecutor",
 ]

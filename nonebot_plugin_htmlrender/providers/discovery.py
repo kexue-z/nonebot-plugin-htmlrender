@@ -10,14 +10,21 @@ from __future__ import annotations
 
 from importlib import import_module
 from importlib.metadata import entry_points
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderNotFound,
     ProviderUnavailable,
 )
 
-from .sdk import ENTRY_POINT_GROUP, RESERVED_PROVIDER_IDS, EngineProvider
+from .sdk import (
+    ENTRY_POINT_GROUP,
+    HTMLKIT_PROVIDER_ID,
+    PLAYWRIGHT_PROVIDER_ID,
+    RESERVED_PROVIDER_IDS,
+    TAKUMI_PROVIDER_ID,
+    EngineProvider,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -25,26 +32,30 @@ if TYPE_CHECKING:
     from .sdk import EngineId
 
 _FIRST_PARTY_MODULES: dict[str, str] = {
-    "htmlkit": "nonebot_plugin_htmlrender.adapters.htmlkit.provider",
-    "playwright": "nonebot_plugin_htmlrender.adapters.playwright.provider",
-    "takumi": "nonebot_plugin_htmlrender.adapters.takumi.provider",
+    HTMLKIT_PROVIDER_ID: "nonebot_plugin_htmlrender.adapters.htmlkit.provider",
+    PLAYWRIGHT_PROVIDER_ID: "nonebot_plugin_htmlrender.adapters.playwright.provider",
+    TAKUMI_PROVIDER_ID: "nonebot_plugin_htmlrender.adapters.takumi.provider",
 }
 _FIRST_PARTY_ATTRIBUTE = "PROVIDER"
 
 
-def _validate_provider(candidate: object, *, origin: str) -> EngineProvider:
+def _validate_provider(
+    candidate: object,
+    *,
+    origin: str,
+) -> EngineProvider[object]:
     if not isinstance(candidate, EngineProvider):
         raise ProviderUnavailable(
             f"Object from {origin} does not implement the EngineProvider "
             f"protocol: {candidate!r}."
         )
-    return candidate
+    return cast("EngineProvider[object]", candidate)
 
 
 def _validate_explicit(
-    providers: Sequence[EngineProvider],
-) -> dict[str, EngineProvider]:
-    by_id: dict[str, EngineProvider] = {}
+    providers: Sequence[EngineProvider[object]],
+) -> dict[str, EngineProvider[object]]:
+    by_id: dict[str, EngineProvider[object]] = {}
     for provider in providers:
         validated = _validate_provider(provider, origin="explicit override")
         if validated.id in by_id:
@@ -55,7 +66,7 @@ def _validate_explicit(
     return by_id
 
 
-def _load_first_party(provider_id: EngineId) -> EngineProvider:
+def _load_first_party(provider_id: EngineId) -> EngineProvider[object]:
     module = import_module(_FIRST_PARTY_MODULES[provider_id])
     return _validate_provider(
         getattr(module, _FIRST_PARTY_ATTRIBUTE),
@@ -63,7 +74,7 @@ def _load_first_party(provider_id: EngineId) -> EngineProvider:
     )
 
 
-def _load_entry_point(provider_id: EngineId) -> EngineProvider:
+def _load_entry_point(provider_id: EngineId) -> EngineProvider[object]:
     matches = [
         entry_point
         for entry_point in entry_points(group=ENTRY_POINT_GROUP)
@@ -114,8 +125,8 @@ def _reject_reserved_hijack(provider_id: EngineId) -> None:
 def resolve_provider(
     provider_id: EngineId,
     *,
-    explicit: Sequence[EngineProvider] = (),
-) -> EngineProvider:
+    explicit: Sequence[EngineProvider[object]] = (),
+) -> EngineProvider[object]:
     """Resolve the configured provider without importing any other engine."""
     explicit_by_id = _validate_explicit(explicit)
     override = explicit_by_id.get(provider_id)

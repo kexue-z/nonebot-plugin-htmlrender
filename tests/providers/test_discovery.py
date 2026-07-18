@@ -208,16 +208,11 @@ def test_provider_dependencies_shape() -> None:
     dependencies = ProviderDependencies(
         operation_observer=NoopOperationObserver(),
         cache_observer=NoopCacheObserver(),
-        worker_executor=worker,
-        resource_reader=reader,
-        local_access_policy=local_access,
-        resource_service=resources,
+        resources=resources,
         asset_publisher=None,
     )
 
     assert dependencies.operation_observer is not None
     assert dependencies.cache_observer is not None
-    assert dependencies.resource_reader is reader
-    assert dependencies.local_access_policy is local_access
-    assert dependencies.resource_service is resources
+    assert dependencies.resources is resources
     assert dependencies.asset_publisher is None

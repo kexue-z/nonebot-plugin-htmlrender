@@ -14,8 +14,8 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     PreparedHtmlLeaseExecutor,
 )
 from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
-from nonebot_plugin_htmlrender.consts import RemoteLocalResourcePolicy
 from nonebot_plugin_htmlrender.providers.sdk import (
+    PLAYWRIGHT_PROVIDER_ID,
     EngineBindings,
     EngineId,
     PluginRequirement,
@@ -32,7 +32,10 @@ from nonebot_plugin_htmlrender.rendering.requests import (
     ResourcePolicy,
     effective_resource_resolve_mode,
 )
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    RemoteLocalResourcePolicy,
+    ResourceStrategy,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
@@ -42,10 +45,12 @@ if TYPE_CHECKING:
         PreparedHtml,
         RasterOptions,
     )
-    from nonebot_plugin_htmlrender.resources.ports import AssetPublisher
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import (
+        AssetPublisher,
+        ProviderResources,
+    )
 
-_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "playwright"}
+_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": PLAYWRIGHT_PROVIDER_ID}
 
 
 @contextmanager
@@ -68,7 +73,7 @@ async def _rasterize(
     options: RasterOptions,
     resource_policy: ResourcePolicy | None,
     *,
-    resources: ResourceService,
+    resources: ProviderResources,
     asset_publisher: AssetPublisher | None,
 ) -> RenderedImage:
     from nonebot_plugin_htmlrender.adapters.playwright.models import (  # noqa: PLC0415
@@ -138,7 +143,7 @@ def _uses_filehost(config: PlaywrightConfig) -> bool:
 class PlaywrightProvider:
     """First-party provider for the Playwright browser engine."""
 
-    id: EngineId = "playwright"
+    id: EngineId = PLAYWRIGHT_PROVIDER_ID
 
     def parse_settings(self, raw: Mapping[str, object]) -> PlaywrightConfig:
         return PlaywrightConfig.model_validate(dict(raw))
@@ -216,7 +221,7 @@ class PlaywrightProvider:
                 prepared,
                 options,
                 resource_policy,
-                resources=dependencies.resource_service,
+                resources=dependencies.resources,
                 asset_publisher=dependencies.asset_publisher,
             )
 
@@ -236,8 +241,6 @@ class PlaywrightProvider:
             lifecycle=leases,
             prepared_html_executor=executor,
             provider_capabilities=capabilities,
-            description="Playwright browser engine",
-            observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
 
     @staticmethod

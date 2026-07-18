@@ -13,7 +13,6 @@ from nonebot_plugin_htmlrender.adapters.playwright.provider import (
     PROVIDER,
     PlaywrightProvider,
 )
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.materialize import (
     AssetMaterializationError,
 )
@@ -29,34 +28,28 @@ from nonebot_plugin_htmlrender.rendering import (
     ResourceResolutionError,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 from tests.image_fixtures import encoded_image, rendered_image
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
     from nonebot_plugin_htmlrender.adapters.playwright.render import PlaywrightLease
-    from nonebot_plugin_htmlrender.resources.ports import (
-        LocalAccessPolicy,
-        ResourceReader,
-        WorkerExecutor,
-    )
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
     from tests.adapters.conftest import RecordingOperationObserver
 
 PREPARED = PreparedHtml(html="<p>prepared</p>")
 
 
 def _dependencies(observer: RecordingOperationObserver) -> ProviderDependencies:
-    dependency = object()
     resources = SimpleNamespace(strategy=ResourceStrategy())
     return ProviderDependencies(
         operation_observer=observer,
         cache_observer=NoopCacheObserver(),
-        worker_executor=cast("WorkerExecutor", dependency),
-        resource_reader=cast("ResourceReader", dependency),
-        local_access_policy=cast("LocalAccessPolicy", dependency),
-        resource_service=cast("ResourceService", resources),
+        resources=cast("ProviderResources", resources),
         asset_publisher=None,
     )
 
@@ -216,7 +209,7 @@ async def test_rasterize_maps_raster_options(mocker: MockerFixture) -> None:
 
     lease = cast("PlaywrightLease", object())
     resources = cast(
-        "ResourceService",
+        "ProviderResources",
         SimpleNamespace(
             strategy=ResourceStrategy(resolve_mode=ResourceResolveMode.STRICT)
         ),
@@ -263,7 +256,7 @@ async def test_rasterize_rejects_encoded_format_mismatch(
     )
     lease = cast("PlaywrightLease", object())
     resources = cast(
-        "ResourceService",
+        "ProviderResources",
         SimpleNamespace(strategy=ResourceStrategy()),
     )
 

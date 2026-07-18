@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from takumi_py import FontResourceInput
 
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
     from .config import GenericFontFamily, TakumiConfig, TakumiFontConfig
     from .types import NativeCompiledHtml, NativeRenderer, TakumiImageResource
@@ -233,7 +233,7 @@ class TakumiRuntimeState:
     renderer: NativeRenderer | None
     limiter: anyio.CapacityLimiter
     config: TakumiConfig
-    resources: ResourceService
+    resources: ProviderResources
     registered_font_families: tuple[str, ...] = ()
     cache_observer: CacheObserver | None = None
     _compiled: SyncWeightedSingleflightLRU[tuple[object, ...], object] = field(
@@ -657,7 +657,7 @@ async def _load_font_payloads(
     fonts: Sequence[TakumiFontConfig],
     *,
     config: TakumiConfig,
-    resources: ResourceService,
+    resources: ProviderResources,
 ) -> tuple[bytes, ...]:
     payloads: list[bytes | None] = [None] * len(fonts)
 
@@ -772,7 +772,7 @@ def render_defaults(
 async def create_runtime_state(
     config: TakumiConfig,
     *,
-    resources: ResourceService,
+    resources: ProviderResources,
     cache_observer: CacheObserver | None = None,
 ) -> TakumiRuntimeState:
     """Create one renderer and register revalidated font bytes exactly once."""

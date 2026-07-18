@@ -12,7 +12,6 @@ from nonebot_plugin_htmlrender.adapters.takumi import (
     capabilities as capabilities_module,
 )
 from nonebot_plugin_htmlrender.adapters.takumi import provider as provider_module
-from nonebot_plugin_htmlrender.adapters.takumi.capabilities import TAKUMI_CAPABILITIES
 from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
 from nonebot_plugin_htmlrender.adapters.takumi.errors import (
     TakumiRuntimeError,
@@ -22,7 +21,7 @@ from nonebot_plugin_htmlrender.adapters.takumi.provider import (
     PROVIDER,
     TakumiProvider,
 )
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
+from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
@@ -36,18 +35,16 @@ from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRequirement,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 from tests.image_fixtures import encoded_image
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
-    from nonebot_plugin_htmlrender.resources.ports import (
-        LocalAccessPolicy,
-        ResourceReader,
-        WorkerExecutor,
-    )
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
     from tests.adapters.conftest import RecordingOperationObserver
 
 PREPARED = PreparedHtml(html="<p>prepared</p>")
@@ -80,7 +77,7 @@ def _install_runtime_fakes(
     async def fake_create_runtime_state(
         config: TakumiConfig,
         *,
-        resources: ResourceService,
+        resources: ProviderResources,
         cache_observer: object | None = None,
     ) -> _FakeState:
         del config, resources, cache_observer
@@ -125,15 +122,11 @@ def _dependencies(
     *,
     strategy: ResourceStrategy | None = None,
 ) -> ProviderDependencies:
-    dependency = object()
     resources = SimpleNamespace(strategy=strategy or ResourceStrategy())
     return ProviderDependencies(
         operation_observer=observer,
         cache_observer=NoopCacheObserver(),
-        worker_executor=cast("WorkerExecutor", dependency),
-        resource_reader=cast("ResourceReader", dependency),
-        local_access_policy=cast("LocalAccessPolicy", dependency),
-        resource_service=cast("ResourceService", resources),
+        resources=cast("ProviderResources", resources),
         asset_publisher=None,
     )
 
@@ -370,7 +363,7 @@ async def test_startup_failure_translates_and_allows_retry(
     async def flaky_create(
         config: TakumiConfig,
         *,
-        resources: ResourceService,
+        resources: ProviderResources,
         cache_observer: object | None = None,
     ) -> _FakeState:
         del config, resources, cache_observer

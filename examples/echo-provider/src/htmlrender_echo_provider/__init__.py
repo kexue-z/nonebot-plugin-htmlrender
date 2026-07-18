@@ -142,8 +142,6 @@ class EchoProvider:
         return EngineBindings(
             lifecycle=_EchoLifecycle(),
             prepared_html_executor=_EchoExecutor(settings),
-            description="Echo constant-pixel engine",
-            observation_attributes={"render.backend": "echo"},
         )
 
 

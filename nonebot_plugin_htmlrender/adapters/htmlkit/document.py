@@ -10,7 +10,6 @@ import logging
 from typing import TYPE_CHECKING, final
 from urllib.parse import urldefrag, urlsplit
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
     resolve_document_reference,
@@ -22,15 +21,15 @@ from nonebot_plugin_htmlrender.preparation.references import (
     inspect_html_references,
     rewrite_css_references,
 )
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 from nonebot_plugin_htmlrender.resources.errors import ResourceResolutionError
 from nonebot_plugin_htmlrender.resources.models import RemoteResourceRef
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
-    from nonebot_plugin_htmlrender.resources.ports import ResourceReader
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class _HeadParser(HTMLParser):
@@ -117,7 +116,7 @@ class HtmlkitResourceBridge:
         prepared: PreparedHtml,
         *,
         document_base: str | None,
-        reader: ResourceReader,
+        resources: ProviderResources,
         strict: bool,
     ) -> None:
         self._assets = PreparedAssetIndex(
@@ -125,7 +124,7 @@ class HtmlkitResourceBridge:
             base_url=document_base,
         )
         self._document_base = document_base
-        self._reader = reader
+        self._resources = resources
         self._strict = strict
         self._errors: list[ResourceResolutionError] = []
 
@@ -140,7 +139,7 @@ class HtmlkitResourceBridge:
         if self._strict:
             self._errors.append(translated)
         else:
-            logger.warning("Could not fetch HTMLKit resource %r: %s", url, error)
+            _logger.warning("Could not fetch HTMLKit resource %r: %s", url, error)
 
     async def _bytes(self, url: str) -> bytes | None:
         asset = self._assets.match(url, base_url=self._document_base)
@@ -154,11 +153,10 @@ class HtmlkitResourceBridge:
             return None
         if scheme in {"http", "https"}:
             try:
-                content = await self._reader.read(RemoteResourceRef(normalized))
+                return await self._resources.read_bytes(RemoteResourceRef(normalized))
             except Exception as error:
                 self._record(normalized, error)
                 return None
-            return content.data
         if scheme == "file" and self._strict:
             self._record(
                 normalized,
@@ -196,8 +194,7 @@ class HtmlkitDocument:
 async def build_htmlkit_document(
     prepared: PreparedHtml,
     *,
-    resources: ResourceService,
-    reader: ResourceReader,
+    resources: ProviderResources,
     resolve_mode: ResourceResolveMode,
 ) -> HtmlkitDocument:
     """Apply local policy, preserve stylesheet bases, and bind fetch callbacks."""
@@ -222,7 +219,7 @@ async def build_htmlkit_document(
     bridge = HtmlkitResourceBridge(
         materialized,
         document_base=document_base,
-        reader=reader,
+        resources=resources,
         strict=resolve_mode is ResourceResolveMode.STRICT,
     )
     return HtmlkitDocument(

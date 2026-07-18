@@ -9,11 +9,6 @@ from urllib.parse import urldefrag, urlsplit
 from anyio import CancelScope
 from nonebot.log import logger
 
-from nonebot_plugin_htmlrender.consts import (
-    LocalLocalResourcePolicy,
-    RemoteLocalResourcePolicy,
-    ResourceResolveMode,
-)
 from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
     resolve_document_reference,
@@ -29,6 +24,11 @@ from nonebot_plugin_htmlrender.preparation.references import (
 )
 from nonebot_plugin_htmlrender.rendering.errors import ResourceResolutionError
 from nonebot_plugin_htmlrender.resources import PackageResourceSource
+from nonebot_plugin_htmlrender.resources.config import (
+    LocalLocalResourcePolicy,
+    RemoteLocalResourcePolicy,
+    ResourceResolveMode,
+)
 
 from ._page import (
     _setup_page_logging,
@@ -52,8 +52,10 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from nonebot_plugin_htmlrender.preparation import PreparedAsset, PreparedHtml
-    from nonebot_plugin_htmlrender.resources.ports import AssetPublisher
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import (
+        AssetPublisher,
+        ProviderResources,
+    )
 
     from .render import PlaywrightLease
     from .types import GotoKwargs, LocatorScreenshotKwargs, PageContextKwargs
@@ -87,7 +89,7 @@ def _document_url_for_render(
 
 
 def _local_resource_policy(
-    resources: ResourceService,
+    resources: ProviderResources,
     *,
     remote_mode: bool,
 ) -> str:
@@ -295,7 +297,7 @@ async def render_prepared_html(
     content: ContentConfig,
     render: RenderConfig,
     lease: PlaywrightLease,
-    resources: ResourceService,
+    resources: ProviderResources,
     asset_publisher: AssetPublisher | None,
     page_kwargs: PageContextKwargs | None = None,
     resolve_mode: ResourceResolveMode | None = None,

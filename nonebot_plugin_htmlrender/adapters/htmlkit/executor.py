@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, final
 import anyio
 
 from nonebot_plugin_htmlrender.preparation.models import RenderRequirement
+from nonebot_plugin_htmlrender.providers.sdk import HTMLKIT_PROVIDER_ID
 from nonebot_plugin_htmlrender.rendering.artifacts import RenderedImage
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderExecutionError,
@@ -34,12 +35,11 @@ if TYPE_CHECKING:
     )
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
     from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
-    from nonebot_plugin_htmlrender.resources.ports import ResourceReader
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
     from .config import HtmlkitConfig
 
-_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "htmlkit"}
+_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": HTMLKIT_PROVIDER_ID}
 _ASYNCIO_ONLY_MESSAGE = (
     "HTMLKit 0.1.0rc5 is asyncio-only and cannot run under the current "
     "asynchronous backend."
@@ -131,13 +131,11 @@ class HtmlkitExecutor:
         self,
         *,
         config: HtmlkitConfig,
-        resources: ResourceService,
-        reader: ResourceReader,
+        resources: ProviderResources,
         observer: OperationObserver,
     ) -> None:
         self._config = config.model_copy(deep=True)
         self._resources = resources
-        self._reader = reader
         self._observer = observer
         self._limiter = anyio.CapacityLimiter(config.max_concurrency)
         self._api: HtmlkitApi | None = None
@@ -183,7 +181,6 @@ class HtmlkitExecutor:
         document = await build_htmlkit_document(
             prepared,
             resources=self._resources,
-            reader=self._reader,
             resolve_mode=resolve_mode,
         )
         async with self._limiter:

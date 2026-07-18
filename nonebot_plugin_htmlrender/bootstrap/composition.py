@@ -40,6 +40,7 @@ from .graphics import build_graphics_capabilities
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Sequence
+    from pathlib import Path
 
     from nonebot_plugin_htmlrender.providers.sdk import (
         EngineProvider,
@@ -50,6 +51,7 @@ if TYPE_CHECKING:
         ApplicationLifecycle,
         OperationObserver,
     )
+    from nonebot_plugin_htmlrender.resources.models import ResourceRef
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
     from nonebot_plugin_htmlrender.resources.ports import AssetPublisher
 
@@ -107,6 +109,29 @@ class _UnavailableExecutor:
         raise ProviderUnavailable(
             f"Provider `{self._provider_id}` is unavailable: {self._reason}"
         )
+
+
+@final
+class _ProviderResourceFacade:
+    """Expose only the policy-bound resource operations promised by the SDK."""
+
+    def __init__(self, delegate: ResourceService) -> None:
+        self._delegate = delegate
+
+    @property
+    def strategy(self) -> ResourceStrategy:
+        return self._delegate.strategy
+
+    def authorize_local(self, path: Path) -> Path:
+        return self._delegate.authorize_local(path)
+
+    async def read_bytes(
+        self,
+        reference: str | Path | ResourceRef,
+        *,
+        refresh: bool = False,
+    ) -> bytes:
+        return await self._delegate.read_bytes(reference, refresh=refresh)
 
 
 @final
@@ -306,6 +331,7 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         strategy=strategy,
         publisher=publisher,
     )
+    provider_resources = _ProviderResourceFacade(resources)
     templates = JinjaTemplateCompiler(
         max_entries=cache_settings.template_environment_max_entries,
         observer=cache_observer,
@@ -340,10 +366,7 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
                 ProviderDependencies(
                     operation_observer=operation_observer,
                     cache_observer=cache_observer,
-                    worker_executor=worker,
-                    resource_reader=reader,
-                    local_access_policy=local_access,
-                    resource_service=resources,
+                    resources=provider_resources,
                     asset_publisher=publisher,
                 ),
             )

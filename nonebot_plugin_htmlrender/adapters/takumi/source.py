@@ -5,7 +5,6 @@ from html import unescape
 from typing import TYPE_CHECKING, cast
 from urllib.parse import urljoin
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
     PreparedHtml,
@@ -22,6 +21,7 @@ from nonebot_plugin_htmlrender.preparation.references import (
     css_resource_references,
     inspect_html_references,
 )
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 from .errors import TakumiResourceError, TakumiUnsupportedError
 from .types import (
@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nonebot_plugin_htmlrender.preparation.references import HtmlReferenceSnapshot
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
 
 @dataclass(frozen=True, slots=True)
@@ -229,7 +229,7 @@ def _inspect_document(
 async def materialize_takumi_document(
     prepared: PreparedHtml,
     *,
-    resources: ResourceService,
+    resources: ProviderResources,
     stylesheets: Sequence[str] = (),
     images: Sequence[object] | None = None,
     resolve_mode: ResourceResolveMode | None = None,

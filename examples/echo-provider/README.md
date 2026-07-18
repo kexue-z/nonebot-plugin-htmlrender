@@ -23,7 +23,8 @@ render:
 The distribution registers `PROVIDER` through the
 `nonebot_plugin_htmlrender.providers` entry-point group. The implementation
 shows typed settings, side-effect-free availability, lifecycle/executor
-bindings, `ResourceStrategy`, and composition-provided dependencies.
+bindings, `ResourceStrategy`, and the narrow composition-provided
+`ProviderResources` boundary.
 
 It intentionally exposes no provider-specific Capability. Extend it only when
 demonstrating a real typed boundary; do not add engine-specific parameters to

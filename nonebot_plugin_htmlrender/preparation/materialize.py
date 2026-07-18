@@ -18,9 +18,9 @@ from .models import PreparedAsset, PreparedHtml
 from .references import css_resource_references, inspect_html_references
 
 if TYPE_CHECKING:
-    from nonebot_plugin_htmlrender.resources.service import ResourceService
+    from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
-logger = logging.getLogger(__name__)
+_logger = logging.getLogger(__name__)
 
 
 class AssetMaterializationError(ResourceResolutionError):
@@ -41,7 +41,7 @@ def _file_url_path(url: str) -> Path:
 def _validate_local_path(
     path: Path,
     *,
-    resources: ResourceService,
+    resources: ProviderResources,
 ) -> Path:
     return resources.authorize_local(path)
 
@@ -49,7 +49,7 @@ def _validate_local_path(
 async def materialize_local_assets(
     prepared: PreparedHtml,
     *,
-    resources: ResourceService,
+    resources: ProviderResources,
     strict: bool = True,
     fallback_base_url: str | None = None,
 ) -> PreparedHtml:
@@ -100,7 +100,7 @@ async def materialize_local_assets(
                 try:
                     css = existing.data.decode("utf-8-sig")
                 except UnicodeDecodeError:
-                    logger.warning(
+                    _logger.warning(
                         f"Could not inspect non-UTF-8 stylesheet asset {reference!r}"
                     )
                 else:
@@ -119,7 +119,7 @@ async def materialize_local_assets(
             )
             if strict:
                 raise AssetMaterializationError(message)
-            logger.warning(message)
+            _logger.warning(message)
             continue
 
         try:
@@ -132,7 +132,9 @@ async def materialize_local_assets(
         except Exception as error:
             if strict:
                 raise AssetMaterializationError(str(error)) from error
-            logger.warning("Failed to materialize local asset %r: %s", reference, error)
+            _logger.warning(
+                "Failed to materialize local asset %r: %s", reference, error
+            )
             continue
 
         if canonical in seen_sources:
@@ -150,7 +152,7 @@ async def materialize_local_assets(
             try:
                 css = payload.decode("utf-8-sig")
             except UnicodeDecodeError:
-                logger.warning(
+                _logger.warning(
                     f"Could not inspect non-UTF-8 stylesheet asset {reference!r}"
                 )
             else:

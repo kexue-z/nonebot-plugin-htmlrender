@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, final
 
 from nonebot_plugin_htmlrender.providers.sdk import (
+    HTMLKIT_PROVIDER_ID,
     EngineBindings,
     EngineId,
     PluginRequirement,
@@ -21,14 +22,12 @@ from .executor import HtmlkitExecutor, HtmlkitLifecycle
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-_OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "htmlkit"}
-
 
 @final
 class HtmlkitProvider:
     """Experimental HTML engine backed by nonebot-plugin-htmlkit 0.1.0rc5."""
 
-    id: EngineId = "htmlkit"
+    id: EngineId = HTMLKIT_PROVIDER_ID
 
     def parse_settings(self, raw: Mapping[str, object]) -> HtmlkitConfig:
         return HtmlkitConfig.model_validate(dict(raw))
@@ -61,15 +60,12 @@ class HtmlkitProvider:
         config = self._narrow(settings)
         executor = HtmlkitExecutor(
             config=config,
-            resources=dependencies.resource_service,
-            reader=dependencies.resource_reader,
+            resources=dependencies.resources,
             observer=dependencies.operation_observer,
         )
         return EngineBindings(
             lifecycle=HtmlkitLifecycle(executor),
             prepared_html_executor=executor,
-            description="Experimental litehtml renderer via nonebot-plugin-htmlkit",
-            observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
 
     @staticmethod

@@ -13,11 +13,8 @@ EXPECTED_PROVIDER_DEPENDENCIES = frozenset(
     {
         "asset_publisher",
         "cache_observer",
-        "local_access_policy",
         "operation_observer",
-        "resource_reader",
-        "resource_service",
-        "worker_executor",
+        "resources",
     }
 )
 
@@ -109,13 +106,15 @@ def test_provider_dtos_carry_the_final_resource_dependencies_and_strategy() -> N
     dependencies = _field_names(_class(tree, "ProviderDependencies"))
     bindings = _field_names(_class(tree, "EngineBindings"))
 
-    assert dependencies >= EXPECTED_PROVIDER_DEPENDENCIES, (
-        "ProviderDependencies is missing explicit resource ports: "
-        + ", ".join(sorted(EXPECTED_PROVIDER_DEPENDENCIES - dependencies))
+    assert dependencies == EXPECTED_PROVIDER_DEPENDENCIES, (
+        "ProviderDependencies must expose only the provider-facing resource boundary"
     )
     assert "resource_strategy" not in bindings, (
         "ResourceStrategy must have one source of truth: "
         "EngineProvider.resource_strategy(), evaluated before composition"
+    )
+    assert {"description", "observation_attributes"}.isdisjoint(bindings), (
+        "EngineBindings must not advertise metadata fields with no runtime contract"
     )
 
 
