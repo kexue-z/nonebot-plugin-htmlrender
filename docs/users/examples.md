@@ -100,9 +100,7 @@ from nonebot_plugin_htmlrender.graphics import (
     RenderRasterSceneRequest,
 )
 
-pillow = get_default_application().capabilities.require(
-    PILLOW_RASTER_SCENE_RENDERER
-)
+pillow = get_default_application().capabilities.require(PILLOW_RASTER_SCENE_RENDERER)
 image = await pillow.render(RenderRasterSceneRequest(RasterScene(640, 360)))
 ```
 
