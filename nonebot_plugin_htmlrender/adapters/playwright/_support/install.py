@@ -1,10 +1,9 @@
+from dataclasses import dataclass
 import signal
 from urllib.parse import urlparse
 
 import anyio
 from nonebot.log import logger
-
-from nonebot_plugin_htmlrender.consts import MirrorSource
 
 from .process import (
     INTERRUPT_SIGNAL_ATTR,
@@ -12,6 +11,15 @@ from .process import (
     terminate_process,
 )
 from .signal import HANDLED_SIGNALS
+
+
+@dataclass(frozen=True, slots=True)
+class MirrorSource:
+    """One Playwright browser download mirror candidate."""
+
+    name: str
+    url: str
+    priority: int
 
 
 async def check_mirror_connectivity(
@@ -167,6 +175,7 @@ async def execute_install_command(
 
 
 __all__ = [
+    "MirrorSource",
     "check_mirror_connectivity",
     "execute_install_command",
 ]

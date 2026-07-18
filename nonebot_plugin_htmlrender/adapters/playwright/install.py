@@ -8,16 +8,24 @@ from urllib.parse import urlsplit, urlunsplit
 
 from nonebot import logger
 
-from nonebot_plugin_htmlrender.consts import MIRRORS, MirrorSource
-from nonebot_plugin_htmlrender.utils.install import (
+from ._support.install import MirrorSource
+from ._support.install import (
     check_mirror_connectivity as _check_mirror_connectivity,
 )
-from nonebot_plugin_htmlrender.utils.install import (
+from ._support.install import (
     execute_install_command as _execute_install_command,
 )
 
 if TYPE_CHECKING:
     from .config import PlaywrightConfig
+
+MIRRORS: tuple[MirrorSource, ...] = (
+    MirrorSource(
+        "Taobao",
+        "https://registry.npmmirror.com/-/binary/playwright",
+        1,
+    ),
+)
 
 
 def _redact_url(value: str) -> str:
@@ -165,6 +173,7 @@ async def install_browser(
 
 
 __all__ = [
+    "MirrorSource",
     "check_mirror_connectivity",
     "download_context",
     "execute_install_command",

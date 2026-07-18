@@ -13,9 +13,12 @@ from typing_extensions import ParamSpec
 import anyio
 from anyio.abc import Process, TaskGroup
 
-from nonebot_plugin_htmlrender.consts import WINDOWS
-
-from .signal import register_signal_handler, remove_signal_handler, shield_signals
+from .signal import (
+    WINDOWS,
+    register_signal_handler,
+    remove_signal_handler,
+    shield_signals,
+)
 
 P = ParamSpec("P")
 

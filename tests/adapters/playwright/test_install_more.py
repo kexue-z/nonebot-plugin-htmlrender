@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
-from nonebot_plugin_htmlrender.consts import MirrorSource
+from nonebot_plugin_htmlrender.adapters.playwright.install import MirrorSource
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture

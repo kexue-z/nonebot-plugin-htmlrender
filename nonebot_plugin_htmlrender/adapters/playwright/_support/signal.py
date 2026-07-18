@@ -1,11 +1,13 @@
 from collections.abc import Generator
 from contextlib import contextmanager
+import os
 import signal
+import sys
 import threading
 from types import FrameType
 from typing import Callable
 
-from nonebot_plugin_htmlrender.consts import WINDOWS
+WINDOWS = sys.platform.startswith("win") or (sys.platform == "cli" and os.name == "nt")
 
 HANDLED_SIGNALS = (
     signal.SIGINT,
@@ -158,6 +160,7 @@ def shield_signals() -> Generator[None, None, None]:
 
 __all__ = [
     "HANDLED_SIGNALS",
+    "WINDOWS",
     "install_signal_handler",
     "register_signal_handler",
     "remove_signal_handler",

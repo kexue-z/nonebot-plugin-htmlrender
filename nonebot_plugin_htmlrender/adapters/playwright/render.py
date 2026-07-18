@@ -30,10 +30,11 @@ from playwright.async_api import (
 )
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
-from nonebot_plugin_htmlrender.consts import BrowserEngine, RenderBackend
+from nonebot_plugin_htmlrender.providers.sdk import PLAYWRIGHT_PROVIDER_ID, EngineId
 from nonebot_plugin_htmlrender.rendering.observers import observe_operation
-from nonebot_plugin_htmlrender.utils import suppress_and_log
 
+from ._support import suppress_and_log
+from .config import BrowserEngine
 from .install import install_browser
 from .runtime import (
     clear_playwright_env_vars,
@@ -76,7 +77,7 @@ class WsVersionRiskLevel(StrEnum):
 class PlaywrightEngine:
     """Own Playwright resources using one explicitly injected configuration."""
 
-    backend: RenderBackend = RenderBackend.PLAYWRIGHT
+    backend: EngineId = PLAYWRIGHT_PROVIDER_ID
 
     def __init__(
         self,
@@ -104,13 +105,13 @@ class PlaywrightEngine:
             with observe_operation(
                 self._operation_observer,
                 "playwright.open_runtime",
-                {"render.backend": self.backend.value},
+                {"render.backend": self.backend},
             ):
                 playwright = await async_playwright().start()
             with observe_operation(
                 self._operation_observer,
                 "playwright.open_session",
-                {"render.backend": self.backend.value},
+                {"render.backend": self.backend},
             ):
                 mode = self._resolve_mode()
                 browser = await self._create_browser(playwright, mode)

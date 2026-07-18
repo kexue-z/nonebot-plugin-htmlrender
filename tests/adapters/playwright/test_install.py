@@ -14,9 +14,9 @@ async def test_backend_download_context_sets_proxy_and_restores_host(
         PlaywrightConfig,
     )
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
+        MirrorSource,
         download_context,
     )
-    from nonebot_plugin_htmlrender.consts import MirrorSource  # noqa: PLC0415
 
     os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = "https://old-host"
     config = PlaywrightConfig(
@@ -46,12 +46,12 @@ async def test_execute_playwright_install_uses_direct_stdio(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
+        BrowserEngine,
         PlaywrightConfig,
     )
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         execute_install_command,
     )
-    from nonebot_plugin_htmlrender.consts import BrowserEngine  # noqa: PLC0415
 
     execute_mock = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.install._execute_install_command",

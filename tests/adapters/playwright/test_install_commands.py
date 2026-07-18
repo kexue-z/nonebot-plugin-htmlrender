@@ -11,9 +11,9 @@ from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfi
 async def test_check_mirror_connectivity(mocker: MockerFixture):
     # Mock socket connection
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
+        MirrorSource,
         check_mirror_connectivity,
     )
-    from nonebot_plugin_htmlrender.consts import MirrorSource  # noqa: PLC0415
 
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.install._check_mirror_connectivity",
@@ -30,9 +30,9 @@ async def test_check_mirror_connectivity(mocker: MockerFixture):
 @pytest.mark.anyio
 async def test_download_context(mocker: MockerFixture):
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
+        MirrorSource,
         download_context,
     )
-    from nonebot_plugin_htmlrender.consts import MirrorSource  # noqa: PLC0415
 
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",

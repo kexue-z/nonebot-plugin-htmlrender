@@ -6,7 +6,7 @@ import anyio
 from anyio import EndOfStream
 import pytest
 
-from nonebot_plugin_htmlrender.utils.process import (
+from nonebot_plugin_htmlrender.adapters.playwright._support.process import (
     create_process,
     create_process_shell,
     ensure_process_terminated,
