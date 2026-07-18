@@ -5,6 +5,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 from nonebot_plugin_htmlrender.adapters import observability as telemetry
+from nonebot_plugin_htmlrender.providers.sdk import HTMLKIT_PROVIDER_ID
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -242,6 +243,64 @@ def test_operation_observer_exports_only_to_its_selected_integrations(
     start_trace.assert_not_called()
     sentry_recorder.assert_not_called()
     prometheus_recorder.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    ("operation", "backend"),
+    [
+        ("htmlkit.rasterize_html", HTMLKIT_PROVIDER_ID),
+        ("graphics.pillow.render_scene", "pillow"),
+        ("graphics.skia.render_scene", "skia"),
+    ],
+)
+def test_new_backend_observation_stubs_fan_out_to_both_exporters(
+    operation: str,
+    backend: str,
+    mocker: MockerFixture,
+) -> None:
+    start_trace = mocker.patch.object(telemetry, "start_trace", return_value=None)
+    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
+    mocker.patch.object(telemetry, "perf_counter", side_effect=[4.0, 4.25])
+    sentry_recorder = mocker.patch.object(telemetry, "record_sentry_metrics")
+    prometheus_recorder = mocker.patch.object(
+        telemetry,
+        "record_prometheus_metrics",
+    )
+    observer = telemetry.TelemetryOperationObserver(
+        sentry=True,
+        prometheus=True,
+    )
+
+    with observer.observe(
+        operation,
+        {
+            "render.backend": backend,
+            "render.format": "png",
+        },
+    ):
+        pass
+
+    start_trace.assert_called_once_with(
+        operation,
+        operation,
+        {
+            "render.backend": backend,
+            "render.format": "png",
+        },
+    )
+    sentry_recorder.assert_called_once_with(
+        operation,
+        backend,
+        "ok",
+        0.25,
+    )
+    prometheus_recorder.assert_called_once_with(
+        operation,
+        backend,
+        "ok",
+        0.25,
+        None,
+    )
 
 
 def test_cache_observer_exports_only_to_its_selected_integrations(
