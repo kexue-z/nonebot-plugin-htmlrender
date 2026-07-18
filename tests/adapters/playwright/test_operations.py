@@ -856,7 +856,6 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
 def test_operation_helpers_misc_branches(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
         _page,
-        operations,
     )
 
     assert _page._iter_http_urls({"a": ("http://x", {"b": {"https://y"}})}) == [
@@ -865,8 +864,6 @@ def test_operation_helpers_misc_branches(mocker: MockerFixture) -> None:
     ]
     assert _page._is_local_or_private_target("http://localhost/a") is True
     assert _page._is_local_or_private_target("mailto:a@b.com") is False
-    assert operations._enum_value(SimpleNamespace(value="x")) == "x"
-    assert operations._enum_value("y") == "y"
 
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright._page.urlsplit",

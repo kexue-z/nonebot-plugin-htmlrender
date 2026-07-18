@@ -317,9 +317,9 @@ def test_playwright_package_submodule_import_does_not_load_backend_render() -> N
         nonebot.init(log_level="ERROR", render={"provider": None})
         nonebot.require("nonebot_plugin_htmlrender")
 
-        from nonebot_plugin_htmlrender.adapters.playwright import runtime
+        from nonebot_plugin_htmlrender.adapters.playwright import install_state as runtime
 
-        if runtime.__name__ != "nonebot_plugin_htmlrender.adapters.playwright.runtime":
+        if runtime.__name__ != "nonebot_plugin_htmlrender.adapters.playwright.install_state":
             raise SystemExit("runtime submodule import resolved incorrectly")
 
         unexpected = {

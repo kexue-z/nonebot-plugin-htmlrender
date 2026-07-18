@@ -17,6 +17,7 @@ from nonebot_plugin_htmlrender.preparation.materialize import (
     AssetMaterializationError,
     materialize_local_assets,
 )
+from nonebot_plugin_htmlrender.preparation.media import guess_asset_media_type
 from nonebot_plugin_htmlrender.preparation.references import (
     css_resource_references,
     inspect_html_references,
@@ -46,6 +47,7 @@ from .prepared import (
     build_browser_load_plan,
     install_browser_asset_routes,
 )
+from .render import PlaywrightMode
 from .telemetry import log_page_telemetry
 
 if TYPE_CHECKING:
@@ -69,13 +71,8 @@ BUILTIN_TEMPLATES = PackageResourceSource(
 )
 
 
-def _enum_value(raw: object) -> str:
-    """获取枚举值的字符串表示。"""
-    return str(getattr(raw, "value", raw))
-
-
 def _is_remote_lease(lease: PlaywrightLease) -> bool:
-    return _enum_value(lease.mode) in {"remote_cdp", "remote_ws"}
+    return lease.mode in (PlaywrightMode.REMOTE_CDP, PlaywrightMode.REMOTE_WS)
 
 
 def _document_url_for_render(
@@ -92,12 +89,9 @@ def _local_resource_policy(
     resources: ProviderResources,
     *,
     remote_mode: bool,
-) -> str:
+) -> LocalLocalResourcePolicy | RemoteLocalResourcePolicy:
     strategy = resources.strategy
-    policy = (
-        strategy.remote_local_policy if remote_mode else strategy.local_local_policy
-    )
-    return _enum_value(policy)
+    return strategy.remote_local_policy if remote_mode else strategy.local_local_policy
 
 
 def _prepared_references(
@@ -110,10 +104,18 @@ def _prepared_references(
         prepared.html,
         base_url=root_base,
     )
-    document_base_url = (
+    # ``prepare_html`` fixes the document base, but it is only authoritative
+    # when the payload carried its own base URL: with an executor-supplied
+    # fallback base a relative ``<base href>`` must resolve against it.
+    recomputed_base = (
         resolve_document_reference(root_base, snapshot.base_href)
         if snapshot.base_href is not None
         else root_base
+    )
+    document_base_url = (
+        prepared.document_base or recomputed_base
+        if prepared.base_url is not None
+        else recomputed_base
     )
     references = [(reference, document_base_url) for reference in snapshot.references]
     for stylesheet in prepared.stylesheets:
@@ -165,7 +167,7 @@ def _assert_no_local_resources(
 
 
 def _asset_media_type(asset: PreparedAsset) -> str:
-    return asset.media_type or mimetypes.guess_type(asset.source)[0] or ""
+    return guess_asset_media_type(asset) or ""
 
 
 def _asset_suffix(asset: PreparedAsset) -> str | None:
@@ -247,7 +249,7 @@ async def _execute_browser_load_plan(
     content: ContentConfig,
     render: RenderConfig,
     lease: PlaywrightLease,
-    local_resource_policy: str,
+    local_resource_policy: LocalLocalResourcePolicy | RemoteLocalResourcePolicy,
     filehost_headers: Mapping[str, str],
     page_kwargs: PageContextKwargs,
     telemetry_op: str,
@@ -260,7 +262,7 @@ async def _execute_browser_load_plan(
             {**_page_context_kwargs(render), **page_kwargs},
         ),
     ) as page:
-        if local_resource_policy == RemoteLocalResourcePolicy.FILEHOST.value:
+        if local_resource_policy == RemoteLocalResourcePolicy.FILEHOST:
             await install_filehost_request_route(
                 page,
                 filehost_headers=dict(filehost_headers),
@@ -308,7 +310,7 @@ async def render_prepared_html(
     remote_mode = _is_remote_lease(lease)
     mode = resolve_mode or resources.strategy.resolve_mode
     policy = (
-        RemoteLocalResourcePolicy.PASSTHROUGH.value
+        RemoteLocalResourcePolicy.PASSTHROUGH
         if mode is ResourceResolveMode.OFF
         else _local_resource_policy(resources, remote_mode=remote_mode)
     )
@@ -324,14 +326,14 @@ async def render_prepared_html(
     asset_urls: dict[str, str] | None = None
     owns_lease = False
     try:
-        if policy == RemoteLocalResourcePolicy.MEMORY.value:
+        if policy is RemoteLocalResourcePolicy.MEMORY:
             prepared = await materialize_local_assets(
                 prepared,
                 resources=resources,
                 strict=strict,
                 fallback_base_url=fallback_base_url,
             )
-        elif policy == RemoteLocalResourcePolicy.FILEHOST.value:
+        elif policy == RemoteLocalResourcePolicy.FILEHOST:
             prepared = await materialize_local_assets(
                 prepared,
                 resources=resources,
@@ -351,12 +353,12 @@ async def render_prepared_html(
                     publisher=asset_publisher,
                     lease_id=filehost_lease_id,
                 )
-        elif policy == RemoteLocalResourcePolicy.ERROR.value:
+        elif policy is RemoteLocalResourcePolicy.ERROR:
             _assert_no_local_resources(prepared, document_url=document_url)
-        elif policy not in {
-            RemoteLocalResourcePolicy.PASSTHROUGH.value,
-            LocalLocalResourcePolicy.FILE.value,
-        }:
+        elif policy not in (
+            RemoteLocalResourcePolicy.PASSTHROUGH,
+            LocalLocalResourcePolicy.FILE,
+        ):
             raise RuntimeError(f"Unsupported local resource policy: {policy!r}")
 
         plan = build_browser_load_plan(
@@ -365,10 +367,10 @@ async def render_prepared_html(
             asset_urls=asset_urls,
             allow_file_base_href=(
                 policy
-                in {
-                    RemoteLocalResourcePolicy.PASSTHROUGH.value,
-                    LocalLocalResourcePolicy.FILE.value,
-                }
+                in (
+                    RemoteLocalResourcePolicy.PASSTHROUGH,
+                    LocalLocalResourcePolicy.FILE,
+                )
             ),
         )
         return await _execute_browser_load_plan(
@@ -379,7 +381,7 @@ async def render_prepared_html(
             local_resource_policy=policy,
             filehost_headers=(
                 asset_publisher.request_headers()
-                if policy == RemoteLocalResourcePolicy.FILEHOST.value
+                if policy == RemoteLocalResourcePolicy.FILEHOST
                 and asset_publisher is not None
                 else {}
             ),

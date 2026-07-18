@@ -14,10 +14,7 @@ from urllib.request import Request, urlopen
 if TYPE_CHECKING:
     from .types import (
         BrowserLaunchKwargs,
-        BrowserSessionKwargs,
-        CdpConnectKwargs,
         ProxySettings,
-        WsConnectKwargs,
     )
 
 from anyio.to_thread import run_sync
@@ -36,7 +33,7 @@ from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 from ._support import suppress_and_log
 from .config import BrowserEngine
 from .install import install_browser
-from .runtime import (
+from .install_state import (
     clear_playwright_env_vars,
     prepare_playwright_env_vars,
     reconcile_legacy_playwright_cache,
@@ -154,24 +151,16 @@ class PlaywrightEngine:
             return endpoint or None
         return str(value)
 
-    def _resolve_mode(self, **kwargs: object) -> PlaywrightMode:
-        """根据配置确定 Playwright 连接模式（CDP / WebSocket / 本地）。"""
+    def _resolve_mode(self) -> PlaywrightMode:
+        """Select the Playwright connection mode from configuration."""
         cfg = self._config
-        cdp_endpoint = self._normalize_endpoint(
-            cfg.connect_cdp.endpoint or kwargs.get("endpoint_url")
-        )
-        ws_endpoint = self._normalize_endpoint(
-            cfg.connect_ws.endpoint or kwargs.get("endpoint")
-        )
-        has_cdp = cdp_endpoint is not None
-        has_ws = ws_endpoint is not None
+        has_cdp = self._normalize_endpoint(cfg.connect_cdp.endpoint) is not None
+        has_ws = self._normalize_endpoint(cfg.connect_ws.endpoint) is not None
         if has_cdp and has_ws:
             raise RuntimeError(
                 "Invalid configuration: "
                 "`render.provider_config.connect_cdp.endpoint` and "
-                "`render.provider_config.connect_ws.endpoint` cannot both be set. "
-                "The `endpoint_url` and `endpoint` startup arguments "
-                "count as remote endpoints too."
+                "`render.provider_config.connect_ws.endpoint` cannot both be set."
             )
         if has_cdp:
             return PlaywrightMode.REMOTE_CDP
@@ -183,21 +172,8 @@ class PlaywrightEngine:
         self,
         pw: Playwright,
         mode: PlaywrightMode,
-        **kwargs: Unpack[BrowserSessionKwargs],
     ) -> Browser:
-        """根据连接模式创建浏览器实例。
-
-        Args:
-            pw: Playwright 实例。
-            mode: 连接模式（CDP / WebSocket / 本地）。
-            **kwargs: 透传给浏览器创建方法的额外选项。
-
-        Returns:
-            已连接的 Browser 实例。
-
-        Raises:
-            RuntimeError: 配置无效或连接失败时。
-        """
+        """Create the browser for the resolved connection mode."""
         cfg = self._config
         browser_name = cfg.engine.value
 
@@ -208,29 +184,17 @@ class PlaywrightEngine:
                         "CDP connection requires "
                         '`render.provider_config.engine="chromium"`.'
                     )
-                endpoint = self._normalize_endpoint(
-                    cfg.connect_cdp.endpoint or kwargs.get("endpoint_url")
-                )
+                endpoint = self._normalize_endpoint(cfg.connect_cdp.endpoint)
                 if not endpoint:
                     raise RuntimeError("CDP endpoint is empty.")
                 logger.info(
                     f"Connecting to Chromium via CDP ({self._redact_url(endpoint)})"
                 )
-                options = cast(
-                    "CdpConnectKwargs",
-                    {
-                        key: value
-                        for key, value in kwargs.items()
-                        if key != "endpoint_url"
-                    },
-                )
                 chromium = self._get_browser_type(pw, BrowserEngine.CHROMIUM.value)
-                return await chromium.connect_over_cdp(endpoint, **options)
+                return await chromium.connect_over_cdp(endpoint)
 
             case PlaywrightMode.REMOTE_WS:
-                endpoint = self._normalize_endpoint(
-                    cfg.connect_ws.endpoint or kwargs.get("endpoint")
-                )
+                endpoint = self._normalize_endpoint(cfg.connect_ws.endpoint)
                 if not endpoint:
                     raise RuntimeError("WS endpoint is empty.")
                 self._check_ws_version_gate(endpoint)
@@ -239,16 +203,12 @@ class PlaywrightEngine:
                     f"{browser_name.capitalize()} via WebSocket endpoint: "
                     f"{self._redact_url(endpoint)}"
                 )
-                options = cast(
-                    "WsConnectKwargs",
-                    {key: value for key, value in kwargs.items() if key != "endpoint"},
-                )
                 browser_type = self._get_browser_type(pw, browser_name)
-                return await browser_type.connect(endpoint=endpoint, **options)
+                return await browser_type.connect(endpoint=endpoint)
 
             case _:
                 browser_type = self._get_browser_type(pw, browser_name)
-                options = cast("BrowserLaunchKwargs", dict(kwargs))
+                options: BrowserLaunchKwargs = {}
                 if cfg.channel:
                     options["channel"] = cfg.channel.value
                 if cfg.proxy_server:

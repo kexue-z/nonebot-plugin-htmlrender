@@ -110,7 +110,7 @@ def playwright_availability(config: PlaywrightConfig) -> ProviderAvailability:
         return ProviderAvailability(available=True)
 
     try:
-        from .runtime import (  # noqa: PLC0415
+        from .install_state import (  # noqa: PLC0415
             get_playwright_storage_path,
             has_installed_browser,
         )

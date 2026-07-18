@@ -136,7 +136,7 @@ def _uses_filehost(config: PlaywrightConfig) -> bool:
         if is_remote
         else config.local_local_resource_policy
     )
-    return policy.value == RemoteLocalResourcePolicy.FILEHOST.value
+    return policy == RemoteLocalResourcePolicy.FILEHOST
 
 
 @final
@@ -193,7 +193,8 @@ class PlaywrightProvider:
             PlaywrightEngine,
         )
         from nonebot_plugin_htmlrender.capabilities import (  # noqa: PLC0415
-            PLAYWRIGHT_CAPABILITIES,
+            PLAYWRIGHT_CAPTURE,
+            PLAYWRIGHT_PAGE,
         )
 
         engine = PlaywrightEngine(
@@ -233,9 +234,11 @@ class PlaywrightProvider:
             operation="playwright.html_render.rasterize_html",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
-        capabilities = CapabilityCatalog().with_capability(
-            PLAYWRIGHT_CAPABILITIES,
-            PlaywrightCapabilityAdapter(leases, dependencies.operation_observer),
+        adapter = PlaywrightCapabilityAdapter(leases, dependencies.operation_observer)
+        capabilities = (
+            CapabilityCatalog()
+            .with_capability(PLAYWRIGHT_PAGE, adapter)
+            .with_capability(PLAYWRIGHT_CAPTURE, adapter)
         )
         return EngineBindings(
             lifecycle=leases,

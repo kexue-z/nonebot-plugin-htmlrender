@@ -6,7 +6,6 @@ from dataclasses import dataclass, replace
 from hashlib import sha256
 from html import escape, unescape
 from html.parser import HTMLParser
-import mimetypes
 import re
 from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urlsplit
@@ -15,6 +14,7 @@ from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
     resolve_document_reference,
 )
+from nonebot_plugin_htmlrender.preparation.media import guess_asset_media_type
 from nonebot_plugin_htmlrender.preparation.references import (
     inspect_html_references,
     rewrite_css_references,
@@ -56,8 +56,7 @@ class BrowserLoadPlan:
 
 
 def _asset_media_type(asset: PreparedAsset) -> str:
-    media_type = asset.media_type or mimetypes.guess_type(asset.source)[0]
-    media_type = media_type or "application/octet-stream"
+    media_type = guess_asset_media_type(asset) or "application/octet-stream"
     if _MEDIA_TYPE_RE.fullmatch(media_type) is None:
         raise ValueError(f"Invalid PreparedAsset media type: {media_type!r}")
     return media_type

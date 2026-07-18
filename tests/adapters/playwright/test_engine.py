@@ -301,7 +301,7 @@ def test_availability_checks_injected_storage_path(
         return_value=object(),
     )
     installed = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.runtime.has_installed_browser",
+        "nonebot_plugin_htmlrender.adapters.playwright.install_state.has_installed_browser",
         return_value=False,
     )
     storage_path = tmp_path / "playwright-test"
