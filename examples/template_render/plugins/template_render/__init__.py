@@ -31,7 +31,8 @@ async def _(username: str = "NoneBot User") -> None:
             ],
         },
         width=440,
-        height=300,
+        height=None,
+        device_pixel_ratio=1.0,
     )
     await profile.finish(UniMessage(Image(raw=bytes(artifact))))
 
@@ -41,5 +42,5 @@ text_render = on_alconna(Alconna("textimg", Args["content", str]))
 
 @text_render.handle()
 async def _(content: str) -> None:
-    artifact = await render_text(content, width=600)
+    artifact = await render_text(content, width=600, device_pixel_ratio=1.0)
     await text_render.finish(UniMessage(Image(raw=bytes(artifact))))

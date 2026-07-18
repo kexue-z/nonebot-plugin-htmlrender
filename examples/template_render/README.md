@@ -1,40 +1,64 @@
-# Local Template Render Example
+# 本地模板渲染示例
 
-Demonstrates using `render_template` and `render_text` to render local HTML/CSS templates into images.
+展示如何通过引擎中立的 `render_template` 与 `render_text` API，将本地 HTML/CSS
+模板渲染为图片。示例显式使用 `height=None` 与 `device_pixel_ratio=1.0`，因此可以
+在 Playwright、Takumi 和 HTMLKit 三个静态 HTML Provider 之间切换。
 
 ## Commands
 
-| Command | Description |
+| 命令 | 说明 |
 |---|---|
-| `/profile [username]` | Render a user profile card from a Jinja2 template |
-| `/textimg <content>` | Render plain text into an image |
+| `/profile [username]` | 使用 Jinja2 模板渲染用户卡片 |
+| `/textimg <content>` | 将纯文本渲染为图片 |
 
-## Setup
+## 安装
 
 ```bash
-nb create  # Create a NoneBot project, select OneBot V11 adapter
+nb create  # 创建 NoneBot 项目并选择 OneBot V11 adapter
 uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
 uv add nonebot-plugin-alconna
 ```
 
-Copy the `plugins/template_render` directory (including `templates/`) into your project's plugin directory.
+复制 `plugins/template_render` 目录及其 `templates/` 子目录到项目的插件目录。
 
-Add the following to your `.env` file:
+默认使用 Playwright：
 
 ```dotenv
 RENDER={"provider":"playwright","startup":"probe","resources":{"local_access":{"allowed_paths":["plugins/template_render/templates"]}}}
 ```
 
-## Template Structure
+也可以安装并选择 Takumi：
+
+```bash
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+```
+
+```dotenv
+RENDER={"provider":"takumi","startup":"probe","resources":{"local_access":{"allowed_paths":["plugins/template_render/templates"]}}}
+```
+
+或选择实验性的 HTMLKit：
+
+```bash
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
+```
+
+```dotenv
+RENDER={"provider":"htmlkit","startup":"probe","resources":{"local_access":{"allowed_paths":["plugins/template_render/templates"]}},"provider_config":{"resource_resolve_mode":"strict"}}
+```
+
+HTMLKit 不是浏览器的等价替代，只适合其支持范围内的静态 HTML/CSS；需要脚本、网页
+导航、selector 或精确浏览器布局语义时仍应使用 Playwright。
+
+## 模板结构
 
 ```text
 plugins/template_render/
   __init__.py
   templates/
     profile.html    # Jinja2 template
-    style.css       # Stylesheet loaded by the template
+    style.css       # Template stylesheet
 ```
 
-The template uses Jinja2 syntax. Variables are passed via the `variables`
-parameter of `render_template`; the returned `RenderedImage` is converted with
-`bytes(artifact)` before it is handed to the message adapter.
+模板变量通过 `render_template(..., variables=...)` 传入。返回值是
+`RenderedImage`；交给消息 adapter 前使用 `bytes(artifact)` 显式取得编码后的图片。
