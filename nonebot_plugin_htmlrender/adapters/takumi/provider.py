@@ -10,8 +10,7 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     PreparedHtmlLeaseExecutor,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
-    TAKUMI_CAPABILITIES,
-    TakumiCapabilities,
+    TakumiCapabilityAdapter,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
 from nonebot_plugin_htmlrender.adapters.takumi.errors import (
@@ -28,6 +27,7 @@ from nonebot_plugin_htmlrender.adapters.takumi.runtime import (
     create_runtime_state,
     require_runtime_state,
 )
+from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 from nonebot_plugin_htmlrender.providers.sdk import (
     EngineBindings,
@@ -237,7 +237,7 @@ class TakumiProvider:
         )
         capabilities = CapabilityCatalog().with_capability(
             TAKUMI_CAPABILITIES,
-            TakumiCapabilities(leases, dependencies.operation_observer),
+            TakumiCapabilityAdapter(leases, dependencies.operation_observer),
         )
         return EngineBindings(
             lifecycle=leases,

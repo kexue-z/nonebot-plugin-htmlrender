@@ -271,7 +271,7 @@ plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
 check(plugin is not None, "NoneBot could not load nonebot_plugin_htmlrender")
 
 from nonebot_plugin_htmlrender import get_default_application, render_text
-from nonebot_plugin_htmlrender.adapters.takumi.capabilities import TAKUMI_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 
 installed_version = version("nonebot-plugin-htmlrender")
 expected_version = os.environ["HTMLRENDER_EXPECTED_VERSION"]

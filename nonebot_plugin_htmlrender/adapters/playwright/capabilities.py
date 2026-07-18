@@ -11,7 +11,6 @@ from __future__ import annotations
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, final
 
-from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityKey
 from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 
 if TYPE_CHECKING:
@@ -32,7 +31,7 @@ _OBSERVATION_ATTRIBUTES: dict[str, str] = {"render.backend": "playwright"}
 
 
 @final
-class PlaywrightCapabilities:
+class PlaywrightCapabilityAdapter:
     """Browser-specific surface: raw page contexts and selector capture."""
 
     def __init__(
@@ -79,9 +78,4 @@ class PlaywrightCapabilities:
                 return await capture_html_element(url, element, lease=lease, **kwargs)
 
 
-PLAYWRIGHT_CAPABILITIES: CapabilityKey[PlaywrightCapabilities] = CapabilityKey(
-    "playwright.capabilities",
-    PlaywrightCapabilities,
-)
-
-__all__ = ["PLAYWRIGHT_CAPABILITIES", "PlaywrightCapabilities"]
+__all__ = ["PlaywrightCapabilityAdapter"]

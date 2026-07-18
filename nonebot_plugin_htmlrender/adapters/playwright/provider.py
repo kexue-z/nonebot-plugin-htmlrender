@@ -182,11 +182,13 @@ class PlaywrightProvider:
         config = self._narrow(settings)
 
         from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (  # noqa: PLC0415
-            PLAYWRIGHT_CAPABILITIES,
-            PlaywrightCapabilities,
+            PlaywrightCapabilityAdapter,
         )
         from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
             PlaywrightEngine,
+        )
+        from nonebot_plugin_htmlrender.capabilities import (  # noqa: PLC0415
+            PLAYWRIGHT_CAPABILITIES,
         )
 
         engine = PlaywrightEngine(
@@ -228,7 +230,7 @@ class PlaywrightProvider:
         )
         capabilities = CapabilityCatalog().with_capability(
             PLAYWRIGHT_CAPABILITIES,
-            PlaywrightCapabilities(leases, dependencies.operation_observer),
+            PlaywrightCapabilityAdapter(leases, dependencies.operation_observer),
         )
         return EngineBindings(
             lifecycle=leases,

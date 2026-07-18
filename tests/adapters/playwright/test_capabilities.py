@@ -10,7 +10,7 @@ import pytest
 
 from nonebot_plugin_htmlrender.adapters._lease import ExecutionLeaseProvider
 from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PlaywrightCapabilities,
+    PlaywrightCapabilityAdapter,
 )
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderLifecycleError,
@@ -47,7 +47,7 @@ def _capability(
     *,
     close: Callable[[_Lease], Awaitable[None]],
 ) -> tuple[
-    PlaywrightCapabilities,
+    PlaywrightCapabilityAdapter,
     _Lease,
     ExecutionLeaseProvider[_Lease],
 ]:
@@ -65,7 +65,7 @@ def _capability(
         translate=_translate,
         observation_attributes={"render.backend": "playwright"},
     )
-    capability = PlaywrightCapabilities(
+    capability = PlaywrightCapabilityAdapter(
         cast("ExecutionLeaseProvider[PlaywrightLease]", leases),
         observer,
     )

@@ -6,9 +6,7 @@ from arclet.alconna import Alconna, Args
 from nonebot_plugin_alconna import Image, UniMessage, on_alconna
 
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 screenshot = on_alconna(Alconna("screenshot", Args["url?", str]))
 

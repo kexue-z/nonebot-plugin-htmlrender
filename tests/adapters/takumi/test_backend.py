@@ -8,14 +8,11 @@ from nonebot_plugin_htmlrender.adapters.takumi import (
     TakumiConfig,
     TakumiExtension,
 )
-from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
-    TAKUMI_CAPABILITIES,
-    TakumiCapabilities,
-)
 from nonebot_plugin_htmlrender.adapters.takumi.render import (
     takumi_availability,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.runtime import TakumiRuntimeState
+from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES, TakumiCapability
 from tests.adapters.takumi.helpers import resource_service
 
 if TYPE_CHECKING:
@@ -44,7 +41,7 @@ def _state() -> TakumiRuntimeState:
 
 def test_capability_key_identity() -> None:
     assert TAKUMI_CAPABILITIES.name == "takumi.capabilities"
-    assert TAKUMI_CAPABILITIES.interface is TakumiCapabilities
+    assert TAKUMI_CAPABILITIES.interface is TakumiCapability
 
 
 @pytest.mark.parametrize(

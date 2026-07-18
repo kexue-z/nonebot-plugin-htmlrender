@@ -9,9 +9,7 @@ from nonebot_plugin_htmlrender import (
     get_default_application,
     render_markdown,
 )
-from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PLAYWRIGHT_CAPABILITIES,
-)
+from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPABILITIES
 
 status = on_alconna(Alconna("render_status"))
 

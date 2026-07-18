@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, final
 
 from nonebot_plugin_htmlrender.adapters.takumi.api import TakumiExtension
 from nonebot_plugin_htmlrender.adapters.takumi.runtime import require_runtime_state
-from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityKey
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -18,7 +17,7 @@ if TYPE_CHECKING:
 
 
 @final
-class TakumiCapabilities:
+class TakumiCapabilityAdapter:
     """Native Takumi surface: node, style, animation, font, compile/measure.
 
     ``extension()`` leases the live runtime for the lifetime of its async
@@ -39,9 +38,4 @@ class TakumiCapabilities:
             yield TakumiExtension(require_runtime_state(state), self._observer)
 
 
-TAKUMI_CAPABILITIES: CapabilityKey[TakumiCapabilities] = CapabilityKey(
-    "takumi.capabilities",
-    TakumiCapabilities,
-)
-
-__all__ = ["TAKUMI_CAPABILITIES", "TakumiCapabilities"]
+__all__ = ["TakumiCapabilityAdapter"]
