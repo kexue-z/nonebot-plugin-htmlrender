@@ -50,11 +50,17 @@ filehost 只应作为受控 asset publisher：
 
 - 保持路径白名单最小；
 - 保持请求头守卫并在代理中透传；
+- 认证成功的响应会携带 `Access-Control-Allow-Origin: *`，以允许远程页面加载字体；
 - 不向公网暴露通用文件读取路由；
 - 不把 URL 视为永久地址；
 - 了解 TTL 只释放映射，不承诺逐文件物理擦除。
 
 对机密内容，优先使用 render-scoped `memory` transport。
+
+!!! warning "通配 CORS 不是授权边界"
+
+    未携带正确守卫请求头的 filehost 请求仍会返回 403，且不会获得通配 CORS
+    响应头。反向代理必须分别保留入站守卫请求头和出站 CORS 响应头。
 
 ## Provider 配置与 Capability
 
@@ -92,7 +98,7 @@ Provider entry point 会在进程内执行代码，其权限与 Bot 相同。
 
 - 本地路径和 symlink 越界测试；
 - SSRF 与重定向策略测试；
-- filehost 路由认证和代理透传测试；
+- filehost 路由认证、CORS 和双向代理透传测试；
 - cache/并发/取消上限测试；
 - Provider extras 与第三方许可审查；
 - secret 扫描和最小权限容器配置。

@@ -63,7 +63,13 @@ uv run playwright install chromium
 - 是否包含 `..`、symlink 越界或大小写不一致；
 - Bot 与远程浏览器是否误用了 `passthrough`；
 - `ResourcePolicy.STRICT` 是否暴露了先前被 AUTO 容忍的缺失资源；
-- filehost 请求头是否被反向代理移除。
+- filehost 守卫请求头是否在到达 Bot 前被反向代理移除。
+
+??? info "资源返回 200，但字体或 CSS 仍未生效"
+
+    检查浏览器的 `requestfailed` 事件和开发者工具 CORS 诊断。代理可能已经让资源
+    请求成功到达 Bot，却在响应返回浏览器前移除了 `Access-Control-Allow-Origin`。
+    HTTP 200 只说明传输成功，不表示浏览器已经允许页面使用该跨源资源。
 
 ## Takumi 拒绝文档
 
