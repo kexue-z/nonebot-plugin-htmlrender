@@ -40,8 +40,8 @@ class Renderer:
         self._operation_admission = operation_admission
 
     @property
-    def capabilities(self) -> frozenset[str]:
-        """Capability names derived from the bound use cases."""
+    def supported_commands(self) -> frozenset[str]:
+        """Render command names derived from the bound use cases."""
         return self._bindings.present()
 
     def supports(self, capability: str) -> bool:

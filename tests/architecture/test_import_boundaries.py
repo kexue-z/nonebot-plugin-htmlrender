@@ -134,6 +134,11 @@ RULES: tuple[LayerRule, ...] = (
         scopes=("adapters.skia",),
         banned=(_absolute("adapters.pillow"),),
     ),
+    LayerRule(
+        name="capabilities must not depend on adapters",
+        scopes=("capabilities",),
+        banned=(_absolute("adapters"),),
+    ),
 )
 
 
@@ -329,6 +334,20 @@ def _find_violations() -> list[str]:
 def test_layer_rules_hold_for_static_and_literal_lazy_imports() -> None:
     violations = _find_violations()
     assert not violations, "Forbidden dependency edges:\n  " + "\n  ".join(violations)
+
+
+def test_runtime_logging_uses_nonebot_log() -> None:
+    violations = [
+        f"{edge.module}:{edge.lineno} {edge.kind} {edge.target}"
+        for edge in _collect_edges()
+        if _matches(edge.target, "logging")
+        or _matches(edge.target, "loguru")
+        or edge.target == "nonebot.logger"
+    ]
+    assert not violations, (
+        "Runtime logging must import `logger` from `nonebot.log`:\n  "
+        + "\n  ".join(violations)
+    )
 
 
 def _python_sources(path: Path) -> tuple[Path, ...]:

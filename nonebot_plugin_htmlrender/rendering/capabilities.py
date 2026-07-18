@@ -66,17 +66,11 @@ class CapabilityCatalog:
         return catalog
 
     def get(self, key: CapabilityKey[T]) -> T | None:
+        # Values are validated once in with_capability and the map is
+        # immutable, so lookups return without re-checking the interface.
         value = self._values.get(key.name)
         if value is None:
             return None
-        if not _matches_interface(key, value):
-            raise CapabilityUnavailable(
-                key.name,
-                detail=(
-                    f"Registered value is {type(value).__qualname__}, "
-                    f"not {key.interface.__qualname__}."
-                ),
-            )
         return cast("T", value)
 
     def require(self, key: CapabilityKey[T]) -> T:

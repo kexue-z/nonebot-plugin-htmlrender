@@ -72,7 +72,7 @@ def build_graphics_capabilities(
                     budget=budget,
                 ),
             )
-        else:
+        elif backend == "skia":
             _require_module("skia", "skia", "skia")
             try:
                 from nonebot_plugin_htmlrender.adapters.skia import (  # noqa: PLC0415
@@ -88,6 +88,11 @@ def build_graphics_capabilities(
                     operation_admission=operation_admission,
                     budget=budget,
                 ),
+            )
+        else:
+            raise RasterBackendUnavailable(
+                backend,
+                "unknown graphics backend; expected 'pillow' or 'skia'",
             )
     return catalog
 

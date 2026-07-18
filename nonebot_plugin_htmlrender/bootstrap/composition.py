@@ -438,8 +438,8 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         preparer=preparer,
         resources=resources,
         operation_admission=operation_admission,
-        capabilities=graphics_capabilities,
+        extensions=graphics_capabilities,
     )
 
 
-__all__ = ["ComposedRuntime", "prepare_runtime", "select_observers"]
+__all__ = ["ComposedRuntime", "prepare_runtime"]

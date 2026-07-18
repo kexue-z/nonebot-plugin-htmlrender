@@ -159,7 +159,7 @@ def test_provider_free_runtime_builds_isolated_preparation_apps() -> None:
 
     assert runtime.provider is None
     assert runtime.plugin_requirements == ()
-    assert first.renderer.capabilities == frozenset({"render_template_html"})
+    assert first.renderer.supported_commands == frozenset({"render_template_html"})
     assert first.resources is not second.resources
     assert first.preparation is not second.preparation
 

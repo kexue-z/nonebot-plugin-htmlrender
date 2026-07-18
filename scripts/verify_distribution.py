@@ -292,7 +292,7 @@ async def main() -> None:
     application = get_default_application()
     await application.startup()
     try:
-        capability = application.capabilities.require(TAKUMI_CAPABILITIES)
+        capability = application.extensions.require(TAKUMI_CAPABILITIES)
         node = {
             "type": "container",
             "style": {
@@ -384,7 +384,7 @@ async def main() -> None:
             PILLOW_RASTER_SCENE_RENDERER,
             SKIA_RASTER_SCENE_RENDERER,
         ):
-            renderer = application.capabilities.require(key)
+            renderer = application.extensions.require(key)
             artifact = await renderer.render(request)
             rendered = bytes(artifact)
             check(

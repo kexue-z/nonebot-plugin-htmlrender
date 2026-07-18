@@ -432,8 +432,8 @@ def test_capability_catalog_defaults_to_empty() -> None:
     class _Marker:
         pass
 
-    assert app.capabilities.names() == frozenset()
-    assert app.capabilities.get(CapabilityKey("test.marker", _Marker)) is None
+    assert app.extensions.names() == frozenset()
+    assert app.extensions.get(CapabilityKey("test.marker", _Marker)) is None
 
 
 def test_capability_catalog_passthrough() -> None:
@@ -453,10 +453,10 @@ def test_capability_catalog_passthrough() -> None:
         resources=_RESOURCES,
         lifecycle=_FakeLifecycle(),
         operation_admission=admission,
-        capabilities=catalog,
+        extensions=catalog,
     )
 
-    assert app.capabilities.require(key) is marker
+    assert app.extensions.require(key) is marker
 
 
 def test_application_exposes_composition_owned_services() -> None:

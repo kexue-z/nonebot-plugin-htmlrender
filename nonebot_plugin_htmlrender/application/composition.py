@@ -55,7 +55,7 @@ def build_application(
     preparer: HtmlPreparer,
     resources: ResourceService,
     operation_admission: OperationAdmissionGate | None = None,
-    capabilities: CapabilityCatalog | None = None,
+    extensions: CapabilityCatalog | None = None,
 ) -> Application:
     """Assemble an Application around one composed engine."""
     admission = (
@@ -63,23 +63,26 @@ def build_application(
         if operation_admission is not None
         else OperationAdmissionGate()
     )
+    # Admission is counted exactly once per public entry point: Renderer wraps
+    # its use cases and Application wraps the retained facades, so the bindings
+    # here MUST receive the raw (unadmitted) preparer to avoid double counting.
     bindings = build_renderer_bindings(
         executor=engine.prepared_html_executor,
         preparer=preparer,
     )
-    application_capabilities = (
+    application_extensions = (
         engine.provider_capabilities
         if engine.provider_capabilities is not None
         else CapabilityCatalog()
     )
-    if capabilities is not None:
-        application_capabilities = application_capabilities.merged(capabilities)
+    if extensions is not None:
+        application_extensions = application_extensions.merged(extensions)
     return Application(
         renderer=Renderer(bindings, operation_admission=admission),
         preparation=preparer,
         resources=resources,
         lifecycle=engine.lifecycle,
-        capabilities=application_capabilities,
+        extensions=application_extensions,
         operation_admission=admission,
     )
 

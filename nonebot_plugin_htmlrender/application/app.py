@@ -46,16 +46,14 @@ class Application:
         resources: ResourceService,
         lifecycle: ApplicationLifecycle,
         operation_admission: OperationAdmissionGate,
-        capabilities: CapabilityCatalog | None = None,
+        extensions: CapabilityCatalog | None = None,
     ) -> None:
         self._renderer = renderer
         self._operation_admission = operation_admission
         self._preparation = AdmittedHtmlPreparer(preparation, self._operation_admission)
         self._resources = AdmittedResourceService(resources, self._operation_admission)
         self._lifecycle = lifecycle
-        self._capabilities = (
-            capabilities if capabilities is not None else CapabilityCatalog()
-        )
+        self._extensions = extensions if extensions is not None else CapabilityCatalog()
         self._state = _AppState.NEW
         self._lock = anyio.Lock()
 
@@ -72,8 +70,8 @@ class Application:
         return self._resources
 
     @property
-    def capabilities(self) -> CapabilityCatalog:
-        return self._capabilities
+    def extensions(self) -> CapabilityCatalog:
+        return self._extensions
 
     async def _run_lifecycle(
         self,

@@ -137,7 +137,7 @@ def test_build_application_with_executor_binds_all_use_cases(
         resources=resources,
     )
 
-    assert application.renderer.capabilities == frozenset(
+    assert application.renderer.supported_commands == frozenset(
         {
             "render_html",
             "render_text",
@@ -147,7 +147,7 @@ def test_build_application_with_executor_binds_all_use_cases(
             "rasterize_html",
         }
     )
-    assert application.capabilities.require(key) is marker
+    assert application.extensions.require(key) is marker
     assert application.preparation is not preparer
     assert application.resources is not resources
 
@@ -164,7 +164,9 @@ def test_build_application_without_executor_only_renders_html(
         resources=resources,
     )
 
-    assert application.renderer.capabilities == frozenset({"render_template_html"})
+    assert application.renderer.supported_commands == frozenset(
+        {"render_template_html"}
+    )
 
 
 async def test_built_application_renders_through_real_preparer(

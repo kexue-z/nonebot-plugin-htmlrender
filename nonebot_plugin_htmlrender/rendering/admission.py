@@ -61,12 +61,12 @@ class OperationAdmissionGate:
         """Permanently reject new operations, then wait for admitted work."""
         # The state transition must survive cancellation.  Waiting for existing
         # operations remains cancellable so Application.aclose() can be retried.
-        drained = self._drained
         with anyio.CancelScope(shield=True):
             async with self._lock:
                 self._accepting = False
-                drained = self._drained
-        await drained.wait()
+        # No new operation can be admitted anymore, so the drained event can
+        # no longer be replaced and reading it outside the lock is stable.
+        await self._drained.wait()
 
 
 __all__ = ["OperationAdmissionGate"]
