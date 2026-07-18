@@ -9,10 +9,10 @@ import pytest
 from nonebot_plugin_htmlrender.bootstrap.settings import (
     RenderPluginConfig,
     RenderSettings,
+    RenderStartupMode,
     assert_no_legacy_render_keys,
     detect_legacy_render_keys,
 )
-from nonebot_plugin_htmlrender.consts import RenderStartupMode
 
 
 def test_render_settings_defaults() -> None:

@@ -5,7 +5,7 @@ def test_playwright_config_uses_safe_remote_resource_defaults() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.consts import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.resources.config import (  # noqa: PLC0415
         RemoteLocalResourcePolicy,
         ResourceResolveMode,
     )
@@ -20,7 +20,7 @@ def test_playwright_config_preserves_explicit_v071_resource_policy() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.consts import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.resources.config import (  # noqa: PLC0415
         RemoteLocalResourcePolicy,
         ResourceResolveMode,
     )
@@ -48,11 +48,9 @@ def test_playwright_config_normalizes_empty_executable_path() -> None:
 
 def test_playwright_config_rejects_channel_for_non_chromium() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
-        PlaywrightConfig,
-    )
-    from nonebot_plugin_htmlrender.consts import (  # noqa: PLC0415
         BrowserEngine,
         ChromiumChannel,
+        PlaywrightConfig,
     )
 
     with pytest.raises(ValueError, match="channel"):
@@ -81,10 +79,10 @@ def test_playwright_config_rejects_multiple_remote_modes() -> None:
 
 def test_playwright_config_rejects_non_chromium_cdp() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
+        BrowserEngine,
         PlaywrightConfig,
         RemoteCDPConfig,
     )
-    from nonebot_plugin_htmlrender.consts import BrowserEngine  # noqa: PLC0415
 
     with pytest.raises(ValueError, match=r"render\.provider_config\.engine"):
         PlaywrightConfig(
@@ -97,7 +95,7 @@ def test_playwright_config_accepts_resource_resolution_options() -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
-    from nonebot_plugin_htmlrender.consts import (  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.resources.config import (  # noqa: PLC0415
         LocalLocalResourcePolicy,
         RemoteLocalResourcePolicy,
         ResourceResolveMode,

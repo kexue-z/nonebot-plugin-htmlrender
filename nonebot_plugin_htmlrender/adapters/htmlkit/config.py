@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from os import cpu_count
+from typing import ClassVar
 
 from nonebot.compat import field_validator
 from pydantic import BaseModel, ConfigDict, Field
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 
 def _default_concurrency() -> int:
@@ -31,7 +32,7 @@ class HtmlkitConfig(BaseModel):
     media_height: float = Field(default=600.0, gt=0)
     resource_resolve_mode: ResourceResolveMode = ResourceResolveMode.AUTO
 
-    model_config = ConfigDict(
+    model_config: ClassVar[ConfigDict] = ConfigDict(
         allow_inf_nan=False,
         extra="forbid",
         validate_assignment=True,

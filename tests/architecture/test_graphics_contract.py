@@ -1,15 +1,23 @@
 from __future__ import annotations
 
-from nonebot_plugin_htmlrender.consts import RenderBackend
 from nonebot_plugin_htmlrender.graphics import (
     PILLOW_RASTER_SCENE_RENDERER,
     SKIA_RASTER_SCENE_RENDERER,
 )
-from nonebot_plugin_htmlrender.providers.sdk import RESERVED_PROVIDER_IDS
+from nonebot_plugin_htmlrender.providers.sdk import (
+    HTMLKIT_PROVIDER_ID,
+    PLAYWRIGHT_PROVIDER_ID,
+    RESERVED_PROVIDER_IDS,
+    TAKUMI_PROVIDER_ID,
+)
 
 
 def test_graphics_backends_are_not_html_engine_identifiers() -> None:
-    html_backends = {backend.value for backend in RenderBackend}
+    html_backends = {
+        HTMLKIT_PROVIDER_ID,
+        PLAYWRIGHT_PROVIDER_ID,
+        TAKUMI_PROVIDER_ID,
+    }
 
     assert "htmlkit" in html_backends
     assert "htmlkit" in RESERVED_PROVIDER_IDS

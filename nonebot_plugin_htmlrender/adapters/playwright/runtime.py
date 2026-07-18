@@ -15,7 +15,7 @@ from nonebot.log import logger
 import nonebot_plugin_localstore as store
 import playwright
 
-from nonebot_plugin_htmlrender.consts import BrowserEngine
+from .config import BrowserEngine
 
 if TYPE_CHECKING:
     from .config import PlaywrightConfig

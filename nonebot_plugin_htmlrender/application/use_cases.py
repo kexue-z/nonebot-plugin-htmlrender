@@ -13,10 +13,10 @@ from typing import TYPE_CHECKING, final
 
 import anyio
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.rendering.artifacts import RenderedHtml, RenderedImage
 from nonebot_plugin_htmlrender.rendering.errors import ProviderExecutionError
 from nonebot_plugin_htmlrender.rendering.requests import ResourcePolicy
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 if TYPE_CHECKING:
     from collections.abc import Iterator

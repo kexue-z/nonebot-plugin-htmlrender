@@ -9,8 +9,8 @@ from .source import materialize_takumi_document
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nonebot_plugin_htmlrender.consts import ResourceResolveMode
     from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
+    from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
     from .types import StaticImageFormat, TakumiImageInput
 

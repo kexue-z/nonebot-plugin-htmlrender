@@ -1,17 +1,46 @@
 from collections.abc import Mapping
+from enum import Enum
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, ClassVar, cast
 
 from nonebot.compat import field_validator, model_validator
 from pydantic import BaseModel, ConfigDict, Field
 
-from nonebot_plugin_htmlrender.consts import (
-    BrowserEngine,
-    ChromiumChannel,
+from nonebot_plugin_htmlrender.resources.config import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
     ResourceResolveMode,
 )
+
+__all__ = [
+    "BrowserEngine",
+    "ChromiumChannel",
+    "PlaywrightConfig",
+    "RemoteCDPConfig",
+    "RemoteWSConfig",
+]
+
+
+class BrowserEngine(str, Enum):
+    """Playwright browser engine."""
+
+    CHROMIUM = "chromium"
+    FIREFOX = "firefox"
+    WEBKIT = "webkit"
+
+
+class ChromiumChannel(str, Enum):
+    """Chromium distribution channel accepted by Playwright."""
+
+    CHROMIUM = "chromium"
+    CHROME = "chrome"
+    CHROME_BETA = "chrome-beta"
+    CHROME_DEV = "chrome-dev"
+    CHROME_CANARY = "chrome-canary"
+    MSEDGE = "msedge"
+    MSEDGE_BETA = "msedge-beta"
+    MSEDGE_DEV = "msedge-dev"
+    MSEDGE_CANARY = "msedge-canary"
 
 
 def _get(obj: object, name: str, default: object = None) -> object:
@@ -35,7 +64,7 @@ class RemoteWSConfig(BaseModel):
 
     endpoint: str | None = Field(default=None)
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
 
 class RemoteCDPConfig(BaseModel):
@@ -43,7 +72,7 @@ class RemoteCDPConfig(BaseModel):
 
     endpoint: str | None = Field(default=None)
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
 
 class PlaywrightConfig(BaseModel):
@@ -71,7 +100,7 @@ class PlaywrightConfig(BaseModel):
         default=LocalLocalResourcePolicy.FILE
     )
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
     @field_validator("executable_path", mode="before")
     @classmethod

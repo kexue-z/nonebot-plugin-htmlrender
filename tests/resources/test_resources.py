@@ -12,17 +12,15 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     ConfiguredLocalAccessPolicy,
     build_resource_reader,
 )
-from nonebot_plugin_htmlrender.consts import (
-    LocalLocalResourcePolicy,
-    RemoteLocalResourcePolicy,
-    ResourceResolveMode,
-)
 from nonebot_plugin_htmlrender.rendering.errors import (
     InvalidRenderRequest,
     ResourceResolutionError,
 )
 from nonebot_plugin_htmlrender.resources.config import (
+    LocalLocalResourcePolicy,
+    RemoteLocalResourcePolicy,
     ResourceCacheSettings,
+    ResourceResolveMode,
     ResourceStrategy,
 )
 from nonebot_plugin_htmlrender.resources.models import (

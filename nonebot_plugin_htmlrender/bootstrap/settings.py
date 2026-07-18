@@ -2,21 +2,29 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from pathlib import Path
+from typing import ClassVar
 
 from nonebot import get_plugin_config
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-
-from nonebot_plugin_htmlrender.consts import RenderStartupMode
 
 # Pydantic resolves this annotation while constructing the model.
 from nonebot_plugin_htmlrender.graphics.models import GraphicsBackendName  # noqa: TC001
 
 
+class RenderStartupMode(str, Enum):
+    """Provider runtime initialization policy."""
+
+    OFF = "off"
+    WARMUP = "warmup"
+    PROBE = "probe"
+
+
 class _StrictRenderModel(BaseModel):
     """Reject misspelled keys inside the plugin-owned ``render`` tree."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="forbid")
 
 
 class CacheSettings(_StrictRenderModel):
@@ -115,7 +123,7 @@ class RenderPluginConfig(BaseModel):
 
     # ``get_plugin_config`` validates this wrapper against the complete NoneBot
     # configuration, so unrelated top-level plugin keys must remain accepted.
-    model_config = ConfigDict(extra="ignore")
+    model_config: ClassVar[ConfigDict] = ConfigDict(extra="ignore")
 
     render: RenderSettings = Field(default_factory=RenderSettings)
 
@@ -173,6 +181,7 @@ __all__ = [
     "ObservabilitySettings",
     "RenderPluginConfig",
     "RenderSettings",
+    "RenderStartupMode",
     "ResourceSettings",
     "TemplateSettings",
     "assert_no_legacy_render_keys",

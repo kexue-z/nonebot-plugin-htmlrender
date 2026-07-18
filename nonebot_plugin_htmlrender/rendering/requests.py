@@ -13,8 +13,8 @@ from enum import Enum
 import math
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.models import RasterOptions
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 from .errors import InvalidRenderRequest
 

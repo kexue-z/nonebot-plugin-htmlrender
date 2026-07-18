@@ -9,14 +9,17 @@ import pytest
 from nonebot_plugin_htmlrender.adapters.playwright.availability import (
     playwright_availability,
 )
-from nonebot_plugin_htmlrender.adapters.playwright.config import PlaywrightConfig
+from nonebot_plugin_htmlrender.adapters.playwright.config import (
+    BrowserEngine,
+    ChromiumChannel,
+    PlaywrightConfig,
+)
 from nonebot_plugin_htmlrender.adapters.playwright.render import (
     PlaywrightEngine,
     PlaywrightLease,
     PlaywrightMode,
     WsVersionRiskLevel,
 )
-from nonebot_plugin_htmlrender.consts import BrowserEngine, ChromiumChannel
 from nonebot_plugin_htmlrender.providers.sdk import ProviderAvailability
 from nonebot_plugin_htmlrender.rendering.observers import NoopOperationObserver
 

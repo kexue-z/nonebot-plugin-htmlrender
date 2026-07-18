@@ -27,7 +27,7 @@ from .sentry import record_metrics as record_sentry_metrics
 if TYPE_CHECKING:
     from collections.abc import Callable, Generator
 
-    from nonebot_plugin_htmlrender.consts import RenderBackend
+    from nonebot_plugin_htmlrender.providers.sdk import EngineId
 
 
 class TelemetryCacheObserver:
@@ -191,7 +191,7 @@ def record_cache_metrics(
 def _operation_context(
     op: str,
     *,
-    backend: RenderBackend | str | None = None,
+    backend: EngineId | None = None,
     name: str | None = None,
     attrs: Mapping[str, str] | None = None,
     sentry: bool,
@@ -288,7 +288,7 @@ def _operation_context(
 async def track_render(
     op: str,
     *,
-    backend: RenderBackend | str | None = None,
+    backend: EngineId | None = None,
     name: str | None = None,
     attrs: Mapping[str, str] | None = None,
     sentry: bool = False,

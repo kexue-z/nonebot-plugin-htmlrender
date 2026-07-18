@@ -3,7 +3,7 @@ from __future__ import annotations
 from io import BytesIO
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 if TYPE_CHECKING:
     from pathlib import Path

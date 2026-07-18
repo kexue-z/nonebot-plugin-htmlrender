@@ -1,16 +1,36 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import Enum
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-from nonebot_plugin_htmlrender.consts import (
-    LocalLocalResourcePolicy,
-    RemoteLocalResourcePolicy,
-    ResourceResolveMode,
-)
+
+class ResourceResolveMode(str, Enum):
+    """Whether document-local resources are resolved before execution."""
+
+    OFF = "off"
+    AUTO = "auto"
+    STRICT = "strict"
+
+
+class RemoteLocalResourcePolicy(str, Enum):
+    """Transport used for local resources consumed by a remote provider."""
+
+    MEMORY = "memory"
+    PASSTHROUGH = "passthrough"
+    FILEHOST = "filehost"
+    ERROR = "error"
+
+
+class LocalLocalResourcePolicy(str, Enum):
+    """Transport used for local resources consumed by a local provider."""
+
+    FILE = "file"
+    FILEHOST = "filehost"
+    PASSTHROUGH = "passthrough"
 
 
 @dataclass(frozen=True, slots=True)
@@ -69,6 +89,9 @@ class ResourceStrategy:
 
 __all__ = [
     "AssetPublisherSettings",
+    "LocalLocalResourcePolicy",
+    "RemoteLocalResourcePolicy",
     "ResourceCacheSettings",
+    "ResourceResolveMode",
     "ResourceStrategy",
 ]

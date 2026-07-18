@@ -13,10 +13,6 @@ from nonebot_plugin_htmlrender.bootstrap.composition import (
     select_observers,
 )
 from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
-from nonebot_plugin_htmlrender.consts import (
-    RemoteLocalResourcePolicy,
-    ResourceResolveMode,
-)
 from nonebot_plugin_htmlrender.providers.sdk import (
     EngineBindings,
     PluginRequirement,
@@ -31,7 +27,11 @@ from nonebot_plugin_htmlrender.rendering import (
     ResourceAccessDenied,
 )
 from nonebot_plugin_htmlrender.rendering.observers import NoopCacheObserver
-from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+from nonebot_plugin_htmlrender.resources.config import (
+    RemoteLocalResourcePolicy,
+    ResourceResolveMode,
+    ResourceStrategy,
+)
 from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:

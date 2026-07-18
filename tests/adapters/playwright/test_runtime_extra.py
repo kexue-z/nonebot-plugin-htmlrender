@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.consts import BrowserEngine
+from nonebot_plugin_htmlrender.adapters.playwright.config import BrowserEngine
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture

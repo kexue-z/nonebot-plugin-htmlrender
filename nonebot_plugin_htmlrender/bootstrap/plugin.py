@@ -16,11 +16,14 @@ from nonebot_plugin_htmlrender.api._default import (
     set_default_application,
     set_default_application_factory,
 )
-from nonebot_plugin_htmlrender.consts import RenderStartupMode
 from nonebot_plugin_htmlrender.rendering.errors import ProviderUnavailable
 
 from .composition import prepare_runtime
-from .settings import assert_no_legacy_render_keys, load_render_settings
+from .settings import (
+    RenderStartupMode,
+    assert_no_legacy_render_keys,
+    load_render_settings,
+)
 
 if TYPE_CHECKING:
     from .composition import ComposedRuntime

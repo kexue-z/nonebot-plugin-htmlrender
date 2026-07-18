@@ -11,13 +11,13 @@ from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import anyio
 
-from nonebot_plugin_htmlrender.consts import (
+from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
+
+from .config import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
     ResourceResolveMode,
 )
-from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
-
 from .errors import ResourceAccessDenied, ResourceNotFound, ResourceResolutionError
 from .models import (
     FileResourceRef,

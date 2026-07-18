@@ -6,8 +6,8 @@ from typing import TYPE_CHECKING, Protocol, final
 
 import markdown
 
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 from nonebot_plugin_htmlrender.resources.models import PackageResourceRef
 from nonebot_plugin_htmlrender.resources.source import PackageResourceSource
 

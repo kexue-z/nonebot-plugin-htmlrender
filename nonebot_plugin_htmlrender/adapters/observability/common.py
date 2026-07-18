@@ -2,24 +2,23 @@ from __future__ import annotations
 
 from contextlib import suppress
 import inspect
-from typing import Callable, Mapping
+from typing import TYPE_CHECKING, Callable, Mapping
 
-from nonebot_plugin_htmlrender.consts import RenderBackend
+if TYPE_CHECKING:
+    from nonebot_plugin_htmlrender.providers.sdk import EngineId
 
 
-def normalize_backend(backend: RenderBackend | str | None) -> str:
+def normalize_backend(backend: EngineId | None) -> str:
     """将后端标识规范化为字符串。
 
     Args:
-        backend: 渲染后端标识，可以是枚举、字符串或 None。
+        backend: 开放的 Provider 标识，或 None。
 
     Returns:
         规范化后的后端名称字符串，None 时返回 "unknown"。
     """
     if backend is None:
         return "unknown"
-    if isinstance(backend, RenderBackend):
-        return backend.value
     return str(backend)
 
 
