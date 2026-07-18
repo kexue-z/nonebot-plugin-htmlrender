@@ -73,6 +73,7 @@ EXPECTED_ARCHITECTURE_TERMS = frozenset(
         "ExecutionLeaseProvider",
         "LocalAccessPolicy",
         "ProviderDependencies",
+        "ProviderResources",
         "ResourceContent",
         "ResourceReader",
         "ResourceRef",

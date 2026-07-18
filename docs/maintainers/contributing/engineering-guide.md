@@ -11,14 +11,18 @@ icon: lucide/folder-git-2
 ```text
 nonebot_plugin_htmlrender/
 ├─ api/                 # 顶层便捷函数与默认 Application
+├─ capabilities/        # 稳定的第一方 Provider Capability 契约与 lookup key
 ├─ application/         # Application、Renderer、use cases、bindings
 ├─ rendering/           # request、artifact、error、Capability、ports
 ├─ preparation/         # 中立 PreparedHtml pipeline
 ├─ resources/           # 资源 contracts / service
 ├─ providers/           # Provider SDK 与 discovery
 ├─ adapters/
+│  ├─ htmlkit/          # litehtml/Cairo Provider
 │  ├─ playwright/       # 浏览器 Provider
 │  ├─ takumi/           # native Provider
+│  ├─ pillow/           # RasterScene adapter
+│  ├─ skia/             # RasterScene adapter
 │  ├─ resources/        # filesystem/package/remote/filehost adapters
 │  ├─ templates/        # Jinja adapter
 │  └─ observability/    # Sentry/Prometheus adapters
@@ -27,6 +31,11 @@ nonebot_plugin_htmlrender/
 
 目录按依赖方向而非工具类型组织。核心 contracts 不导入 adapters/bootstrap；
 新的跨层例外必须先修正抽象，不增加 architecture allowlist。
+
+Playwright 的安装、signal 与 process helper 位于 `adapters/playwright/_support`；仓库
+不保留按“通用工具”命名的顶层 `utils` 兼容目录。枚举也由其领域模块拥有：资源策略
+在 `resources.config`，浏览器配置在 `adapters.playwright.config`，启动策略在
+`bootstrap.settings`。
 
 ## 工作流入口
 

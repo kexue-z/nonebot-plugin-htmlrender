@@ -56,14 +56,16 @@ stylesheets、assets、资源基址和 execution requirements，不包含具体�
 ### Resource contracts
 
 定义 `ResourceRef`、`ResourceContent`、`ResourceReader`、
-`LocalAccessPolicy`、`AssetPublisher`、`WorkerExecutor` 与 `ResourceService`。
-filesystem/package/remote/filehost/Jinja 的实现都在 adapters。
+`LocalAccessPolicy`、`AssetPublisher`、`WorkerExecutor`、`ResourceService` 与收窄的
+`ProviderResources`。filesystem/package/remote/filehost/Jinja 的实现都在 adapters。
+Provider 实际收到独立 façade，而不是只靠静态类型隐藏完整 service。
 
 ### Provider
 
 Provider 负责专属配置、availability、bootstrap requirements 和 bindings。
-它返回 executor、lifecycle、ResourceStrategy 与 typed capabilities，不读取
-NoneBot 全局配置。
+`resource_strategy(settings)` 在 composition 接线前单独返回不可变策略；
+`compose()` 只返回 lifecycle、可选 executor 与 typed Capability catalog，不读取
+NoneBot 全局配置，也不重复携带策略或描述性 metadata。
 
 HTMLKit、Playwright 与 Takumi 都实现同一个 `PreparedHtmlExecutor` port，但能力并
 不被抹平：无法表示的通用选项和 execution requirement 必须在执行前以稳定错误
@@ -89,12 +91,17 @@ graphics backend 的 native work 总并发；draw 与 encode 整段通过 worker
 唯一负责：
 
 - 读取并校验 `RenderSettings`；
-- discovery 并解析 Provider 配置；
+- discovery 并解析 Provider 配置，生成不可变 `ComposedRuntime` plan；
 - 创建 observer、worker、资源 reader/decorator、publisher 与 template adapter；
+- 用只公开策略、本地授权与 bytes 读取的 façade 组装 `ProviderDependencies`；
 - 调用 Provider `compose()`；
 - 按 `render.graphics.backends` 组合独立 graphics Capability，并为它们注入共享预算；
 - 组装并安装默认 `Application`；
 - 把 startup/shutdown 接到 NoneBot driver。
+
+plan 深拷贝 settings 与 Provider 解析结果，并固定 plugin requirements 和
+`ResourceStrategy`。每次 `build_application()` 都从快照创建新的配置副本、cache、
+observer、service 与 runtime；Provider 修改某次构建收到的配置不能污染后续构建。
 
 ## 渲染调用
 
@@ -148,7 +155,7 @@ sequenceDiagram
 
 组合启动顺序：
 
-1. Resource Service / publisher；
+1. 可选 publisher；
 2. Provider lifecycle；
 3. 可选 probe。
 
@@ -172,9 +179,9 @@ environment、observer、publisher 和 lease provider 都属于某个 compositio
 不得通过模块级 provider seam 注入。
 
 宿主适配层仍可管理本质上属于整个进程的资源，例如 ASGI filehost guard、
-观测 SDK 的 exporter registry，以及安装工具使用的 OS signal/process task
-状态。这些状态只能封装在 adapter/utility 边界内，不能成为业务路径读取配置、
-发现 service 或共享 Provider runtime 的后门。
+观测 SDK 的 exporter registry、core 统一加载的 localstore 目录设施，以及安装工具
+使用的 OS signal/process task 状态。这些状态只能封装在 adapter/host 边界内，
+不能成为业务路径读取配置、发现 service 或共享 Provider runtime 的后门。
 
 ## 架构门禁
 

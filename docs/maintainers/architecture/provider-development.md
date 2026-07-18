@@ -53,11 +53,19 @@ Capability 与 executor 必须共享同一 lease provider，避免出现两份 r
 从 `ProviderDependencies` 使用：
 
 - observer：稳定 operation name，失败隔离；
-- worker：执行有界同步/native 工作；
-- reader、local access policy、resource service 与可选 publisher：实现
-  `ResourceStrategy`。
+- `ProviderResources`：读取 bytes、授权本地路径并取得当前不可变
+  `ResourceStrategy`；
+- 可选 publisher：实现执行端所需 transport。
 
-不要 import bootstrap、调用 NoneBot config API 或安装模块级 provider seam。
+`ProviderResources` 的完整 Provider 可见面只有：
+
+- `strategy`；
+- `authorize_local(path)`；
+- `read_bytes(reference, *, refresh=False)`。
+
+worker、底层 reader、local access policy 与完整 `ResourceService` 都是 composition
+内部设施，不进入 Provider SDK。不要 import bootstrap、调用 NoneBot config API
+或安装模块级 provider seam。
 
 ## 6. 翻译异常
 

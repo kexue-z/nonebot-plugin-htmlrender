@@ -30,8 +30,11 @@ HTMLKit、Playwright、Takumi、Pillow、Skia、Jinja、filehost 与 telemetry �
 - application/domain/preparation/resource contracts 不导入 NoneBot 或具体适配器。
 - 业务路径不读取全局配置，不访问 registry/service locator。
 - Provider 配置只在 composition root 解析一次。
+- `ComposedRuntime` 固定深拷贝 plan；每次 build 使用隔离配置和对象图。
 - Preparation 生成中立 `PreparedHtml`；执行器只消费已准备内容。
 - Capability 是类型化边界，不把专属参数加入通用 request。
+- Provider 只能获得真实收窄的 `ProviderResources` façade，不能获取 raw service。
+- Application 公开 facade 共享 admission gate；关闭先拒绝并 drain 在途操作。
 - 资源读取必须先授权；cache 不得绕过策略。
 - lifecycle、lease、singleflight 与取消路径都必须有界并可测试。
 - observer 失败不改变业务结果，标签保持低基数。

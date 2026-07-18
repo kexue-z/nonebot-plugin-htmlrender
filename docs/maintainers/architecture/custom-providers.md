@@ -21,8 +21,10 @@ API，也不拥有进程级全局状态。
 - `compose(settings, dependencies)`：返回不可变 `EngineBindings`。
 
 `compose()` 所需共享服务全部来自 `ProviderDependencies`：operation/cache
-observer、worker executor、resource reader、local access policy、asset
-publisher（可选）与 resource service。Provider 不得自己读取配置或创建 exporter。
+observer、收窄的 `ProviderResources` 与可选 `AssetPublisher`。Provider 只能通过
+`ProviderResources` 读取 bytes、授权本地路径并查询自身的不可变资源策略；不得获取
+composition 内部的 reader、policy、worker 或完整 `ResourceService`，也不得自己读取
+配置或创建 exporter。
 
 第三方 distribution 从 `nonebot_plugin_htmlrender.providers` 导入
 `EngineProvider`、`ProviderDependencies`、`EngineBindings` 与
@@ -30,12 +32,14 @@ publisher（可选）与 resource service。Provider 不得自己读取配置或
 
 ## Bindings
 
-`EngineBindings` 至少包含：
+`EngineBindings` 包含：
 
-- lifecycle；
+- 必填 lifecycle；
 - 可选 `PreparedHtmlExecutor`；
-- typed Capability catalog；
-- 描述与低基数 observation attributes。
+- 可选 typed Capability catalog。
+
+Provider ID 是引擎身份的唯一来源。描述文本与 observation attributes 不属于
+bindings 契约；adapter 在操作边界使用稳定 Provider ID 形成低基数遥测属性。
 
 `ResourceStrategy` 只由 `resource_strategy(settings)` 提供。composition 必须先用它
 决定 reader/publisher 接线，再调用 `compose()`；`EngineBindings` 不重复携带该值，
@@ -77,6 +81,11 @@ ECHO_DIAGNOSTICS = CapabilityKey("echo.diagnostics", EchoDiagnostics)
 
 接口应表达业务动作，而不是暴露内部资源句柄。Capability 实现从自己的
 lease provider 获取当前有效 lease；调用方不得跨 runtime 重建缓存租约产物。
+
+第一方 Playwright/Takumi 的公共 Protocol 与 lookup key 位于
+`nonebot_plugin_htmlrender.capabilities`；`adapters.*.capabilities` 只保存 adapter
+实现。第三方 distribution 应在自己的稳定公共模块定义和导出 key，不要求把契约
+放入核心包。
 
 ## 参考实现
 

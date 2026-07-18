@@ -21,6 +21,8 @@ icon: lucide/files
 - `AssetPublisher.publish(value, *, lease_id, suffix)`：将路径或 bytes 映射为执行端 URL。
 - `WorkerExecutor.run_sync(...)`：有界执行 filesystem/native 同步工作。
 - `ResourceService`：递归模板变量、URL token 与 asset materialization。
+- `ProviderResources`：收窄给 Provider 的策略绑定 façade，只公开本地授权、bytes
+  读取与不可变 `ResourceStrategy`。
 
 ## reader 组合
 
@@ -37,7 +39,7 @@ CachingResourceReader(
 
 `CachingResourceReader` 在同一个 load slot 中完成 cache lookup、revision 复查、
 singleflight 与 writeback，避免 waiter 重复计作 source load。零驻留的
-`SingleflightResourceReader` 复用同一状态机。reader 接收 composition 注入的
+零容量 `CachingResourceReader` 复用同一 singleflight 状态机。reader 接收 composition 注入的
 cache observer，并在边界隔离 observer 故障。授权发生在可复用内容发布前；
 不同 composition 不共享 cache、budget、observer 或 inflight 状态。
 
@@ -94,9 +96,11 @@ Provider 用不可变策略描述执行端需求：
 - 本地 Playwright：`file` 或显式 publisher；
 - 远程 Playwright：`memory`、共享卷 passthrough、filehost 或 error；
 - HTMLKit：本地与 prepared assets 先物化，远程资源 callback 只委托 composition
-  注入的 `ResourceReader`，不启用上游内置 filesystem/network fetcher；
+  注入的 `ProviderResources.read_bytes()`，不启用上游内置 filesystem/network
+  fetcher；
 - Takumi：直接消费已物化 bytes；
-- 第三方 Provider：组合已有 transport，不修改核心 reader。
+- 第三方 Provider：只组合 `ProviderResources` 与已有 transport，不依赖核心 reader
+  或完整 `ResourceService`。
 
 策略不执行 I/O；composition 根据策略组装 materializer/publisher。
 每次调用的 `ResourcePolicy` 优先于 Provider 默认 `resolve_mode`；未提供覆盖时，
