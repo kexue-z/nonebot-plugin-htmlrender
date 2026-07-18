@@ -6,7 +6,7 @@ import sys
 from typing import TYPE_CHECKING
 from urllib.parse import urlsplit, urlunsplit
 
-from nonebot import logger
+from nonebot.log import logger
 
 from ._support.install import MirrorSource
 from ._support.install import (

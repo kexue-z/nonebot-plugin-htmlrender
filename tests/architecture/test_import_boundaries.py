@@ -24,6 +24,8 @@ class LayerRule:
     name: str
     scopes: tuple[str, ...]
     banned: tuple[str, ...]
+    allowed: tuple[str, ...] = ()
+    runtime_only: bool = False
 
 
 def _absolute(scope: str) -> str:
@@ -65,6 +67,7 @@ RULES: tuple[LayerRule, ...] = (
         name="core packages must not depend on hosts or adapters",
         scopes=CORE_SCOPES,
         banned=CORE_BANNED,
+        allowed=("nonebot.log",),
     ),
     LayerRule(
         name="resources must not import higher layers",
@@ -140,6 +143,24 @@ class ImportEdge:
     target: str
     lineno: int = field(compare=False)
     kind: str = field(compare=False, default="import")
+    type_only: bool = field(compare=False, default=False)
+
+
+def _is_type_checking_test(test: ast.expr) -> bool:
+    if isinstance(test, ast.Name):
+        return test.id == "TYPE_CHECKING"
+    if isinstance(test, ast.Attribute):
+        return test.attr == "TYPE_CHECKING"
+    return False
+
+
+def _type_checking_guarded_nodes(tree: ast.AST) -> frozenset[int]:
+    guarded: set[int] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.If) and _is_type_checking_test(node.test):
+            for statement in node.body:
+                guarded.update(id(child) for child in ast.walk(statement))
+    return frozenset(guarded)
 
 
 def _module_name(path: Path) -> str:
@@ -243,10 +264,17 @@ def _collect_edges() -> list[ImportEdge]:
         module = _module_name(path)
         is_package = path.name == "__init__.py"
         tree = ast.parse(path.read_text("utf-8"), filename=str(path))
+        guarded = _type_checking_guarded_nodes(tree)
         for node in ast.walk(tree):
             if isinstance(node, ast.Import):
                 edges.extend(
-                    ImportEdge(module, alias.name, node.lineno) for alias in node.names
+                    ImportEdge(
+                        module,
+                        alias.name,
+                        node.lineno,
+                        type_only=id(node) in guarded,
+                    )
+                    for alias in node.names
                 )
             elif isinstance(node, ast.ImportFrom):
                 base = _resolve_import_base(
@@ -260,6 +288,7 @@ def _collect_edges() -> list[ImportEdge]:
                         module,
                         f"{base}.{alias.name}" if base else alias.name,
                         node.lineno,
+                        type_only=id(node) in guarded,
                     )
                     for alias in node.names
                 )
@@ -278,13 +307,17 @@ def _in_scope(module: str, rule: LayerRule) -> bool:
 
 
 def _is_banned(target: str, rule: LayerRule) -> bool:
-    return any(_matches(target, prefix) for prefix in rule.banned)
+    return not any(_matches(target, prefix) for prefix in rule.allowed) and any(
+        _matches(target, prefix) for prefix in rule.banned
+    )
 
 
 def _find_violations() -> list[str]:
     violations: set[str] = set()
     for edge in _collect_edges():
         for rule in RULES:
+            if rule.runtime_only and edge.type_only:
+                continue
             if _in_scope(edge.module, rule) and _is_banned(edge.target, rule):
                 violations.add(
                     f"{edge.module}:{edge.lineno} {edge.kind} {edge.target}"
@@ -360,6 +393,32 @@ __import__("sentry_sdk")
         ("nonebot_plugin_htmlrender.adapters.resources", "literal lazy import"),
         ("sentry_sdk", "literal lazy import"),
     }
+
+
+def test_collector_marks_type_checking_imports_as_type_only() -> None:
+    tree = ast.parse(
+        """
+from typing import TYPE_CHECKING
+import typing
+
+if TYPE_CHECKING:
+    from nonebot_plugin_htmlrender.adapters.takumi.api import TakumiExtension
+
+if typing.TYPE_CHECKING:
+    import sentry_sdk
+
+import anyio
+"""
+    )
+
+    guarded = _type_checking_guarded_nodes(tree)
+    flagged = {
+        node.lineno: id(node) in guarded
+        for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    }
+
+    assert flagged == {2: False, 3: False, 6: True, 9: True, 11: False}
 
 
 _LOCATOR_NAME = re.compile(

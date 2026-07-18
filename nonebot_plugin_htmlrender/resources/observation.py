@@ -1,12 +1,11 @@
 from __future__ import annotations
 
-import logging
 from typing import TYPE_CHECKING, Protocol, final
+
+from nonebot.log import logger
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-
-_logger = logging.getLogger(__name__)
 
 
 class CacheObserver(Protocol):
@@ -41,7 +40,7 @@ def record_cache_observation(
     try:
         observer.record(cache, events, entries, resident_bytes)
     except Exception as error:
-        _logger.warning("Cache observer failed for %s: %s", cache, error)
+        logger.warning("Cache observer failed for {}: {}", cache, error)
 
 
 __all__ = ["CacheObserver", "NoopCacheObserver", "record_cache_observation"]

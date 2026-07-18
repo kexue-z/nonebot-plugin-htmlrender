@@ -16,7 +16,6 @@ async def test_track_render_without_span_uses_console_fallback(
     mocker: MockerFixture,
 ) -> None:
     mocker.patch.object(telemetry, "normalize_backend", return_value="playwright")
-    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
     start_trace = mocker.patch.object(telemetry, "start_trace", return_value=None)
     perf_counter = mocker.patch.object(
         telemetry, "perf_counter", side_effect=[10.0, 10.25]
@@ -60,7 +59,6 @@ async def test_track_render_with_span_records_attrs_and_error_status(
             return exit_context(exc_type, exc, traceback)
 
     mocker.patch.object(telemetry, "normalize_backend", return_value="playwright")
-    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=True)
     mocker.patch.object(telemetry, "start_trace", return_value=TraceContext())
     mocker.patch.object(telemetry, "perf_counter", side_effect=[20.0, 20.4])
     set_span_attr = mocker.patch.object(telemetry, "set_span_attribute")
@@ -82,7 +80,6 @@ async def test_track_render_with_span_records_attrs_and_error_status(
 
     set_span_status.assert_any_call(span, "error")
     set_span_attr.assert_any_call(span, "render.backend", "playwright")
-    set_span_attr.assert_any_call(span, "render.sentry.profiling", "true")
     set_span_attr.assert_any_call(span, "x", "1")
     set_span_attr.assert_any_call(span, "render.status", "error")
     assert exit_context.call_count == 1
@@ -106,7 +103,6 @@ async def test_track_render_with_span_records_attrs_and_error_status(
 async def test_track_render_isolates_trace_and_exporter_failures(
     mocker: MockerFixture,
 ) -> None:
-    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
     mocker.patch.object(
         telemetry,
         "start_trace",
@@ -150,7 +146,6 @@ async def test_track_render_preserves_original_error_when_trace_exit_fails(
             del exc_type, exc, traceback
             raise RuntimeError("trace exit failed")
 
-    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
     mocker.patch.object(
         telemetry,
         "start_trace",
@@ -180,7 +175,6 @@ async def test_track_render_isolates_trace_enter_failure(
         def __exit__(self, exc_type, exc, traceback) -> None:
             del exc_type, exc, traceback
 
-    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
     mocker.patch.object(
         telemetry,
         "start_trace",
@@ -259,7 +253,6 @@ def test_new_backend_observation_stubs_fan_out_to_both_exporters(
     mocker: MockerFixture,
 ) -> None:
     start_trace = mocker.patch.object(telemetry, "start_trace", return_value=None)
-    mocker.patch.object(telemetry, "is_sentry_profiling_enabled", return_value=False)
     mocker.patch.object(telemetry, "perf_counter", side_effect=[4.0, 4.25])
     sentry_recorder = mocker.patch.object(telemetry, "record_sentry_metrics")
     prometheus_recorder = mocker.patch.object(

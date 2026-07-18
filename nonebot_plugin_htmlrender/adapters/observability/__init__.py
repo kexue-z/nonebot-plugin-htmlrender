@@ -3,7 +3,7 @@ from __future__ import annotations
 from contextlib import AbstractContextManager, asynccontextmanager, contextmanager
 import sys
 from time import perf_counter
-from typing import TYPE_CHECKING, AsyncIterator, Iterator, Mapping
+from typing import TYPE_CHECKING
 
 from nonebot.log import logger
 
@@ -15,7 +15,6 @@ from .prometheus import (
     record_filehost_cache_metrics as record_prometheus_filehost_cache_metrics,
 )
 from .prometheus import record_metrics as record_prometheus_metrics
-from .sentry import is_sentry_profiling_enabled, start_trace
 from .sentry import (
     record_cache_metrics as record_sentry_cache_metrics,
 )
@@ -23,9 +22,10 @@ from .sentry import (
     record_filehost_cache_metrics as record_sentry_filehost_cache_metrics,
 )
 from .sentry import record_metrics as record_sentry_metrics
+from .sentry import start_trace
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Generator
+    from collections.abc import AsyncIterator, Callable, Generator, Iterator, Mapping
 
     from nonebot_plugin_htmlrender.providers.sdk import EngineId
 
@@ -200,18 +200,6 @@ def _operation_context(
     """Span creation, timing, and metric fan-out shared by every entry point."""
     backend_name = normalize_backend(backend)
     all_attrs = {"render.backend": backend_name}
-    profiling_enabled = False
-    if sentry:
-        try:
-            profiling_enabled = is_sentry_profiling_enabled()
-        except Exception as error:
-            logger.opt(colors=True).warning(
-                "<d>[htmlrender.telemetry]</d> Cannot inspect Sentry profiling "
-                "configuration: <r>{error}</r>.",
-                error=error,
-            )
-    if profiling_enabled:
-        all_attrs["render.sentry.profiling"] = "true"
     if attrs:
         all_attrs.update(attrs)
 
@@ -294,24 +282,12 @@ async def track_render(
     sentry: bool = False,
     prometheus: bool = False,
 ) -> AsyncIterator[None]:
-    """渲染操作遥测追踪的异步上下文管理器。
+    """Track one render operation across the explicitly selected exporters.
 
-    在渲染操作前后记录持续时间和状态，并仅向调用方显式选择的
-    Sentry / Prometheus exporter 报告。未选择 Sentry 时使用控制台日志。
-
-    Args:
-        op: 操作名称（如 "screenshot"、"html_to_pic"）。
-        backend: 渲染后端标识。
-        name: span 的显示名称，默认使用 op。
-        attrs: 附加到 span 的自定义属性。
-        sentry: 是否向 Sentry exporter 输出。
-        prometheus: 是否向 Prometheus exporter 输出。
-
-    Yields:
-        无返回值，仅提供上下文作用域。
-
-    Raises:
-        Exception: 渲染操作中的异常会被重新抛出，同时标记 span 状态为 error。
+    Records duration and status around the operation and reports only to the
+    Sentry/Prometheus exporters the caller opted into; without Sentry the
+    span data falls back to console debug logging.  Exceptions from the
+    wrapped operation are re-raised with the span marked as ``error``.
     """
     with _operation_context(
         op,

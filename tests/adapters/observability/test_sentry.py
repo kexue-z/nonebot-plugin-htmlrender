@@ -12,63 +12,42 @@ if TYPE_CHECKING:
 
 
 def _reset_sentry_state() -> None:
-    sentry._state.checked = False
-    sentry._state.sdk = None
+    sentry._plugin_loader._checked = False
+    sentry._plugin_loader._loaded = None
 
 
 def test_sentry_exporter_does_not_read_nonebot_global_config() -> None:
     assert not hasattr(sentry, "get_config_value")
-    assert sentry.is_sentry_enabled() is True
-    assert sentry.is_sentry_tracing_enabled() is True
-    assert sentry.is_sentry_profiling_enabled() is False
 
 
-def test_load_sentry_returns_cached_state(mocker: MockerFixture) -> None:
+def test_load_sentry_returns_cached_state() -> None:
     _reset_sentry_state()
     cached_sdk = types.ModuleType("sentry_sdk_cached")
-    sentry._state.checked = True
-    sentry._state.sdk = cached_sdk
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
+    sentry._plugin_loader._checked = True
+    sentry._plugin_loader._loaded = cached_sdk
     assert sentry.load_sentry() is cached_sdk
-
-
-def test_load_sentry_handles_disabled_and_missing_plugin(mocker: MockerFixture) -> None:
     _reset_sentry_state()
-    enabled = mocker.patch.object(sentry, "is_sentry_enabled", return_value=False)
-    find_spec = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
+
+
+def test_load_sentry_handles_missing_plugin(mocker: MockerFixture) -> None:
+    _reset_sentry_state()
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
         return_value=None,
     )
     assert sentry.load_sentry() is None
-    find_spec.assert_not_called()
-
-    _reset_sentry_state()
-    enabled.return_value = True
-    assert sentry.load_sentry() is None
 
     _reset_sentry_state()
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
         return_value=object(),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.require",
+        "nonebot_plugin_htmlrender.adapters.observability.common.require",
         side_effect=RuntimeError("missing"),
     )
     assert sentry.load_sentry() is None
-
-
-def test_load_sentry_isolates_plugin_discovery_failure(
-    mocker: MockerFixture,
-) -> None:
     _reset_sentry_state()
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
-        side_effect=RuntimeError("discovery failed"),
-    )
-
-    assert sentry.load_sentry() is None
 
 
 def test_load_sentry_requires_plugin_and_reads_sdk_module(
@@ -76,29 +55,24 @@ def test_load_sentry_requires_plugin_and_reads_sdk_module(
 ) -> None:
     _reset_sentry_state()
     fake_sdk = types.SimpleNamespace(name="fake")
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
-
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
         return_value=object(),
     )
     require = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.require"
+        "nonebot_plugin_htmlrender.adapters.observability.common.require"
     )
     sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.sentry.sys.modules"
+        "nonebot_plugin_htmlrender.adapters.observability.common.sys.modules"
     )
     sys_modules.get.return_value = fake_sdk
 
     assert sentry.load_sentry() is fake_sdk
     require.assert_called_once_with("nonebot_plugin_sentry")
+    _reset_sentry_state()
 
 
 def test_record_metrics_respects_guards_and_reports(mocker: MockerFixture) -> None:
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=False)
-    sentry.record_metrics("render.html", "playwright", "ok", 0.1)
-
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(sentry, "load_sentry", return_value=None)
     sentry.record_metrics("render.html", "playwright", "ok", 0.1)
 
@@ -122,7 +96,6 @@ def test_record_metrics_is_failure_isolated(mocker: MockerFixture) -> None:
         count=mocker.Mock(),
         distribution=mocker.Mock(),
     )
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(
         sentry,
         "load_sentry",
@@ -156,7 +129,6 @@ def test_record_metrics_uses_real_sentry_2_count_api(
         captured.append(metric)
 
     mocker.patch.object(client, "_capture_metric", side_effect=capture_metric)
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(sentry, "load_sentry", return_value=sentry_sdk)
 
     with sentry_sdk.isolation_scope() as scope:
@@ -176,7 +148,6 @@ def test_record_metrics_uses_real_sentry_2_count_api(
 def test_record_metrics_is_noop_when_metrics_module_missing(
     mocker: MockerFixture,
 ) -> None:
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(
         sentry, "load_sentry", return_value=types.SimpleNamespace(metrics=None)
     )
@@ -191,7 +162,6 @@ def test_record_filehost_cache_metrics_uses_count_and_gauge(
     mocker: MockerFixture,
 ) -> None:
     metrics = types.SimpleNamespace(count=mocker.Mock(), gauge=mocker.Mock())
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(
         sentry,
         "load_sentry",
@@ -214,7 +184,6 @@ def test_record_cache_metrics_uses_bounded_cache_and_event_tags(
     mocker: MockerFixture,
 ) -> None:
     metrics = types.SimpleNamespace(count=mocker.Mock(), gauge=mocker.Mock())
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(
         sentry,
         "load_sentry",
@@ -246,16 +215,10 @@ def test_record_cache_metrics_uses_bounded_cache_and_event_tags(
 
 def test_start_trace_returns_none_for_unavailable_paths(mocker: MockerFixture) -> None:
     mocker.patch.object(sentry, "load_sentry", return_value=None)
-    mocker.patch.object(sentry, "is_sentry_tracing_enabled", return_value=True)
-    assert sentry.start_trace("op", "name", {"a": "1"}) is None
-
-    mocker.patch.object(sentry, "load_sentry", return_value=types.SimpleNamespace())
-    mocker.patch.object(sentry, "is_sentry_tracing_enabled", return_value=False)
     assert sentry.start_trace("op", "name", {"a": "1"}) is None
 
     sdk_without_start = types.SimpleNamespace(start_transaction=None, start_span=None)
     mocker.patch.object(sentry, "load_sentry", return_value=sdk_without_start)
-    mocker.patch.object(sentry, "is_sentry_tracing_enabled", return_value=True)
     assert sentry.start_trace("op", "name", {"a": "1"}) is None
 
 
@@ -271,7 +234,6 @@ def test_start_trace_selects_root_transaction_or_child_span(
         start_span=start_span,
     )
     mocker.patch.object(sentry, "load_sentry", return_value=sdk)
-    mocker.patch.object(sentry, "is_sentry_tracing_enabled", return_value=True)
     set_attribute = mocker.patch.object(sentry, "set_span_attribute")
     result = sentry.start_trace("render", "render.name", {"k": "v"})
     assert result == "transaction"
@@ -305,7 +267,6 @@ def test_start_trace_uses_real_sentry_2_context_manager(
             del envelope
 
     mocker.patch.object(sentry, "load_sentry", return_value=sentry_sdk)
-    mocker.patch.object(sentry, "is_sentry_tracing_enabled", return_value=True)
 
     with sentry_sdk.isolation_scope() as scope:
         scope.set_client(

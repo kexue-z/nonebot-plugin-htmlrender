@@ -4,15 +4,15 @@ from concurrent.futures import ThreadPoolExecutor
 import types
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.adapters.observability import prometheus
+from nonebot_plugin_htmlrender.adapters.observability import common, prometheus
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
 
 def _reset_prometheus_state() -> None:
-    prometheus._state.checked = False
-    prometheus._state.plugin = None
+    prometheus._plugin_loader._checked = False
+    prometheus._plugin_loader._loaded = None
     prometheus._state.counter = None
     prometheus._state.histogram = None
     prometheus._state.filehost_upload_bytes = None
@@ -25,48 +25,90 @@ def _reset_prometheus_state() -> None:
     prometheus._state.cache_resident_bytes = None
 
 
+def _seed_loaded_module(module: types.ModuleType | types.SimpleNamespace) -> None:
+    prometheus._plugin_loader._checked = True
+    prometheus._plugin_loader._loaded = module
+
+
 def test_prometheus_exporter_does_not_read_nonebot_global_config() -> None:
     assert not hasattr(prometheus, "get_config_value")
-    assert prometheus.is_prometheus_enabled() is True
 
 
-def test_load_prometheus_guard_paths(mocker: MockerFixture) -> None:
-    _reset_prometheus_state()
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=False)
-    assert prometheus.load_prometheus() is None
-
-    _reset_prometheus_state()
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
+def test_optional_plugin_loader_guard_paths(mocker: MockerFixture) -> None:
+    loader = common.OptionalPluginLoader(plugin="fake_plugin", module="fake_module")
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
         return_value=None,
     )
-    assert prometheus.load_prometheus() is None
+    assert loader.load(reason="test") is None
 
-    _reset_prometheus_state()
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
+    loader = common.OptionalPluginLoader(plugin="fake_plugin", module="fake_module")
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
         return_value=object(),
     )
-    mocker.patch("nonebot_plugin_htmlrender.adapters.observability.prometheus.require")
+    mocker.patch("nonebot_plugin_htmlrender.adapters.observability.common.require")
     sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.sys.modules"
+        "nonebot_plugin_htmlrender.adapters.observability.common.sys.modules"
     )
     sys_modules.get.return_value = None
-    assert prometheus.load_prometheus() is None
+    assert loader.load(reason="test") is None
 
 
-def test_load_prometheus_isolates_plugin_discovery_failure(
+def test_optional_plugin_loader_isolates_discovery_failure(
     mocker: MockerFixture,
 ) -> None:
-    _reset_prometheus_state()
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
+    loader = common.OptionalPluginLoader(plugin="fake_plugin", module="fake_module")
+    find_spec = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
         side_effect=RuntimeError("discovery failed"),
     )
 
+    assert loader.load(reason="test") is None
+    # Failure outcomes are cached: discovery runs at most once per process.
+    assert loader.load(reason="test") is None
+    find_spec.assert_called_once()
+
+
+def test_optional_plugin_loader_isolates_require_failure(
+    mocker: MockerFixture,
+) -> None:
+    loader = common.OptionalPluginLoader(plugin="fake_plugin", module="fake_module")
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
+        return_value=object(),
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.require",
+        side_effect=RuntimeError("missing"),
+    )
+
+    assert loader.load(reason="test") is None
+
+
+def test_optional_plugin_loader_success_and_cache(mocker: MockerFixture) -> None:
+    loader = common.OptionalPluginLoader(plugin="fake_plugin", module="fake_module")
+    fake_module = types.ModuleType("fake_module")
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.find_spec",
+        return_value=object(),
+    )
+    require = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.require"
+    )
+    sys_modules = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.observability.common.sys.modules"
+    )
+    sys_modules.get.return_value = fake_module
+
+    assert loader.load(reason="first") is fake_module
+    assert loader.load(reason="second") is fake_module
+    require.assert_called_once_with("fake_plugin")
+
+
+def test_load_prometheus_returns_none_without_plugin(mocker: MockerFixture) -> None:
+    _reset_prometheus_state()
+    mocker.patch.object(prometheus._plugin_loader, "load", return_value=None)
     assert prometheus.load_prometheus() is None
 
 
@@ -77,24 +119,10 @@ def test_load_prometheus_success_and_cache(mocker: MockerFixture) -> None:
     counter_cls = mocker.Mock(return_value=counter_obj)
     histogram_cls = mocker.Mock(return_value=histogram_obj)
     fake_module = types.SimpleNamespace(Counter=counter_cls, Histogram=histogram_cls)
-
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
-        return_value=object(),
-    )
-    require = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.require"
-    )
-    sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.sys.modules"
-    )
-    sys_modules.get.return_value = fake_module
+    _seed_loaded_module(fake_module)
 
     loaded = prometheus.load_prometheus()
     assert loaded == (counter_obj, histogram_obj)
-    require.assert_called_once_with("nonebot_plugin_prometheus")
-    assert prometheus._state.plugin is fake_module
 
     # cached path
     assert prometheus.load_prometheus() == (counter_obj, histogram_obj)
@@ -106,20 +134,10 @@ def test_load_prometheus_init_exception_returns_none(mocker: MockerFixture) -> N
     _reset_prometheus_state()
     logger_opt = mocker.patch.object(prometheus.logger, "opt")
 
-    def _raise(*_args, **_kwargs):
+    def _raise(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("bad init")
 
-    fake_module = types.SimpleNamespace(Counter=_raise, Histogram=_raise)
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.find_spec",
-        return_value=object(),
-    )
-    mocker.patch("nonebot_plugin_htmlrender.adapters.observability.prometheus.require")
-    sys_modules = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.observability.prometheus.sys.modules"
-    )
-    sys_modules.get.return_value = fake_module
+    _seed_loaded_module(types.SimpleNamespace(Counter=_raise, Histogram=_raise))
 
     assert prometheus.load_prometheus() is None
     logger_opt.return_value.warning.assert_called_once()
@@ -133,7 +151,6 @@ def test_record_metrics_with_and_without_trace_id(mocker: MockerFixture) -> None
     counter = mocker.Mock(labels=mocker.Mock(return_value=counter_metric))
     histogram = mocker.Mock(labels=mocker.Mock(return_value=histogram_metric))
 
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch.object(
         prometheus, "load_prometheus", return_value=(counter, histogram)
     )
@@ -161,7 +178,6 @@ def test_record_metrics_falls_back_when_exemplar_unsupported(
     counter = mocker.Mock(labels=mocker.Mock(return_value=counter_metric))
     histogram = mocker.Mock(labels=mocker.Mock(return_value=histogram_metric))
 
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch.object(
         prometheus, "load_prometheus", return_value=(counter, histogram)
     )
@@ -177,12 +193,6 @@ def test_record_metrics_falls_back_when_exemplar_unsupported(
 def test_record_metrics_guard_and_exception_fallbacks(
     mocker: MockerFixture,
 ) -> None:
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=False)
-    load_prom = mocker.patch.object(prometheus, "load_prometheus")
-    prometheus.record_metrics("render", "playwright", "ok", 1.0, trace_id="x")
-    load_prom.assert_not_called()
-
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch.object(prometheus, "load_prometheus", return_value=None)
     prometheus.record_metrics("render", "playwright", "ok", 1.0, trace_id="x")
 
@@ -208,7 +218,6 @@ def test_record_metrics_is_failure_isolated(mocker: MockerFixture) -> None:
     counter = mocker.Mock()
     counter.labels.side_effect = RuntimeError("labels failed")
     histogram = mocker.Mock()
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
     mocker.patch.object(
         prometheus,
         "load_prometheus",
@@ -287,12 +296,12 @@ def test_cache_metric_collectors_initialize_once_under_concurrency(
     resident_bytes = object()
     counter_cls = mocker.Mock(return_value=events)
     gauge_cls = mocker.Mock(side_effect=[entries, resident_bytes])
-    prometheus._state.checked = True
-    prometheus._state.plugin = types.SimpleNamespace(
-        Counter=counter_cls,
-        Gauge=gauge_cls,
+    _seed_loaded_module(
+        types.SimpleNamespace(
+            Counter=counter_cls,
+            Gauge=gauge_cls,
+        )
     )
-    mocker.patch.object(prometheus, "is_prometheus_enabled", return_value=True)
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         loaded = list(

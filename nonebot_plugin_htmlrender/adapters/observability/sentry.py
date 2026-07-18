@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from importlib.util import find_spec
-import sys
-import threading
-from typing import TYPE_CHECKING, Mapping, cast
+from typing import TYPE_CHECKING, cast
 
-from nonebot import require
 from nonebot.log import logger
 
-from .common import call_metric, set_span_attribute
+from .common import OptionalPluginLoader, call_metric, set_span_attribute
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from contextlib import AbstractContextManager
     from typing import Any
 
@@ -27,159 +24,31 @@ _SENTRY_CACHE_EVENTS = "nonebot.htmlrender.cache.events"
 _SENTRY_CACHE_ENTRIES = "nonebot.htmlrender.cache.entries"
 _SENTRY_CACHE_RESIDENT_BYTES = "nonebot.htmlrender.cache.resident_bytes"
 
-
-class _SentryState:
-    """缓存 Sentry SDK 实例与首次加载结果。"""
-
-    def __init__(self) -> None:
-        self.sdk: object | None = None
-        self.checked = False
-
-
-_state = _SentryState()
-_state_lock = threading.RLock()
-
-
-def is_sentry_enabled() -> bool:
-    """Return whether this explicitly selected exporter may be invoked.
-
-    Composition owns integration enablement.  This low-level adapter therefore
-    never consults the process-wide NoneBot configuration.
-    """
-    return True
-
-
-def is_sentry_tracing_enabled() -> bool:
-    """Return whether an explicitly selected Sentry exporter may trace.
-
-    Sampling remains owned by the Sentry SDK; unsampled spans are handled by
-    the SDK itself.
-    """
-    return is_sentry_enabled()
-
-
-def is_sentry_profiling_enabled() -> bool:
-    """Return profiling state without reading process-global plugin config.
-
-    The generic observer cannot infer SDK sampling options safely, so it does
-    not advertise profiling as an operation attribute.
-    """
-    return False
-
-
-def _ensure_sentry_plugin_loaded(*, reason: str) -> bool:
-    """确保 ``nonebot_plugin_sentry`` 已被加载并可用。
-
-    第一次调用时尝试加载，并将结果缓存供后续调用复用。
-
-    Args:
-        reason: 触发加载的原因，仅用于日志输出。
-
-    Returns:
-        SDK 可用时返回 ``True``。
-    """
-    try:
-        if not is_sentry_enabled():
-            return False
-    except Exception as error:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Cannot read Sentry configuration "
-            "({reason}): <r>{error}</r>.",
-            reason=reason,
-            error=error,
-        )
-        return False
-
-    if _state.checked:
-        return _state.sdk is not None
-
-    _state.checked = True
-    try:
-        installed = find_spec("nonebot_plugin_sentry") is not None
-    except Exception as error:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Cannot locate Sentry plugin "
-            "({reason}): <r>{error}</r>.",
-            reason=reason,
-            error=error,
-        )
-        return False
-    if not installed:
-        logger.opt(colors=True).debug(
-            "<d>[htmlrender.telemetry]</d> Sentry plugin not installed, skip bootstrap ({reason}).",
-            reason=reason,
-        )
-        return False
-
-    try:
-        require("nonebot_plugin_sentry")
-    except Exception as e:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Sentry bootstrap failed ({reason}): <r>{error}</r>.",
-            reason=reason,
-            error=e,
-        )
-        return False
-
-    _state.sdk = sys.modules.get("sentry_sdk")
-    if _state.sdk is None:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Sentry bootstrap incomplete ({reason}): `sentry_sdk` not found after require.",
-            reason=reason,
-        )
-        return False
-
-    logger.opt(colors=True).debug(
-        "<d>[htmlrender.telemetry]</d> Sentry bootstrap ready ({reason}).",
-        reason=reason,
-    )
-    return True
+_plugin_loader = OptionalPluginLoader(
+    plugin="nonebot_plugin_sentry",
+    module="sentry_sdk",
+)
 
 
 def ensure_sentry_plugin_loaded(*, reason: str) -> bool:
     """Serialize optional-plugin discovery and bootstrap."""
 
-    with _state_lock:
-        return _ensure_sentry_plugin_loaded(reason=reason)
+    return _plugin_loader.load(reason=reason) is not None
 
 
 def load_sentry() -> object | None:
-    """获取已加载的 Sentry SDK 模块。
-
-    Returns:
-        Sentry SDK 模块；若插件未启用或加载失败则返回 ``None``。
-    """
-    try:
-        if not is_sentry_enabled():
-            return None
-        if not ensure_sentry_plugin_loaded(reason="runtime"):
-            return None
-    except Exception as error:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Sentry provider initialization "
-            "failed: <r>{error}</r>.",
-            error=error,
-        )
-        return None
-    return _state.sdk
+    """Return the loaded Sentry SDK module, or ``None`` when unavailable."""
+    return _plugin_loader.load(reason="runtime")
 
 
 def record_metrics(op: str, backend: str, status: str, duration: float) -> None:
-    """向 Sentry metrics 上报一次渲染操作。
+    """Report one render operation through Sentry metrics.
 
-    自动选择可用的 ``count`` / ``increment`` / ``incr`` 与 ``distribution`` 接口；当 SDK
-    未启用、不可用或缺少 metrics 接口时静默返回。
-
-    Args:
-        op: 操作名称，例如 ``render_html``。
-        backend: 后端标识。
-        status: 操作结果状态。
-        duration: 操作耗时，单位为秒。
+    Adapts to the available ``count``/``increment``/``incr`` and
+    ``distribution`` interfaces; silently returns when the SDK or its
+    metrics surface is unavailable.
     """
     try:
-        if not is_sentry_enabled():
-            return
-
         sentry = load_sentry()
         if sentry is None:
             return
@@ -250,37 +119,12 @@ def start_trace(
     name: str,
     attrs: Mapping[str, str] | None,
 ) -> AbstractContextManager[Any] | None:
-    """创建一个 Sentry 事务/跨度对象。
+    """Create a Sentry transaction or span using the 2.x context-manager API.
 
-    使用 Sentry 2.x 的 context-manager API。有活动 span 时创建子 span，
-    否则创建根 transaction。
-
-    Args:
-        op: 事务/跨度的操作名。
-        name: 事务/跨度的名称。
-        attrs: 附加属性映射，可为 ``None``。
-
-    Returns:
-        Sentry 返回的事务/跨度对象；当 SDK 不可用或追踪未启用时返回 ``None``。
+    Creates a child span when an active span exists, otherwise a root
+    transaction.  Returns ``None`` when the SDK is unavailable; sampling
+    remains owned by the Sentry SDK.
     """
-    try:
-        tracing_enabled = is_sentry_tracing_enabled()
-    except Exception as error:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Cannot read Sentry tracing "
-            "configuration: <r>{error}</r>.",
-            error=error,
-        )
-        return None
-
-    if not tracing_enabled:
-        logger.opt(colors=True).debug(
-            "<d>[htmlrender.telemetry]</d> Skip Sentry trace creation: "
-            "tracing_enabled=<c>{tracing_enabled}</c>. Use console debug fallback.",
-            tracing_enabled=tracing_enabled,
-        )
-        return None
-
     sentry = load_sentry()
     if sentry is None:
         return None
@@ -332,8 +176,6 @@ def record_filehost_cache_metrics(
     """Record low-cardinality filehost counters and gauges through Sentry 2.x."""
 
     try:
-        if not is_sentry_enabled():
-            return
         sentry = load_sentry()
         metrics = getattr(sentry, "metrics", None) if sentry is not None else None
         if metrics is None:
@@ -400,8 +242,6 @@ def record_cache_metrics(
     """Record generic cache deltas without exporting cache keys or paths."""
 
     try:
-        if not is_sentry_enabled():
-            return
         sentry = load_sentry()
         metrics = getattr(sentry, "metrics", None) if sentry is not None else None
         if metrics is None:

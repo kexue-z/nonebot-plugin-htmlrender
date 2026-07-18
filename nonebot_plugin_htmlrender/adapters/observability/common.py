@@ -1,38 +1,111 @@
 from __future__ import annotations
 
 from contextlib import suppress
+from importlib.util import find_spec
 import inspect
-from typing import TYPE_CHECKING, Callable, Mapping
+import sys
+import threading
+from typing import TYPE_CHECKING, final
+
+from nonebot import require
+from nonebot.log import logger
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+    from types import ModuleType
+
     from nonebot_plugin_htmlrender.providers.sdk import EngineId
 
 
-def normalize_backend(backend: EngineId | None) -> str:
-    """将后端标识规范化为字符串。
+@final
+class OptionalPluginLoader:
+    """Load one optional NoneBot plugin at most once and cache the outcome.
 
-    Args:
-        backend: 开放的 Provider 标识，或 None。
-
-    Returns:
-        规范化后的后端名称字符串，None 时返回 "unknown"。
+    Discovery, ``require`` bootstrap, and the resulting module lookup are
+    serialized; failures are cached so a broken optional integration is
+    probed exactly once per process.
     """
+
+    def __init__(self, *, plugin: str, module: str) -> None:
+        self._plugin = plugin
+        self._module = module
+        self._lock = threading.RLock()
+        self._checked = False
+        self._loaded: ModuleType | None = None
+
+    def load(self, *, reason: str) -> ModuleType | None:
+        with self._lock:
+            if self._checked:
+                return self._loaded
+            self._checked = True
+            self._loaded = self._bootstrap(reason)
+            return self._loaded
+
+    def _bootstrap(self, reason: str) -> ModuleType | None:
+        try:
+            installed = find_spec(self._plugin) is not None
+        except Exception as error:
+            logger.opt(colors=True).warning(
+                "<d>[htmlrender.telemetry]</d> Cannot locate {plugin} "
+                "({reason}): <r>{error}</r>.",
+                plugin=self._plugin,
+                reason=reason,
+                error=error,
+            )
+            return None
+        if not installed:
+            logger.opt(colors=True).debug(
+                "<d>[htmlrender.telemetry]</d> {plugin} not installed, "
+                "skip bootstrap ({reason}).",
+                plugin=self._plugin,
+                reason=reason,
+            )
+            return None
+
+        try:
+            require(self._plugin)
+        except Exception as error:
+            logger.opt(colors=True).warning(
+                "<d>[htmlrender.telemetry]</d> {plugin} bootstrap failed "
+                "({reason}): <r>{error}</r>.",
+                plugin=self._plugin,
+                reason=reason,
+                error=error,
+            )
+            return None
+
+        module = sys.modules.get(self._module)
+        if module is None:
+            logger.opt(colors=True).warning(
+                "<d>[htmlrender.telemetry]</d> {plugin} bootstrap incomplete "
+                "({reason}): `{module}` module not found after require.",
+                plugin=self._plugin,
+                reason=reason,
+                module=self._module,
+            )
+            return None
+
+        logger.opt(colors=True).debug(
+            "<d>[htmlrender.telemetry]</d> {plugin} bootstrap ready ({reason}).",
+            plugin=self._plugin,
+            reason=reason,
+        )
+        return module
+
+
+def normalize_backend(backend: EngineId | None) -> str:
+    """Normalize an open provider identifier into a metric label string."""
     if backend is None:
         return "unknown"
     return str(backend)
 
 
 def metric_params(fn: Callable[..., object]) -> set[str]:
-    """获取函数的参数名集合。
+    """Return the parameter names of ``fn``.
 
-    通过 inspect.signature 提取函数参数名。这里不缓存结果，避免为观测适配器
-    引入额外的进程级可变状态，也避免对象销毁后 ``id`` 复用造成错误命中。
-
-    Args:
-        fn: 要检查的函数。
-
-    Returns:
-        函数参数名的集合。
+    The result is deliberately not cached: caching would add process-level
+    mutable state to the observability adapter, and ``id`` reuse after object
+    destruction could produce false hits.
     """
     try:
         return set(inspect.signature(fn).parameters)
@@ -48,17 +121,10 @@ def call_metric(
     unit: str | None,
     tags: Mapping[str, str],
 ) -> None:
-    """自适应调用遥测指标记录函数。
+    """Invoke a metric recorder while adapting to its parameter naming.
 
-    根据目标函数的参数签名自动适配调用方式，支持 value/amount 等
-    不同命名约定以及 tags/attributes 等不同标签参数。
-
-    Args:
-        fn: 指标记录函数。
-        name: 指标名称。
-        value: 指标值。
-        unit: 指标单位，为 None 时不传递。
-        tags: 指标标签字典。
+    Supports the ``value``/``amount`` conventions for the metric value and
+    the ``tags``/``attributes`` conventions for labels.
     """
     params = metric_params(fn)
     kwargs: dict[str, object] = {}
@@ -82,14 +148,10 @@ def call_metric(
 
 
 def set_span_attribute(span: object, key: str, value: object) -> None:
-    """为追踪 span 设置属性。
+    """Set one attribute on a tracing span.
 
-    优先使用 set_attribute 方法，回退到 set_data 方法，兼容不同追踪库的 API。
-
-    Args:
-        span: 追踪 span 对象。
-        key: 属性键。
-        value: 属性值。
+    Prefers ``set_attribute`` and falls back to ``set_data`` so both
+    OpenTelemetry-style and Sentry-style span APIs are supported.
     """
     try:
         set_attribute = getattr(span, "set_attribute", None)
@@ -110,12 +172,7 @@ def set_span_attribute(span: object, key: str, value: object) -> None:
 
 
 def set_span_status(span: object, status: str) -> None:
-    """设置追踪 span 的状态。
-
-    Args:
-        span: 追踪 span 对象。
-        status: 状态字符串（如 "ok" 或 "error"）。
-    """
+    """Set the status string (for example ``ok`` or ``error``) on a span."""
     try:
         set_status = getattr(span, "set_status", None)
     except Exception:
@@ -127,14 +184,7 @@ def set_span_status(span: object, status: str) -> None:
 
 
 def get_trace_id(span: object) -> str | None:
-    """从追踪 span 中提取 trace ID 字符串。
-
-    Args:
-        span: 追踪 span 对象。
-
-    Returns:
-        trace ID 字符串，无法提取时返回 None。
-    """
+    """Extract the trace id string from a tracing span, if available."""
     try:
         trace_id = getattr(span, "trace_id", None)
     except Exception:

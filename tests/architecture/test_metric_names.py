@@ -161,7 +161,6 @@ def test_sentry_render_metrics_emit_expected_names_and_tags(
     mocker: MockerFixture,
 ) -> None:
     sdk, metrics = _fake_sentry_sdk()
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(sentry, "load_sentry", return_value=sdk)
 
     sentry.record_metrics("render.render_html", "takumi", "success", 1.25)
@@ -188,7 +187,6 @@ def test_sentry_cache_metrics_emit_expected_names_and_tags(
     mocker: MockerFixture,
 ) -> None:
     sdk, metrics = _fake_sentry_sdk()
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(sentry, "load_sentry", return_value=sdk)
 
     sentry.record_cache_metrics(
@@ -218,7 +216,6 @@ def test_sentry_filehost_metrics_emit_expected_names_and_tags(
     mocker: MockerFixture,
 ) -> None:
     sdk, metrics = _fake_sentry_sdk()
-    mocker.patch.object(sentry, "is_sentry_enabled", return_value=True)
     mocker.patch.object(sentry, "load_sentry", return_value=sdk)
 
     sentry.record_filehost_cache_metrics(

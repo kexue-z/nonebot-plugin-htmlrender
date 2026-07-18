@@ -6,9 +6,10 @@ from dataclasses import dataclass
 from functools import partial
 from html import escape
 from html.parser import HTMLParser
-import logging
 from typing import TYPE_CHECKING, final
 from urllib.parse import urldefrag, urlsplit
+
+from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
@@ -28,8 +29,6 @@ from nonebot_plugin_htmlrender.resources.models import RemoteResourceRef
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
-
-_logger = logging.getLogger(__name__)
 
 
 class _HeadParser(HTMLParser):
@@ -139,7 +138,7 @@ class HtmlkitResourceBridge:
         if self._strict:
             self._errors.append(translated)
         else:
-            _logger.warning("Could not fetch HTMLKit resource %r: %s", url, error)
+            logger.warning("Could not fetch HTMLKit resource {!r}: {}", url, error)
 
     async def _bytes(self, url: str) -> bytes | None:
         asset = self._assets.match(url, base_url=self._document_base)

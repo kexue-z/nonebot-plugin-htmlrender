@@ -1,14 +1,15 @@
 from __future__ import annotations
 
-from importlib.util import find_spec
-import sys
 import threading
-from typing import TYPE_CHECKING, Mapping, cast
+from typing import TYPE_CHECKING, cast
 
-from nonebot import require
 from nonebot.log import logger
 
+from .common import OptionalPluginLoader
+
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from prometheus_client import Counter, Gauge, Histogram
 
 _PROM_COUNTER_NAME = "nonebot_htmlrender_operations_total"
@@ -26,15 +27,9 @@ _PROM_CACHE_RESIDENT_BYTES_NAME = "nonebot_htmlrender_cache_resident_bytes"
 
 
 class _PrometheusState:
-    """缓存 Prometheus 集成的检查结果与指标实例。
-
-    用于避免在每次记录指标时重复加载 ``nonebot_plugin_prometheus`` 模块，
-    并在初始化失败后跳过后续的尝试。
-    """
+    """Cache metric instances so registration happens exactly once."""
 
     def __init__(self) -> None:
-        self.checked = False
-        self.plugin: object | None = None
         self.counter: Counter | None = None
         self.histogram: Histogram | None = None
         self.filehost_upload_bytes: Counter | None = None
@@ -49,110 +44,28 @@ class _PrometheusState:
 
 _state = _PrometheusState()
 _state_lock = threading.RLock()
-
-
-def is_prometheus_enabled() -> bool:
-    """Return whether this explicitly selected exporter may be invoked.
-
-    Composition owns integration enablement.  This low-level adapter therefore
-    never consults the process-wide NoneBot configuration.
-    """
-    return True
-
-
-def _ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
-    """确保 ``nonebot_plugin_prometheus`` 已被加载并可用。
-
-    第一次调用时尝试通过 NoneBot 的 ``require`` 机制加载插件，并将结果缓存；
-    后续调用直接返回缓存结果。
-
-    Args:
-        reason: 触发加载的原因，仅用于日志输出。
-
-    Returns:
-        插件可用时返回 ``True``。
-    """
-    try:
-        if not is_prometheus_enabled():
-            return False
-    except Exception as error:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Cannot read Prometheus configuration "
-            "({reason}): <r>{error}</r>.",
-            reason=reason,
-            error=error,
-        )
-        return False
-
-    if _state.checked:
-        return _state.plugin is not None
-
-    _state.checked = True
-    try:
-        installed = find_spec("nonebot_plugin_prometheus") is not None
-    except Exception as error:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Cannot locate Prometheus plugin "
-            "({reason}): <r>{error}</r>.",
-            reason=reason,
-            error=error,
-        )
-        return False
-    if not installed:
-        logger.opt(colors=True).debug(
-            "<d>[htmlrender.telemetry]</d> Prometheus plugin not installed, skip bootstrap ({reason}).",
-            reason=reason,
-        )
-        return False
-
-    try:
-        require("nonebot_plugin_prometheus")
-    except Exception as e:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Prometheus bootstrap failed ({reason}): <r>{error}</r>.",
-            reason=reason,
-            error=e,
-        )
-        return False
-
-    _state.plugin = sys.modules.get("nonebot_plugin_prometheus")
-    if _state.plugin is None:
-        logger.opt(colors=True).warning(
-            "<d>[htmlrender.telemetry]</d> Prometheus bootstrap incomplete ({reason}): `nonebot_plugin_prometheus` module not found after require.",
-            reason=reason,
-        )
-        return False
-
-    logger.opt(colors=True).debug(
-        "<d>[htmlrender.telemetry]</d> Prometheus bootstrap ready ({reason}).",
-        reason=reason,
-    )
-    return True
+_plugin_loader = OptionalPluginLoader(
+    plugin="nonebot_plugin_prometheus",
+    module="nonebot_plugin_prometheus",
+)
 
 
 def ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
     """Serialize optional-plugin discovery and bootstrap."""
 
-    with _state_lock:
-        return _ensure_prometheus_plugin_loaded(reason=reason)
+    return _plugin_loader.load(reason=reason) is not None
 
 
 def _load_prometheus() -> tuple[Counter, Histogram] | None:
-    """加载并返回渲染相关的 Prometheus 计数器与直方图。
+    """Return the render counter and duration histogram, creating them once.
 
-    Returns:
-        ``(Counter, Histogram)`` 二元组；当 Prometheus 未启用、插件不可用
-        或指标初始化失败时返回 ``None``。
+    Returns ``None`` when the optional Prometheus plugin is unavailable or
+    metric initialization fails.
     """
     try:
-        if not is_prometheus_enabled():
-            return None
         if _state.counter is not None and _state.histogram is not None:
             return _state.counter, _state.histogram
-        if not ensure_prometheus_plugin_loaded(reason="runtime"):
-            return None
-
-        prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
+        prometheus = _plugin_loader.load(reason="runtime")
         if prometheus is None:
             return None
 
@@ -200,22 +113,12 @@ def record_metrics(
     duration: float,
     trace_id: str | None,
 ) -> None:
-    """记录一次渲染操作的 Prometheus 指标。
+    """Record one render operation, attaching an exemplar when possible.
 
-    若 Prometheus 集成未启用或不可用则静默返回；当提供 ``trace_id`` 时优先
-    携带 exemplar 上报，遇到不支持 exemplar 的旧版本会自动回退为普通上报。
-
-    Args:
-        op: 操作名称，例如 ``render_html``。
-        backend: 后端标识。
-        status: 操作结果状态，例如 ``success``、``error``。
-        duration: 操作耗时，单位为秒。
-        trace_id: 关联的追踪 ID，用于 exemplar；可为 ``None``。
+    Silently returns when the integration is unavailable; older client
+    versions without exemplar support fall back to a plain report.
     """
     try:
-        if not is_prometheus_enabled():
-            return
-
         metrics = load_prometheus()
         if metrics is None:
             return
@@ -256,8 +159,6 @@ def _load_filehost_metrics_unlocked() -> (
     tuple[Counter, Counter, Gauge, Gauge, Gauge] | None
 ):
     try:
-        if not is_prometheus_enabled():
-            return None
         cached = (
             _state.filehost_upload_bytes,
             _state.filehost_dedup_hits,
@@ -267,9 +168,7 @@ def _load_filehost_metrics_unlocked() -> (
         )
         if all(metric is not None for metric in cached):
             return cast("tuple[Counter, Counter, Gauge, Gauge, Gauge]", cached)
-        if not ensure_prometheus_plugin_loaded(reason="filehost_metrics"):
-            return None
-        prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
+        prometheus = _plugin_loader.load(reason="filehost_metrics")
         if prometheus is None:
             return None
         counter_cls = getattr(prometheus, "Counter", None)
@@ -367,8 +266,6 @@ def record_filehost_cache_metrics(
 
 def _load_cache_metrics_unlocked() -> tuple[Counter, Gauge, Gauge] | None:
     try:
-        if not is_prometheus_enabled():
-            return None
         cached = (
             _state.cache_events,
             _state.cache_entries,
@@ -376,9 +273,7 @@ def _load_cache_metrics_unlocked() -> tuple[Counter, Gauge, Gauge] | None:
         )
         if all(metric is not None for metric in cached):
             return cast("tuple[Counter, Gauge, Gauge]", cached)
-        if not ensure_prometheus_plugin_loaded(reason="cache_metrics"):
-            return None
-        prometheus = _state.plugin or sys.modules.get("nonebot_plugin_prometheus")
+        prometheus = _plugin_loader.load(reason="cache_metrics")
         if prometheus is None:
             return None
         counter_cls = getattr(prometheus, "Counter", None)
