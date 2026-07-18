@@ -8,11 +8,13 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
-    from nonebot_plugin_htmlrender.consts import ResourceResolveMode
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
     from nonebot_plugin_htmlrender.preparation.service import HtmlPreparer
     from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
-    from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
+    from nonebot_plugin_htmlrender.resources.config import (
+        ResourceResolveMode,
+        ResourceStrategy,
+    )
     from nonebot_plugin_htmlrender.resources.models import ResourceRef
     from nonebot_plugin_htmlrender.resources.service import ResourceService
     from nonebot_plugin_htmlrender.resources.templating import (
@@ -182,6 +184,7 @@ class AdmittedResourceService:
         return self._delegate.strategy
 
     def authorize_local(self, path: Path) -> Path:
+        self._admission.ensure_accepting()
         return self._delegate.authorize_local(path)
 
     async def read_bytes(
@@ -210,6 +213,7 @@ class AdmittedResourceService:
             )
 
     def should_resolve(self, resolver: object | None = None) -> bool:
+        self._admission.ensure_accepting()
         return self._delegate.should_resolve(resolver)
 
     async def resolve_template_vars(

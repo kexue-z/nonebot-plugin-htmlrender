@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypeVar, final
 
-from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
 from nonebot_plugin_htmlrender.rendering.errors import CapabilityUnavailable
 
 if TYPE_CHECKING:
+    from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
     from nonebot_plugin_htmlrender.rendering.artifacts import (
         RenderedHtml,
         RenderedImage,
@@ -34,18 +34,10 @@ class Renderer:
         self,
         bindings: RendererBindings,
         *,
-        operation_admission: OperationAdmissionGate | None = None,
+        operation_admission: OperationAdmissionGate,
     ) -> None:
         self._bindings = bindings
-        self._operation_admission = (
-            operation_admission
-            if operation_admission is not None
-            else OperationAdmissionGate()
-        )
-
-    def _admission_gate(self) -> OperationAdmissionGate:
-        """Return the package-internal gate used by application composition."""
-        return self._operation_admission
+        self._operation_admission = operation_admission
 
     @property
     def capabilities(self) -> frozenset[str]:

@@ -16,10 +16,10 @@ from nonebot_plugin_htmlrender.application import (
     RenderTemplateHtml,
     RenderText,
 )
-from nonebot_plugin_htmlrender.consts import ResourceResolveMode
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityUnavailable,
+    OperationAdmissionGate,
     ProviderExecutionError,
     RasterizeHtmlRequest,
     RenderedImage,
@@ -30,6 +30,7 @@ from nonebot_plugin_htmlrender.rendering import (
     RenderTextRequest,
     ResourcePolicy,
 )
+from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 from tests.image_fixtures import rendered_image
 
 if TYPE_CHECKING:
@@ -183,7 +184,14 @@ def _full_renderer(
         render_template_html=RenderTemplateHtml(preparer=preparer),
         rasterize_html=RasterizeHtml(executor=executor),
     )
-    return Renderer(bindings), preparer, executor
+    return (
+        Renderer(
+            bindings,
+            operation_admission=OperationAdmissionGate(),
+        ),
+        preparer,
+        executor,
+    )
 
 
 async def test_render_html_returns_typed_artifact() -> None:
@@ -338,7 +346,10 @@ async def test_rasterize_html_passes_prepared_through() -> None:
 
 
 async def test_missing_binding_raises_capability_unavailable() -> None:
-    renderer = Renderer(RendererBindings())
+    renderer = Renderer(
+        RendererBindings(),
+        operation_admission=OperationAdmissionGate(),
+    )
 
     assert renderer.capabilities == frozenset()
     assert not renderer.supports("render_html")
@@ -354,7 +365,8 @@ def test_capabilities_derived_from_bindings() -> None:
         RendererBindings(
             render_text=RenderText(preparer=preparer, executor=executor),
             rasterize_html=RasterizeHtml(executor=executor),
-        )
+        ),
+        operation_admission=OperationAdmissionGate(),
     )
 
     assert renderer.capabilities == frozenset({"render_text", "rasterize_html"})

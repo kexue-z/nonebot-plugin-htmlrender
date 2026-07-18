@@ -45,19 +45,11 @@ class Application:
         preparation: HtmlPreparer,
         resources: ResourceService,
         lifecycle: ApplicationLifecycle,
+        operation_admission: OperationAdmissionGate,
         capabilities: CapabilityCatalog | None = None,
-        operation_admission: OperationAdmissionGate | None = None,
     ) -> None:
         self._renderer = renderer
-        renderer_admission = renderer._admission_gate()
-        if (
-            operation_admission is not None
-            and operation_admission is not renderer_admission
-        ):
-            raise ValueError(
-                "Application and Renderer must share one operation admission gate."
-            )
-        self._operation_admission = renderer_admission
+        self._operation_admission = operation_admission
         self._preparation = AdmittedHtmlPreparer(preparation, self._operation_admission)
         self._resources = AdmittedResourceService(resources, self._operation_admission)
         self._lifecycle = lifecycle

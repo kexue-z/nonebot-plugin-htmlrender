@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING, cast
 
 import anyio
@@ -24,7 +25,6 @@ from nonebot_plugin_htmlrender.rendering import (
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
-    from pathlib import Path
 
     from nonebot_plugin_htmlrender.preparation.service import HtmlPreparer
     from nonebot_plugin_htmlrender.resources.service import ResourceService
@@ -88,8 +88,19 @@ class _FakeTemplatePreparer:
 @dataclass
 class _FakeResources:
     read_calls: int = 0
+    authorize_calls: int = 0
+    should_resolve_calls: int = 0
     started: anyio.Event | None = None
     release: anyio.Event | None = None
+
+    def authorize_local(self, path: Path) -> Path:
+        self.authorize_calls += 1
+        return path
+
+    def should_resolve(self, resolver: object | None = None) -> bool:
+        del resolver
+        self.should_resolve_calls += 1
+        return True
 
     async def read_bytes(self, reference: object, *, refresh: bool = False) -> bytes:
         del reference, refresh
@@ -102,11 +113,16 @@ class _FakeResources:
 
 
 def _application(lifecycle: _FakeLifecycle) -> Application:
+    admission = OperationAdmissionGate()
     return Application(
-        renderer=Renderer(RendererBindings()),
+        renderer=Renderer(
+            RendererBindings(),
+            operation_admission=admission,
+        ),
         preparation=_PREPARATION,
         resources=_RESOURCES,
         lifecycle=lifecycle,
+        operation_admission=admission,
     )
 
 
@@ -115,16 +131,19 @@ def _template_application(
     preparer: _FakeTemplatePreparer,
 ) -> Application:
     typed_preparer = cast("HtmlPreparer", preparer)
+    admission = OperationAdmissionGate()
     renderer = Renderer(
         RendererBindings(
             render_template_html=RenderTemplateHtml(preparer=typed_preparer)
-        )
+        ),
+        operation_admission=admission,
     )
     return Application(
         renderer=renderer,
         preparation=typed_preparer,
         resources=_RESOURCES,
         lifecycle=lifecycle,
+        operation_admission=admission,
     )
 
 
@@ -140,11 +159,16 @@ def _resource_application(
     lifecycle: _FakeLifecycle,
     resources: _FakeResources,
 ) -> Application:
+    admission = OperationAdmissionGate()
     return Application(
-        renderer=Renderer(RendererBindings()),
+        renderer=Renderer(
+            RendererBindings(),
+            operation_admission=admission,
+        ),
         preparation=_PREPARATION,
         resources=cast("ResourceService", resources),
         lifecycle=lifecycle,
+        operation_admission=admission,
     )
 
 
@@ -419,11 +443,16 @@ def test_capability_catalog_passthrough() -> None:
     marker = _Marker()
     key = CapabilityKey("test.marker", _Marker)
     catalog = CapabilityCatalog().with_capability(key, marker)
+    admission = OperationAdmissionGate()
     app = Application(
-        renderer=Renderer(RendererBindings()),
+        renderer=Renderer(
+            RendererBindings(),
+            operation_admission=admission,
+        ),
         preparation=_PREPARATION,
         resources=_RESOURCES,
         lifecycle=_FakeLifecycle(),
+        operation_admission=admission,
         capabilities=catalog,
     )
 
@@ -440,22 +469,25 @@ def test_application_exposes_composition_owned_services() -> None:
 
 
 def test_renderer_does_not_expose_lifecycle_controller() -> None:
-    renderer = Renderer(RendererBindings())
-
-    assert not hasattr(renderer, "operation_admission")
-
-
-def test_application_rejects_mismatched_admission_gate() -> None:
     renderer = Renderer(
         RendererBindings(),
         operation_admission=OperationAdmissionGate(),
     )
 
-    with pytest.raises(ValueError, match="must share"):
-        Application(
-            renderer=renderer,
-            preparation=_PREPARATION,
-            resources=_RESOURCES,
-            lifecycle=_FakeLifecycle(),
-            operation_admission=OperationAdmissionGate(),
-        )
+    assert not hasattr(renderer, "operation_admission")
+
+
+async def test_close_rejects_synchronous_resource_facade_operations() -> None:
+    resources = _FakeResources()
+    app = _resource_application(_FakeLifecycle(), resources)
+    public_resources = app.resources
+
+    await app.aclose()
+
+    with pytest.raises(ProviderLifecycleError, match="closing or closed"):
+        public_resources.authorize_local(Path("asset.png"))
+    with pytest.raises(ProviderLifecycleError, match="closing or closed"):
+        public_resources.should_resolve()
+
+    assert resources.authorize_calls == 0
+    assert resources.should_resolve_calls == 0
