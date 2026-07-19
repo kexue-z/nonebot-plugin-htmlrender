@@ -29,10 +29,14 @@ render:
       revalidate_seconds: 1.0
     templates:
       environment_cache_max_entries: 64
+      environment_compiled_cache_size: 256
     local_access:
       allow_any_path: false
       allowed_paths: []
     filehost:
+      public_base_url: null # filehost transport 选中时必填
+      max_entries: 256
+      max_bytes: 268435456
       cache_ttl_seconds: 300.0
       prewarm_enabled: true
       prewarm_max_files: 256
@@ -112,6 +116,27 @@ media_type = artifact.media_type
 | `wait=` / `screenshot_timeout=` | `timeout_seconds=` |
 
 图片消费者改为 `bytes(artifact)`；HTML 消费者改为 `str(artifact)`。
+
+## 资源解析结果
+
+`resolve_template_vars()` 与 `to_resource_url()` 不再直接返回 `dict` / `str`，而是
+返回 `ResourceResolution[T]`。解析值位于 `.value`；filehost 发布产生的请求头按
+最终 URL 保存在 `.request_headers_by_url`。这是能力边界的一部分，不能只保存 URL
+并丢弃对应 header。
+
+```python
+from nonebot_plugin_htmlrender import resolve_template_vars, to_resource_url
+
+variables_result = await resolve_template_vars({"logo": "./logo.svg"})
+variables = variables_result.value
+
+logo_result = await to_resource_url("./logo.svg")
+logo_url = logo_result.value
+logo_headers = logo_result.request_headers_by_url.get(logo_url, {})
+```
+
+使用 `file`、`memory`、`passthrough` 或自定义 resolver 且未发布 filehost URL 时，
+`request_headers_by_url` 为空映射。
 
 ## lifecycle 与浏览器操作
 

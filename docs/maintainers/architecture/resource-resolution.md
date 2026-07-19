@@ -18,9 +18,27 @@ icon: lucide/files
 - `ResourceReader.read(ref, *, refresh=False)`：异步读取；强制 refresh 是一次原子
   cache 操作，不由 service 拼接 invalidate/read。
 - `LocalAccessPolicy.authorize(path)`：本地读取前授权并返回正规化路径。
-- `AssetPublisher.publish(value, *, lease_id, suffix)`：将路径或 bytes 映射为执行端 URL。
-- `WorkerExecutor.run_sync(...)`：有界执行 filesystem/native 同步工作。
-- `ResourceService`：递归模板变量、URL token 与 asset materialization。
+- `AssetPublisher.publish(value, *, lease_id, suffix) -> PublishedResource`：将路径或
+  bytes 映射为执行端 URL。返回不可变 `PublishedResource(url, request_headers)`，授权随
+  URL 一起下发；调用方按发布的精确 URL 匹配注入 header，不按 host / path 前缀 / 网络位置推断。
+- `ResourceResolution[T]`：公共资源解析结果；`.value` 保持模板可直接消费的普通
+  字符串/容器结构，`.request_headers_by_url` 汇总其中每个发布 URL 的不可变精确
+  授权。相同 URL 若出现不同 header，整个解析操作失败，不能在宽松模式下猜测其
+  中一组凭据。
+- `WorkerExecutor.run_sync(...)`：completion-bound 执行 filesystem/native 同步工作。远程
+  传输不复用该池：`RemoteTransportExecutor` 持有专用线程池，提交前获取实例级
+  admission token，token 只在 future 的 done callback 中释放（worker 数与 token 数
+  相等，池内不形成第二层 backlog）；完成事件经 AnyIO event-loop token 投递回原
+  backend，等待方只 await `anyio.Event`，取消后立即恢复且不占用默认 AnyIO worker。
+  `read_remote` 在单调 deadline（`request_timeout_seconds`）内编排
+  DNS→policy→pinned request→redirect。传输由 bootstrap 显式创建并经 application
+  lifecycle 的异步 `aclose()` 关闭（停止 admission → 按提交任务各自 deadline 排空 →
+  关闭线程池，排空超时抛 `ProviderLifecycleError` 并保持可重试）；独立使用者经
+  `open_resource_reader()` async context manager 获得 reader 与传输的所有权闭环。
+- `ResourceService`：递归模板变量、URL token 与 asset materialization；公共
+  `resolve_template_vars()`、`to_resource_url()`、`resolve_url_tokens()` 均返回
+  `ResourceResolution`，不会把 `PublishedResource` 塞进模板变量树，也不会丢弃
+  publisher 的请求授权。
 - `ProviderResources`：收窄给 Provider 的策略绑定 façade，只公开本地授权、bytes
   读取与不可变 `ResourceStrategy`。
 
@@ -63,25 +81,32 @@ cache event 采用操作语义：`miss` 只由无法复用 resident value 的 ow
 表示一次调用加入既有 load slot；`eviction` 只表示容量策略驱逐，不包含显式
 invalidate/clear。
 
-## 已知缓存边界（尚未实现）
+## 缓存边界
 
-下列行为不属于当前缓存契约，不能从现有配置项推断它们已经存在：
+已实现的容量与复用契约：
 
-- remote reader 会在首次 GET 后保存响应的 `ETag` 或 `Last-Modified` revision，
-  但 `revision(RemoteResourceRef)` 目前返回 `None`；revalidate window 到期时执行
-  完整、无条件 GET，尚未发送 `If-None-Match` / `If-Modified-Since` 条件请求；
-- filehost publisher 只有 opportunistic TTL 清理和 render lease pinning，没有
-  `max_entries` / `max_bytes` 容量预算；持续发布大量不同资源时，mapping 可能在
-  下一次 publish 触发过期清理前增长，活跃 lease 也会延长驻留；
-- Takumi compiled cache 的 `compiled_cache_max_bytes` 使用输入 source 的 UTF-8
-  byte 长度作为 weight proxy，不是 compiled/native object 的实际 resident memory；
-- `environment_cache_max_entries` 只限制外层 Jinja `Environment` LRU。每个
-  environment 仍保留 Jinja 自身默认最多 400 条的 template cache，因此总驻留上界
-  是外层环境数与各环境内部 cache 的组合，而不是单一全局 template 条目预算。
+- remote revalidation 走显式 conditional-read port：`ResourceReader.read_conditional`
+  把缓存持有的 revision 传回 reader，remote adapter 将 `etag:` / `modified:`
+  前缀的 revision token 映射到 `If-None-Match` / `If-Modified-Since`，`304`
+  返回 typed `NotModified` 并复用缓存 bytes；reader 内不保存隐式 validator 状态。
+- Jinja 内层 compiled-template cache 通过
+  `render.resources.templates.environment_compiled_cache_size` 显式绑定到每个
+  `Environment`（`0` 真正关闭缓存），与 `environment_cache_max_entries` 一起构成
+  可计算的驻留上界。
+- Takumi compiled cache 的 `compiled_cache_max_source_bytes` 明确以输入 source
+  的 UTF-8 byte 长度作为容量单位，不是 compiled/native object 的实际 resident
+  memory；native 对象数量的硬上限由 `compiled_cache_max_entries` 提供。
 
-这些边界需要分别通过 conditional HTTP reader、filehost 容量策略、可观测的
-native weight/disposer，以及显式 Jinja 内层 cache 配置解决；在实现前不应把
-`max_bytes` 或 `environment_cache_max_entries` 描述为覆盖这些对象的总内存上限。
+- hosted asset store（固定内部 mount `/_htmlrender/assets/`，由 bootstrap 在
+  ASGI 启动前安装）拥有临时目录、精确 guard registry 与容量台账：写入前预留
+  entry/byte admission，content-addressed LRU 只驱逐无 lease 资源并同步删除
+  文件，全部被 lease 占用且超限时抛稳定 capacity error；publisher 只经自身
+  namespace handle 发布/释放，TTL 只决定复用时效。`public_base_url` 是显式
+  部署配置（禁止从 bind address、`Host`/`Forwarded` header 或 request context
+  推导），filehost transport 选中而缺失时 composition 阶段即失败。
+  hosted route 与 Playwright request route 共用同一 header merge 语义
+  （`resources/headers.py`：相同值去重、冲突失败、capability 覆盖调用方预置值，
+  不允许 `setdefault` 让错误值胜出）。
 
 ## LocalAccessPolicy
 

@@ -51,7 +51,15 @@ lease 提供等价的拒绝、drain 与关闭后不可复用语义；无状态 C
 ### Preparation
 
 把 HTML、文本、Markdown 与 Jinja 模板转换为 `PreparedHtml`。输出包含
-stylesheets、assets、资源基址和 execution requirements，不包含具体引擎对象。
+stylesheets、assets、execution requirements、结构化的 `DocumentBase`（保存
+`declared_href` 与 `preparation_base_url`；`declared_href=None` 表示未声明，
+空字符串表示显式 `<base href="">`）以及 `DocumentStructureSnapshot`（references、
+linked stylesheets、`<base>` 标签位点与 head/doctype 插入位点），不包含具体引擎
+对象。`prepare_html` 是唯一解析 markup 的位置；`preparation.document.resolve_document`
+基于快照以纯字符串拼接产出 canonical markup（`<base>` 规范化、外部 stylesheet 注入），
+Playwright/Takumi/HTMLKit 与本地 asset materializer 都只消费该结果，执行期不再解析
+markup 或从中重推导 base；消费方以 `document_base.resolve(fallback_base_url=...)`
+求最终基址（执行器可提供 fallback document URL）。
 
 ### Resource contracts
 
@@ -180,7 +188,11 @@ environment、observer、publisher 和 lease provider 都属于某个 compositio
 
 宿主适配层仍可管理本质上属于整个进程的资源，例如 ASGI filehost guard、
 观测 SDK 的 exporter registry、core 统一加载的 `nonebot-plugin-localstore` 目录设施，
-以及安装工具使用的 OS signal/process task 状态。`nonebot-plugin-localstore` 必须保持
+以及安装工具使用的 OS signal/process task 状态。`PLAYWRIGHT_BROWSERS_PATH`
+属于进程环境，由 `PlaywrightDriverSpawnCoordinator`（backend-neutral 同步
+mutex，经带独立 limiter 的 worker hop 等待，不绑定首个事件循环）作为唯一
+owner：仅覆盖环境快照与 driver spawn，精确恢复变量，不串行化 browser
+lifetime，也不携带 application runtime。`nonebot-plugin-localstore` 必须保持
 core 宿主依赖，由插件入口统一加载；不得移动到 Playwright extra，也不得由
 Playwright Provider 通过 `bootstrap_requirements()` 单独声明。这些状态只能封装在
 adapter/host 边界内，不能成为业务路径读取配置、发现 service 或共享 Provider

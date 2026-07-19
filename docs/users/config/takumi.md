@@ -34,7 +34,7 @@ render:
 | `render.provider_config.font_cache_policy` | `revalidate` | 默认字体文件 cache policy |
 | `render.provider_config.max_concurrency` | `min(cpu_count, 4)` | native 调用并发上限，1–64 |
 | `render.provider_config.compiled_cache_max_entries` | `128` | compiled LRU 条目上限 |
-| `render.provider_config.compiled_cache_max_bytes` | `33554432` | compiled cache byte 上限 |
+| `render.provider_config.compiled_cache_max_source_bytes` | `33554432` | compiled cache 的模板 source UTF-8 字节预算（非 native 常驻内存）；条目数量硬上限仍由 `compiled_cache_max_entries` 提供 |
 | `render.provider_config.html_options.presets` | `chromium` | `chromium` 或 `none` |
 | `render.provider_config.html_options.tailwind_property` | `null` | Tailwind 属性名 |
 | `render.provider_config.html_options.max_depth` | `null` | parser 最大深度 |

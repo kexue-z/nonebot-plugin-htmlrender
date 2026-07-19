@@ -47,6 +47,7 @@ render:
       - skia
     max_pixels: 16777216
     max_concurrency: 2
+    max_commands: 100000
 ```
 
 | 路径 | 默认值 | 说明 |
@@ -54,6 +55,7 @@ render:
 | `render.graphics.backends` | `[]` | 显式启用的 `pillow` / `skia` Capability；不可重复 |
 | `render.graphics.max_pixels` | `16777216` | 单个场景的 `width * height` 上限，必须大于 `0` |
 | `render.graphics.max_concurrency` | `2` | 所有已启用 graphics 后端共享的 native work 并发槽，必须大于 `0` |
+| `render.graphics.max_commands` | `100000` | 单个场景的绘制命令（`FillRect`）数量上限，必须大于 `0` |
 
 `backends` 为空时不会导入 Pillow 或 Skia。两个后端同时启用时共享同一个像素策略
 与并发预算，不能通过在 Pillow 和 Skia 之间切换来绕过限制。native draw/encode

@@ -25,10 +25,14 @@ render:
       revalidate_seconds: 1.0
     templates:
       environment_cache_max_entries: 64
+      environment_compiled_cache_size: 256
     local_access:
       allow_any_path: false
       allowed_paths: []
     filehost:
+      public_base_url: null
+      max_entries: 256
+      max_bytes: 268435456
       cache_ttl_seconds: 300.0
       prewarm_enabled: true
       prewarm_max_files: 256
@@ -55,8 +59,12 @@ render:
 - `render.resources.cache.max_resource_bytes`
 - `render.resources.cache.revalidate_seconds`
 - `render.resources.templates.environment_cache_max_entries`
+- `render.resources.templates.environment_compiled_cache_size`
 - `render.resources.local_access.allow_any_path`
 - `render.resources.local_access.allowed_paths`
+- `render.resources.filehost.public_base_url`
+- `render.resources.filehost.max_entries`
+- `render.resources.filehost.max_bytes`
 - `render.resources.filehost.cache_ttl_seconds`
 - `render.resources.filehost.prewarm_enabled`
 - `render.resources.filehost.prewarm_max_files`

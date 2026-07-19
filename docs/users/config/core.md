@@ -37,6 +37,7 @@ Playwright 未显式设置 `render.provider_config.storage_path` 时，会在插
 | `render.resources.cache.max_resource_bytes` | `67108864` | 单个资源读取/发布上限，`0` 表示不限制 |
 | `render.resources.cache.revalidate_seconds` | `1.0` | cached resource 的 revision 复查/重读窗口 |
 | `render.resources.templates.environment_cache_max_entries` | `64` | Jinja environment LRU 上限 |
+| `render.resources.templates.environment_compiled_cache_size` | `256` | 每个 Jinja environment 的 compiled-template cache 大小，`0` 关闭；与 environment 上限共同构成模板驻留硬上界 |
 
 缓存按 composition 隔离，命中不会绕过路径授权。filesystem 按 stat revision
 复查，package/inline 使用稳定 revision；remote ref 没有可用 revision 时会在
@@ -61,11 +62,18 @@ Playwright 未显式设置 `render.provider_config.storage_path` 时，会在插
 | `render.resources.remote_access.allow_hosts` | `[]` | 允许绕过私网封锁的 host 白名单（含子域） |
 | `render.resources.remote_access.deny_hosts` | `[]` | 始终拒绝的 host 黑名单，优先级最高 |
 | `render.resources.remote_access.max_redirects` | `5` | 远程抓取允许的最大重定向次数 |
+| `render.resources.remote_access.request_timeout_seconds` | `30` | 单次远程抓取的端到端截止时间（覆盖 DNS、全部重定向与正文读取） |
+| `render.resources.remote_access.max_concurrent_fetches` | `8` | 远程抓取专用执行器的并发上限 |
 
 远程资源默认拒绝解析到 loopback、链路本地（含云 metadata `169.254.169.254`）、
 RFC1918 私网及保留网段的目标；DNS 每次解析与每一跳重定向都会重新校验，
 连接固定在通过校验的地址上以抵御 DNS rebinding。仅 `http`/`https` scheme
 可用。需要访问内网资源时把具体 host 加入 `allow_hosts`。
+
+`request_timeout_seconds` 是一个单调截止时间，覆盖 DNS、全部重定向和正文读取，
+不会每跳重置；到期后调用方在调度误差内恢复控制。远程传输使用独立的有界执行器
+（`max_concurrent_fetches`），慢 DNS/socket 被取消后最多占用该执行器的槽位，
+不会挤占模板、图形或原生渲染的 worker。
 
 ## Filehost publisher
 
@@ -73,6 +81,9 @@ RFC1918 私网及保留网段的目标；DNS 每次解析与每一跳重定向�
 
 | 路径 | 默认值 |
 | --- | --- |
+| `render.resources.filehost.public_base_url` | `null`（选用 filehost transport 时必填） |
+| `render.resources.filehost.max_entries` | `256` |
+| `render.resources.filehost.max_bytes` | `268435456` |
 | `render.resources.filehost.cache_ttl_seconds` | `300.0` |
 | `render.resources.filehost.prewarm_enabled` | `true` |
 | `render.resources.filehost.prewarm_max_files` | `256` |
@@ -81,6 +92,16 @@ RFC1918 私网及保留网段的目标；DNS 每次解析与每一跳重定向�
 | `render.resources.filehost.request_header_name` | `X-HTMLRender-Filehost-Request` |
 | `render.resources.filehost.request_header_value` | `null` |
 | `render.resources.filehost.request_header_salt` | 内置稳定值 |
+
+发布的资源由 htmlrender 自有的 hosted asset store 服务，固定内部 mount 为
+`/_htmlrender/assets/`；不再依赖 `nonebot-plugin-filehost`，也不再干涉其他
+插件的 `/filehost/` 路径。`public_base_url` 是执行端可访问的资源集合绝对
+基址（仅 `http`/`https`，不含 userinfo/query/fragment；可带反向代理公开的
+路径前缀），部署方负责把它映射到固定内部 mount；缺失时插件在 composition
+阶段即失败，不会推迟到首次 publish。`max_entries`/`max_bytes` 是 hosted
+asset 的容量硬上限：仅无 lease 的资源可被 LRU 驱逐并同步删除文件，全部被
+lease 占用且超限时抛稳定 capacity error；`cache_ttl_seconds` 只决定复用
+时效，不充当容量上限。
 
 Resource Service 拥有 publisher 配置，Provider 只返回不可变的 transport 策略。
 

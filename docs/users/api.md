@@ -112,14 +112,23 @@ artifact = await rasterize_html(
 ```
 
 `prepare_text`、`prepare_markdown`、`prepare_template` 是异步函数；
-`PreparedHtml` 由 HTML、stylesheets、assets、`base_url` 和 requirements 组成。
+`PreparedHtml` 由 HTML、stylesheets、assets、requirements、`document_base`
+（`DocumentBase(declared_href, preparation_base_url)`，`declared_href` 为
+`None` 表示未声明 `<base href>`，空字符串表示显式 `<base href="">`）与
+`structure`（preparation 唯一一次解析产生的结构快照）组成。0.8 起
+`PreparedHtml` 只能经 `prepare_*` 工厂构造；`document_base` 与 `structure`
+是必填的解析结果，不接受手工拼装的不一致 IR。
 `prepare_markdown(markdown=..., resource_policy=...)` 与渲染 API 使用同一
 `ResourcePolicy` 语义。
 
 ## 资源辅助函数
 
 `resolve_template_vars` 递归解析映射和序列中的路径/bytes，
-`to_resource_url` 处理单个值。两者均为异步函数，并使用组合出的资源策略。
+`to_resource_url` 处理单个值。两者均为异步函数，并返回
+`ResourceResolution[T]`：`.value` 是解析后的值，`.request_headers_by_url`
+按最终 URL 精确携带 filehost 请求授权。非 filehost transport 的授权映射为空；
+调用方不得把一条 URL 的 header 扩大到同 host、同路径前缀或重定向目标。
+两个函数均使用组合出的资源策略。
 `template_base` 只负责相对路径定位，不会扩张本地访问白名单。
 `strict=None` 继承组合策略，`strict=False` 显式采用宽松解析，
 `strict=True` 则在任一资源无法解析时失败。
@@ -127,16 +136,20 @@ artifact = await rasterize_html(
 ```python
 from nonebot_plugin_htmlrender import resolve_template_vars, to_resource_url
 
-variables = await resolve_template_vars(
+variables_result = await resolve_template_vars(
     {"avatar": "assets/avatar.png"},
     template_base="templates",
     strict=True,
 )
-logo_url = await to_resource_url(
+variables = variables_result.value
+
+logo_result = await to_resource_url(
     "assets/logo.svg",
     template_base="templates",
     strict=True,
 )
+logo_url = logo_result.value
+logo_headers = logo_result.request_headers_by_url.get(logo_url, {})
 ```
 
 ## Application 生命周期

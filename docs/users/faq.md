@@ -43,7 +43,9 @@ I/O 边界使用 `bytes(artifact)` 或 `artifact.data`。
 
 远端进程不能直接读取 Bot 的路径。保持
 `render.provider_config.remote_local_resource_policy: memory`，或在明确共享卷
-时使用 `passthrough`；确需 HTTP URL 时安装 filehost extra。
+时使用 `passthrough`；确需 HTTP URL 时选择 `filehost` policy 并配置
+`render.resources.filehost.public_base_url`（资源由 htmlrender 自有的
+hosted asset store 提供服务）。
 
 ## 模板变量中的 Path/bytes 怎么处理？
 

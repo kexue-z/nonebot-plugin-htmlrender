@@ -39,6 +39,7 @@ EXPECTED_PUBLIC_EXPORTS = frozenset(
         "RenderedImage",
         "Renderer",
         "ResourcePolicy",
+        "ResourceResolution",
         "get_default_application",
         "get_default_renderer",
         "prepare_html",
@@ -69,6 +70,7 @@ EXPECTED_CONFIG_PATHS = frozenset(
         "render.resources.local_access.allow_any_path",
         "render.resources.local_access.allowed_paths",
         "render.resources.templates.environment_cache_max_entries",
+        "render.resources.templates.environment_compiled_cache_size",
         "render.startup",
     }
 )
