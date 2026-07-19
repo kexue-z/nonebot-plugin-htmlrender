@@ -43,7 +43,22 @@ class OperationObserver(Protocol):
 
 
 class ApplicationLifecycle(Protocol):
-    """Startup, probe, and shutdown of the composed provider runtime."""
+    """Startup, probe, and shutdown of the composed provider runtime.
+
+    Contract for provider adapters:
+
+    - ``compose`` (upstream of this port) performs no I/O and acquires no
+      runtime resources; only ``startup`` may.
+    - ``startup`` is failure-atomic and retryable: on error the provider is
+      left equivalent to not started, and a later ``startup`` may succeed as
+      long as any rollback fully succeeded. If rollback itself fails the
+      composition is poisoned and further ``startup`` must raise
+      ``ProviderLifecycleError``.
+    - ``probe`` never changes ownership; it only exercises a started runtime.
+    - ``aclose`` is idempotent over not-started, partially-started, started
+      and poisoned states, and at least attempts to release every resource
+      it acquired.
+    """
 
     async def startup(self) -> None: ...
 

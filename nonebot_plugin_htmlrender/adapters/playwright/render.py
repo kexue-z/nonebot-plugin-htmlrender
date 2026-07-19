@@ -8,7 +8,7 @@ from importlib.metadata import version as pkg_version
 import re
 from typing import TYPE_CHECKING, cast
 from typing_extensions import Unpack
-from urllib.parse import parse_qs, urlparse, urlsplit, urlunsplit
+from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
@@ -17,7 +17,10 @@ if TYPE_CHECKING:
         ProxySettings,
     )
 
+import anyio
+from anyio import CapacityLimiter
 from anyio.to_thread import run_sync
+from exceptiongroup import BaseExceptionGroup
 from nonebot.log import logger
 from playwright.async_api import (
     Browser,
@@ -25,29 +28,58 @@ from playwright.async_api import (
     Playwright,
     async_playwright,
 )
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_fixed
 
 from nonebot_plugin_htmlrender.providers.sdk import PLAYWRIGHT_PROVIDER_ID, EngineId
 from nonebot_plugin_htmlrender.rendering.observers import observe_operation
 
-from ._support import suppress_and_log
 from .config import BrowserEngine
 from .install import install_browser
 from .install_state import (
-    clear_playwright_env_vars,
-    prepare_playwright_env_vars,
     reconcile_legacy_playwright_cache,
     record_playwright_runtime_state,
 )
+from .spawn import DRIVER_SPAWN_COORDINATOR
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.rendering.ports import OperationObserver
 
     from .config import PlaywrightConfig
 
+_WS_PROBE_DEADLINE_SECONDS = 4.0
+
 
 class StrEnum(str, Enum):
     pass
+
+
+class LaunchFailureKind(StrEnum):
+    """Stable categories for browser launch/connect failures."""
+
+    INSTALL_REQUIRED = "install_required"
+    CONFIGURATION = "configuration"
+    REMOTE_CONNECT = "remote_connect"
+    VERSION_INCOMPATIBLE = "version_incompatible"
+    RUNTIME_DEPENDENCY = "runtime_dependency"
+
+
+_INSTALL_REQUIRED_MARKERS = (
+    "Executable doesn't exist",
+    "download new browsers",
+)
+_RUNTIME_DEPENDENCY_MARKERS = (
+    "missing dependencies",
+    "install-deps",
+    "shared libraries",
+)
+
+
+def _classify_local_launch_failure(error: BaseException) -> LaunchFailureKind:
+    message = str(error)
+    if any(marker in message for marker in _INSTALL_REQUIRED_MARKERS):
+        return LaunchFailureKind.INSTALL_REQUIRED
+    if any(marker in message for marker in _RUNTIME_DEPENDENCY_MARKERS):
+        return LaunchFailureKind.RUNTIME_DEPENDENCY
+    return LaunchFailureKind.CONFIGURATION
 
 
 class PlaywrightMode(StrEnum):
@@ -89,7 +121,6 @@ class PlaywrightEngine:
         """Prepare the environment and create one process/browser lease."""
         playwright: Playwright | None = None
         try:
-            await run_sync(prepare_playwright_env_vars, self._config)
             await run_sync(
                 partial(
                     reconcile_legacy_playwright_cache,
@@ -104,7 +135,11 @@ class PlaywrightEngine:
                 "playwright.open_runtime",
                 {"render.backend": self.backend},
             ):
-                playwright = await async_playwright().start()
+                # The coordinator is the process-wide owner of the browser
+                # store env var; it scopes the snapshot to this driver spawn
+                # without serializing browser lifetime or binding a backend.
+                async with DRIVER_SPAWN_COORDINATOR.browsers_path_guard(self._config):
+                    playwright = await async_playwright().start()
             with observe_operation(
                 self._operation_observer,
                 "playwright.open_session",
@@ -112,11 +147,16 @@ class PlaywrightEngine:
             ):
                 mode = self._resolve_mode()
                 browser = await self._create_browser(playwright, mode)
-        except BaseException:
+        except BaseException as error:
             if playwright is not None:
-                with suppress_and_log():
+                try:
                     await playwright.stop()
-            clear_playwright_env_vars(self._config)
+                except Exception as stop_error:
+                    raise BaseExceptionGroup(
+                        "Playwright lease creation failed and the spawned "
+                        "driver could not be stopped.",
+                        [error, stop_error],
+                    ) from None
             raise
         return PlaywrightLease(
             playwright=playwright,
@@ -128,19 +168,35 @@ class PlaywrightEngine:
         return lease.browser.is_connected()
 
     async def close_lease(self, lease: PlaywrightLease) -> None:
+        """Close browser and driver separately, aggregating every failure.
+
+        Both steps always run so a browser-close failure cannot leak the
+        driver process; the caller receives every teardown error and decides
+        whether the close may be retried.
+        """
+        errors: list[Exception] = []
         if (
             lease.mode == PlaywrightMode.LOCAL
             and self._config.close_on_exit
             and lease.browser.is_connected()
         ):
             logger.debug("Closing browser...")
-            with suppress_and_log():
+            try:
                 await lease.browser.close()
+            except Exception as error:
+                errors.append(error)
+            else:
                 logger.info("Browser closed.")
-        with suppress_and_log():
+        try:
             await lease.playwright.stop()
+        except Exception as error:
+            errors.append(error)
+        else:
             logger.info("Playwright stopped.")
-        clear_playwright_env_vars(self._config)
+        if len(errors) == 1:
+            raise errors[0]
+        if errors:
+            raise BaseExceptionGroup("Playwright teardown failed.", errors)
 
     @staticmethod
     def _normalize_endpoint(value: object) -> str | None:
@@ -187,24 +243,36 @@ class PlaywrightEngine:
                 endpoint = self._normalize_endpoint(cfg.connect_cdp.endpoint)
                 if not endpoint:
                     raise RuntimeError("CDP endpoint is empty.")
-                logger.info(
-                    f"Connecting to Chromium via CDP ({self._redact_url(endpoint)})"
-                )
+                logger.info("Connecting to Chromium via CDP.")
                 chromium = self._get_browser_type(pw, BrowserEngine.CHROMIUM.value)
-                return await chromium.connect_over_cdp(endpoint)
+                try:
+                    return await chromium.connect_over_cdp(endpoint)
+                except Exception as error:
+                    self._log_launch_failure(
+                        LaunchFailureKind.REMOTE_CONNECT, mode, attempt=1
+                    )
+                    raise RuntimeError(
+                        "Playwright remote CDP connection failed "
+                        f"({LaunchFailureKind.REMOTE_CONNECT.value})."
+                    ) from error
 
             case PlaywrightMode.REMOTE_WS:
                 endpoint = self._normalize_endpoint(cfg.connect_ws.endpoint)
                 if not endpoint:
                     raise RuntimeError("WS endpoint is empty.")
-                self._check_ws_version_gate(endpoint)
-                logger.info(
-                    "Connecting to "
-                    f"{browser_name.capitalize()} via WebSocket endpoint: "
-                    f"{self._redact_url(endpoint)}"
-                )
+                await self._check_ws_version_gate(endpoint)
+                logger.info(f"Connecting to {browser_name.capitalize()} via WebSocket.")
                 browser_type = self._get_browser_type(pw, browser_name)
-                return await browser_type.connect(endpoint=endpoint)
+                try:
+                    return await browser_type.connect(endpoint=endpoint)
+                except Exception as error:
+                    self._log_launch_failure(
+                        LaunchFailureKind.REMOTE_CONNECT, mode, attempt=1
+                    )
+                    raise RuntimeError(
+                        "Playwright remote WebSocket connection failed "
+                        f"({LaunchFailureKind.REMOTE_CONNECT.value})."
+                    ) from error
 
             case _:
                 browser_type = self._get_browser_type(pw, browser_name)
@@ -220,7 +288,7 @@ class PlaywrightEngine:
                 if cfg.executable_path:
                     options["executable_path"] = str(cfg.executable_path)
                     return await browser_type.launch(**options)
-                return await self._check_env_with_install_retry(pw, **options)
+                return await self._launch_local_browser(pw, **options)
 
     @staticmethod
     def _build_proxy(
@@ -242,62 +310,60 @@ class PlaywrightEngine:
         return proxy
 
     @staticmethod
-    def _redact_url(value: str) -> str:
-        """脱敏 URL，移除查询参数和认证信息。"""
-        try:
-            parsed = urlsplit(value)
-        except Exception:
-            return value
+    def _log_launch_failure(
+        kind: LaunchFailureKind,
+        mode: PlaywrightMode,
+        *,
+        attempt: int,
+    ) -> None:
+        # Only the stable category, mode, and attempt counter — no endpoint,
+        # exception payload, or install source.
+        logger.warning(
+            "Playwright browser launch failed "
+            f"(category={kind.value}, mode={mode.value}, attempt={attempt})."
+        )
 
-        netloc = parsed.hostname or ""
-        if parsed.port is not None:
-            netloc = f"{netloc}:{parsed.port}"
-        return urlunsplit((parsed.scheme, netloc, parsed.path, "", ""))
-
-    @retry(
-        retry=retry_if_exception_type(RuntimeError),
-        stop=stop_after_attempt(4),
-        wait=wait_fixed(1),
-        reraise=True,
-        before_sleep=lambda retry_state: logger.warning(
-            f"Attempt {retry_state.attempt_number} failed, retrying..."
-        ),
-    )
-    async def _check_env_with_install_retry(
+    async def _launch_local_browser(
         self,
         pw: Playwright,
         **kwargs: Unpack[BrowserLaunchKwargs],
     ) -> Browser:
-        """检查 Playwright 环境，启动失败时自动安装浏览器并重试。"""
-        try:
-            return await self._check_playwright_env(pw, **kwargs)
-        except RuntimeError:
-            if self._config.skip_browser_install:
-                raise
-            try:
-                await install_browser(self._config)
-            except Exception as e:
-                logger.exception("Browser installation failed.")
-                raise RuntimeError(f"install_browser failed: {e}") from e
-            raise
+        """Launch locally; only a definite install-required failure installs.
 
-    async def _check_playwright_env(
-        self,
-        pw: Playwright,
-        **kwargs: Unpack[BrowserLaunchKwargs],
-    ) -> Browser:
-        """检查 Playwright 环境并尝试启动浏览器。"""
-        logger.info("Checking Playwright environment...")
+        One installation and one retry at most. Configuration, runtime
+        dependency, and any other failure translate immediately without
+        touching the browser store.
+        """
+        browser_type = self._get_browser_type(pw, self._config.engine.value)
         try:
-            browser_type = self._get_browser_type(pw, self._config.engine.value)
-            browser = await browser_type.launch(**kwargs)
-            logger.success("Playwright environment is set up correctly.")
-            return browser
-        except Exception as e:
+            return await browser_type.launch(**kwargs)
+        except Exception as error:
+            kind = _classify_local_launch_failure(error)
+            self._log_launch_failure(kind, PlaywrightMode.LOCAL, attempt=1)
+            if (
+                kind is not LaunchFailureKind.INSTALL_REQUIRED
+                or self._config.skip_browser_install
+            ):
+                raise RuntimeError(
+                    f"Playwright browser launch failed ({kind.value}). Refer to "
+                    "https://playwright.dev/python/docs/intro#system-requirements"
+                ) from error
+        try:
+            await install_browser(self._config)
+        except Exception as error:
             raise RuntimeError(
-                "Playwright environment is not set up correctly. "
-                "Refer to https://playwright.dev/python/docs/intro#system-requirements"
-            ) from e
+                "Playwright browser installation failed after an "
+                "install-required launch failure."
+            ) from error
+        try:
+            return await browser_type.launch(**kwargs)
+        except Exception as error:
+            kind = _classify_local_launch_failure(error)
+            self._log_launch_failure(kind, PlaywrightMode.LOCAL, attempt=2)
+            raise RuntimeError(
+                "Playwright browser launch failed after one install retry "
+                f"({kind.value})."
+            ) from error
 
     @staticmethod
     def _get_browser_type(pw: Playwright, browser_type: str) -> BrowserType:
@@ -366,39 +432,63 @@ class PlaywrightEngine:
         return (int(match.group(1)), int(match.group(2)), int(match.group(3)))
 
     @classmethod
-    def _probe_ws_http_version(cls, ws_endpoint: str) -> tuple[int, int, int] | None:
-        """通过 HTTP 探测远程 WebSocket 服务的 Playwright 版本。"""
-        parsed = urlparse(ws_endpoint)
-        if parsed.scheme not in {"ws", "wss"}:
-            return None
-        http_scheme = "https" if parsed.scheme == "wss" else "http"
-        base = f"{http_scheme}://{parsed.netloc}"
-
-        def _probe_path(path: str) -> tuple[int, int, int] | None:
+    def _probe_ws_paths(cls, base: str) -> tuple[int, int, int] | None:
+        """Blocking HTTP probe over the version endpoints of one origin."""
+        for path in ("/json/version", "/"):
             try:
                 request = Request(f"{base}{path}", method="GET")  # noqa: S310
                 with urlopen(request, timeout=2) as resp:  # noqa: S310
                     body = resp.read().decode("utf-8", errors="ignore")
-                return cls._extract_version_from_text(body)
-            except Exception as e:
-                logger.debug(f"WS version probe failed for {base}{path}: {e!s}")
-                return None
-
-        for path in ("/json/version", "/"):
-            version = _probe_path(path)
+            except Exception as error:
+                logger.debug(
+                    "WS version probe request failed: {}",
+                    type(error).__name__,
+                )
+                continue
+            version = cls._extract_version_from_text(body)
             if version is not None:
                 return version
         return None
 
     @classmethod
-    def _detect_remote_ws_version(cls, ws_endpoint: str) -> tuple[int, int, int] | None:
+    async def _probe_ws_http_version(
+        cls,
+        ws_endpoint: str,
+    ) -> tuple[int, int, int] | None:
+        """Probe the remote Playwright version without blocking the loop.
+
+        The stdlib HTTP probe runs on a bounded worker hop under one unified
+        deadline covering both probed paths; cancellation abandons the hop
+        instead of blocking the event loop.
+        """
+        parsed = urlparse(ws_endpoint)
+        if parsed.scheme not in {"ws", "wss"}:
+            return None
+        http_scheme = "https" if parsed.scheme == "wss" else "http"
+        base = f"{http_scheme}://{parsed.netloc}"
+        try:
+            with anyio.fail_after(_WS_PROBE_DEADLINE_SECONDS):
+                return await run_sync(
+                    partial(cls._probe_ws_paths, base),
+                    limiter=CapacityLimiter(1),
+                    abandon_on_cancel=True,
+                )
+        except TimeoutError:
+            logger.debug("WS version probe exceeded its deadline.")
+            return None
+
+    @classmethod
+    async def _detect_remote_ws_version(
+        cls,
+        ws_endpoint: str,
+    ) -> tuple[int, int, int] | None:
         """检测远程 WebSocket 端点的 Playwright 版本。"""
         version = cls._extract_version_from_endpoint(ws_endpoint)
         if version is not None:
             return version
-        return cls._probe_ws_http_version(ws_endpoint)
+        return await cls._probe_ws_http_version(ws_endpoint)
 
-    def _check_ws_version_gate(self, endpoint: str | None = None) -> None:
+    async def _check_ws_version_gate(self, endpoint: str | None = None) -> None:
         """检查本地与远程 Playwright 版本兼容性，不兼容时抛出异常。"""
         ws_endpoint = endpoint or self._config.connect_ws.endpoint
         if not ws_endpoint:
@@ -414,12 +504,12 @@ class PlaywrightEngine:
         if local is None:
             raise RuntimeError("Invalid local playwright version format.")
 
-        remote = self._detect_remote_ws_version(ws_endpoint)
+        remote = await self._detect_remote_ws_version(ws_endpoint)
         if remote is None:
             logger.warning(
-                "WS version gate: unable to detect remote Playwright version "
-                f"from endpoint {self._redact_url(ws_endpoint)!r}; continuing without strict version "
-                "compatibility check."
+                "WS version gate: unable to detect the remote Playwright "
+                "version; continuing without strict version compatibility "
+                "check."
             )
             return
 

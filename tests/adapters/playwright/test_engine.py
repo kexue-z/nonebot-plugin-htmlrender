@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from inspect import unwrap
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 
+from exceptiongroup import BaseExceptionGroup
 import pytest
 
 from nonebot_plugin_htmlrender.adapters.playwright.availability import (
@@ -63,12 +63,6 @@ def test_proxy_and_url_helpers() -> None:
         "http://proxy:7890",
         "localhost",
     ) == {"server": "http://proxy:7890", "bypass": "localhost"}
-    assert (
-        PlaywrightEngine._redact_url(
-            "https://user:pass@example.com:8443/path?token=secret#fragment"
-        )
-        == "https://example.com:8443/path"
-    )
 
 
 async def test_create_browser_remote_cdp_uses_configured_endpoint(
@@ -97,7 +91,11 @@ async def test_create_browser_remote_ws_runs_version_gate(
     chromium.connect = mocker.AsyncMock(return_value=browser)
     playwright = SimpleNamespace(chromium=chromium)
     engine = _engine(connect_ws={"endpoint": "ws://host/browser"})
-    gate = mocker.patch.object(engine, "_check_ws_version_gate")
+    gate = mocker.patch.object(
+        engine,
+        "_check_ws_version_gate",
+        new=mocker.AsyncMock(),
+    )
 
     result = await engine._create_browser(
         cast("Playwright", playwright),
@@ -105,7 +103,7 @@ async def test_create_browser_remote_ws_runs_version_gate(
     )
 
     assert result is browser
-    gate.assert_called_once_with("ws://host/browser")
+    gate.assert_awaited_once_with("ws://host/browser")
     chromium.connect.assert_awaited_once_with(endpoint="ws://host/browser")
 
 
@@ -148,7 +146,7 @@ async def test_create_browser_local_delegates_environment_check(
     engine = _engine()
     check = mocker.patch.object(
         engine,
-        "_check_env_with_install_retry",
+        "_launch_local_browser",
         new=mocker.AsyncMock(return_value="browser"),
     )
 
@@ -158,26 +156,27 @@ async def test_create_browser_local_delegates_environment_check(
     check.assert_awaited_once_with(playwright)
 
 
-async def test_install_retry_honors_skip_setting(mocker: MockerFixture) -> None:
+async def test_install_required_launch_honors_skip_setting(
+    mocker: MockerFixture,
+) -> None:
     engine = _engine(skip_browser_install=True)
-    check = mocker.patch.object(
-        engine,
-        "_check_playwright_env",
-        new=mocker.AsyncMock(side_effect=RuntimeError("missing")),
+    chromium = mocker.Mock()
+    chromium.launch = mocker.AsyncMock(
+        side_effect=RuntimeError("Executable doesn't exist at /browsers/chromium"),
     )
+    playwright = cast("Playwright", SimpleNamespace(chromium=chromium))
     install = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.install_browser",
         new=mocker.AsyncMock(),
     )
-    call = unwrap(PlaywrightEngine._check_env_with_install_retry)
 
-    with pytest.raises(RuntimeError, match="missing"):
-        await call(engine, cast("Playwright", object()))
-    check.assert_awaited_once()
+    with pytest.raises(RuntimeError, match="install_required"):
+        await engine._launch_local_browser(playwright)
+    chromium.launch.assert_awaited_once()
     install.assert_not_awaited()
 
 
-async def test_install_retry_uses_same_injected_config(
+async def test_install_required_launch_installs_once_and_retries_once(
     mocker: MockerFixture,
 ) -> None:
     config = PlaywrightConfig()
@@ -185,23 +184,47 @@ async def test_install_retry_uses_same_injected_config(
         config,
         operation_observer=NoopOperationObserver(),
     )
-    mocker.patch.object(
-        engine,
-        "_check_playwright_env",
-        new=mocker.AsyncMock(side_effect=RuntimeError("missing")),
+    browser = object()
+    chromium = mocker.Mock()
+    chromium.launch = mocker.AsyncMock(
+        side_effect=[
+            RuntimeError("Executable doesn't exist at /browsers/chromium"),
+            browser,
+        ],
     )
+    playwright = cast("Playwright", SimpleNamespace(chromium=chromium))
     install = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.install_browser",
-        new=mocker.AsyncMock(return_value=True),
+        new=mocker.AsyncMock(),
     )
-    call = unwrap(PlaywrightEngine._check_env_with_install_retry)
 
-    with pytest.raises(RuntimeError, match="missing"):
-        await call(engine, cast("Playwright", object()))
+    result = await engine._launch_local_browser(playwright)
+
+    assert result is browser
+    assert chromium.launch.await_count == 2
+    install.assert_awaited_once()
     assert install.await_args is not None
-    installed_config = install.await_args.args[0]
-    assert isinstance(installed_config, PlaywrightConfig)
-    assert installed_config == config
+    assert install.await_args.args[0] == config
+
+
+async def test_configuration_launch_failure_never_installs(
+    mocker: MockerFixture,
+) -> None:
+    engine = _engine()
+    chromium = mocker.Mock()
+    chromium.launch = mocker.AsyncMock(
+        side_effect=RuntimeError("Unknown launch option: bogus"),
+    )
+    playwright = cast("Playwright", SimpleNamespace(chromium=chromium))
+    install = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.render.install_browser",
+        new=mocker.AsyncMock(),
+    )
+
+    with pytest.raises(RuntimeError, match="configuration"):
+        await engine._launch_local_browser(playwright)
+    chromium.launch.assert_awaited_once()
+    install.assert_not_awaited()
 
 
 def test_semver_and_endpoint_helpers() -> None:
@@ -224,7 +247,7 @@ def test_semver_and_endpoint_helpers() -> None:
     ) == (1, 55, 2)
 
 
-def test_ws_version_gate_warns_when_remote_version_is_unknown(
+async def test_ws_version_gate_warns_when_remote_version_is_unknown(
     mocker: MockerFixture,
 ) -> None:
     engine = _engine(connect_ws={"endpoint": "ws://host/browser"})
@@ -232,12 +255,16 @@ def test_ws_version_gate_warns_when_remote_version_is_unknown(
         "nonebot_plugin_htmlrender.adapters.playwright.render.pkg_version",
         return_value="1.55.0",
     )
-    mocker.patch.object(engine, "_detect_remote_ws_version", return_value=None)
+    mocker.patch.object(
+        engine,
+        "_detect_remote_ws_version",
+        new=mocker.AsyncMock(return_value=None),
+    )
     warning = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.logger.warning"
     )
 
-    engine._check_ws_version_gate()
+    await engine._check_ws_version_gate()
 
     warning.assert_called_once()
 
@@ -344,8 +371,8 @@ async def test_create_and_close_lease_owns_process_and_browser(
         "_create_browser",
         new=mocker.AsyncMock(return_value=browser),
     )
-    prepare = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render.prepare_playwright_env_vars"
+    scope = mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.spawn.browsers_path_scope"
     )
     reconcile = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.reconcile_legacy_playwright_cache"
@@ -353,21 +380,17 @@ async def test_create_and_close_lease_owns_process_and_browser(
     record = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.record_playwright_runtime_state"
     )
-    clear = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render.clear_playwright_env_vars"
-    )
 
     lease = await engine.create_lease()
     await engine.close_lease(lease)
 
     assert lease.playwright is playwright
     assert lease.browser is browser
-    prepare.assert_called_once()
+    scope.assert_called_once()
     reconcile.assert_called_once()
     record.assert_called_once()
     browser.close.assert_awaited_once_with()
     playwright.stop.assert_awaited_once_with()
-    clear.assert_called_once()
 
 
 async def test_create_lease_cleans_process_when_browser_creation_fails(
@@ -388,7 +411,7 @@ async def test_create_lease_cleans_process_when_browser_creation_fails(
         new=mocker.AsyncMock(side_effect=RuntimeError("launch failed")),
     )
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render.prepare_playwright_env_vars"
+        "nonebot_plugin_htmlrender.adapters.playwright.spawn.browsers_path_scope"
     )
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.reconcile_legacy_playwright_cache"
@@ -396,24 +419,79 @@ async def test_create_lease_cleans_process_when_browser_creation_fails(
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.record_playwright_runtime_state"
     )
-    clear = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render.clear_playwright_env_vars"
-    )
 
     with pytest.raises(RuntimeError, match="launch failed"):
         await engine.create_lease()
 
     playwright.stop.assert_awaited_once_with()
-    clear.assert_called_once()
 
 
-async def test_create_lease_clears_environment_when_preparation_fails(
+async def test_close_lease_aggregates_browser_and_driver_failures(
+    mocker: MockerFixture,
+) -> None:
+    config = PlaywrightConfig()
+    engine = PlaywrightEngine(
+        config,
+        operation_observer=NoopOperationObserver(),
+    )
+    playwright = mocker.Mock()
+    playwright.stop = mocker.AsyncMock(side_effect=RuntimeError("stop failed"))
+    browser = mocker.Mock()
+    browser.is_connected.return_value = True
+    browser.close = mocker.AsyncMock(side_effect=RuntimeError("close failed"))
+    lease = PlaywrightLease(
+        playwright=playwright,
+        browser=browser,
+        mode=PlaywrightMode.LOCAL,
+    )
+
+    with pytest.raises(BaseExceptionGroup) as info:
+        await engine.close_lease(lease)
+
+    messages = sorted(str(error) for error in info.value.exceptions)
+    assert messages == ["close failed", "stop failed"]
+    browser.close.assert_awaited_once_with()
+    playwright.stop.assert_awaited_once_with()
+
+
+async def test_create_lease_failure_aggregates_driver_stop_failure(
     mocker: MockerFixture,
 ) -> None:
     engine = _engine()
-    prepare = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render.prepare_playwright_env_vars"
+    playwright = mocker.Mock()
+    playwright.stop = mocker.AsyncMock(side_effect=RuntimeError("stop failed"))
+    starter = mocker.Mock()
+    starter.start = mocker.AsyncMock(return_value=playwright)
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.render.async_playwright",
+        return_value=starter,
     )
+    mocker.patch.object(
+        engine,
+        "_create_browser",
+        new=mocker.AsyncMock(side_effect=RuntimeError("launch failed")),
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.spawn.browsers_path_scope"
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.render.reconcile_legacy_playwright_cache"
+    )
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.render.record_playwright_runtime_state"
+    )
+
+    with pytest.raises(BaseExceptionGroup) as info:
+        await engine.create_lease()
+
+    messages = sorted(str(error) for error in info.value.exceptions)
+    assert messages == ["launch failed", "stop failed"]
+
+
+async def test_create_lease_propagates_preparation_failure(
+    mocker: MockerFixture,
+) -> None:
+    engine = _engine()
     reconcile = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.reconcile_legacy_playwright_cache",
         side_effect=RuntimeError("cache reconciliation failed"),
@@ -421,17 +499,12 @@ async def test_create_lease_clears_environment_when_preparation_fails(
     starter = mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.render.async_playwright"
     )
-    clear = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.render.clear_playwright_env_vars"
-    )
 
     with pytest.raises(RuntimeError, match="cache reconciliation failed"):
         await engine.create_lease()
 
-    prepare.assert_called_once()
     reconcile.assert_called_once()
     starter.assert_not_called()
-    clear.assert_called_once()
 
 
 def test_lease_liveness_is_browser_connection(mocker: MockerFixture) -> None:

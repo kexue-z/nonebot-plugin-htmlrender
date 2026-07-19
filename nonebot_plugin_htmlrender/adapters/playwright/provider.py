@@ -33,7 +33,6 @@ from nonebot_plugin_htmlrender.rendering.requests import (
     effective_resource_resolve_mode,
 )
 from nonebot_plugin_htmlrender.resources.config import (
-    RemoteLocalResourcePolicy,
     ResourceStrategy,
 )
 
@@ -129,16 +128,6 @@ async def _probe(lease: PlaywrightLease) -> None:
         return
 
 
-def _uses_filehost(config: PlaywrightConfig) -> bool:
-    is_remote = bool(config.connect_ws.endpoint or config.connect_cdp.endpoint)
-    policy = (
-        config.remote_local_resource_policy
-        if is_remote
-        else config.local_local_resource_policy
-    )
-    return policy == RemoteLocalResourcePolicy.FILEHOST
-
-
 @final
 class PlaywrightProvider:
     """First-party provider for the Playwright browser engine."""
@@ -160,14 +149,9 @@ class PlaywrightProvider:
         self,
         settings: PlaywrightConfig,
     ) -> tuple[PluginRequirement, ...]:
-        config = self._narrow(settings)
-        if _uses_filehost(config):
-            return (
-                PluginRequirement(
-                    plugin_name="nonebot_plugin_filehost",
-                    reason="filehost local-resource policy is enabled",
-                ),
-            )
+        # The filehost transport is served by the htmlrender-owned hosted
+        # asset store; no external NoneBot plugin is required anymore.
+        self._narrow(settings)
         return ()
 
     def resource_strategy(self, settings: PlaywrightConfig) -> ResourceStrategy:

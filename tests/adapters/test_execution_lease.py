@@ -13,6 +13,7 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     ExecutionLeaseProvider,
     PreparedHtmlLeaseExecutor,
 )
+from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderExecutionError,
@@ -214,11 +215,11 @@ async def test_close_rejects_new_work_and_drains_the_active_operation() -> None:
         await provider.probe()
 
 
-async def test_close_is_bounded_when_an_operation_does_not_drain(
+async def test_drain_timeout_keeps_runtime_and_close_is_retryable(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr(lease_module, "_DRAIN_TIMEOUT_SECONDS", 0.01)
-    closed = anyio.Event()
+    closed: list[_Lease] = []
     operation_entered = anyio.Event()
     release_operation = anyio.Event()
 
@@ -227,7 +228,7 @@ async def test_close_is_bounded_when_an_operation_does_not_drain(
 
     async def close(lease: _Lease) -> None:
         lease.alive = False
-        closed.set()
+        closed.append(lease)
 
     provider = _provider(create, close)
 
@@ -239,9 +240,135 @@ async def test_close_is_bounded_when_an_operation_does_not_drain(
     async with anyio.create_task_group() as task_group:
         task_group.start_soon(operate)
         await operation_entered.wait()
-        await provider.aclose()
-        assert closed.is_set()
+        with pytest.raises(ProviderLifecycleError, match="did not drain"):
+            await provider.aclose()
+        # The runtime must survive a drain timeout; only admission stops.
+        assert closed == []
+        with pytest.raises(ProviderLifecycleError, match="close failed"):
+            async with provider.lease():
+                pass
         release_operation.set()
+
+    await provider.aclose()
+    assert len(closed) == 1
+
+
+async def test_close_failure_keeps_owner_and_retried_close_succeeds() -> None:
+    close_calls = 0
+
+    async def create() -> _Lease:
+        return _Lease(1)
+
+    async def close(lease: _Lease) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        if close_calls == 1:
+            raise RuntimeError("teardown exploded")
+        lease.alive = False
+
+    provider = _provider(create, close)
+    async with provider.lease():
+        pass
+
+    with pytest.raises(ProviderLifecycleError, match="teardown exploded"):
+        await provider.aclose()
+    with pytest.raises(ProviderLifecycleError, match="close failed"):
+        async with provider.lease():
+            pass
+
+    await provider.aclose()
+    assert close_calls == 2
+    await provider.aclose()
+    assert close_calls == 2
+
+
+async def test_close_timeout_is_reported_and_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(lease_module, "_TEARDOWN_TIMEOUT_SECONDS", 0.01)
+    close_calls = 0
+
+    async def create() -> _Lease:
+        return _Lease(1)
+
+    async def close(lease: _Lease) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        if close_calls == 1:
+            await anyio.sleep_forever()
+        lease.alive = False
+
+    provider = _provider(create, close)
+    async with provider.lease():
+        pass
+
+    with pytest.raises(ProviderLifecycleError, match="bounded wait"):
+        await provider.aclose()
+    await provider.aclose()
+    assert close_calls == 2
+
+
+async def test_stale_rebuild_close_failure_poisons_until_close_retry() -> None:
+    created: list[_Lease] = []
+    close_calls = 0
+
+    async def create() -> _Lease:
+        lease = _Lease(len(created) + 1)
+        created.append(lease)
+        return lease
+
+    async def close(lease: _Lease) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        if close_calls == 1:
+            raise RuntimeError("old runtime is stuck")
+        lease.alive = False
+
+    provider = _provider(create, close)
+    async with provider.lease() as first:
+        pass
+    first.alive = False
+
+    with pytest.raises(ProviderLifecycleError, match="old runtime is stuck"):
+        async with provider.lease():
+            pass
+    # No second runtime may be stacked on an unconfirmed teardown.
+    assert len(created) == 1
+    with pytest.raises(ProviderLifecycleError, match="close failed"):
+        async with provider.lease():
+            pass
+
+    await provider.aclose()
+    assert close_calls == 2
+
+
+async def test_concurrent_close_calls_share_one_close_attempt() -> None:
+    close_calls = 0
+    close_entered = anyio.Event()
+    release_close = anyio.Event()
+
+    async def create() -> _Lease:
+        return _Lease(1)
+
+    async def close(lease: _Lease) -> None:
+        nonlocal close_calls
+        close_calls += 1
+        close_entered.set()
+        await release_close.wait()
+        lease.alive = False
+
+    provider = _provider(create, close)
+    async with provider.lease():
+        pass
+
+    async with anyio.create_task_group() as task_group:
+        task_group.start_soon(provider.aclose)
+        await close_entered.wait()
+        task_group.start_soon(provider.aclose)
+        await checkpoint()
+        release_close.set()
+
+    assert close_calls == 1
 
 
 async def test_runtime_created_after_close_is_disposed_without_reopening() -> None:
@@ -323,7 +450,7 @@ async def test_prepared_executor_holds_lease_until_rasterize_finishes() -> None:
     async def execute() -> None:
         results.append(
             await executor.execute(
-                PreparedHtml(html="<p>test</p>"),
+                prepare_html("<p>test</p>"),
                 RasterOptions(width=64, height=32),
             )
         )
@@ -340,7 +467,7 @@ async def test_prepared_executor_holds_lease_until_rasterize_finishes() -> None:
     assert len(closed) == 1
     with pytest.raises(ProviderLifecycleError, match="closing or closed"):
         await executor.execute(
-            PreparedHtml(html="<p>closed</p>"),
+            prepare_html("<p>closed</p>"),
             RasterOptions(width=64, height=32),
         )
 
@@ -373,7 +500,7 @@ async def test_prepared_executor_timeout_includes_lazy_lease_startup() -> None:
 
     with pytest.raises(ProviderExecutionError, match="timed out"):
         await executor.execute(
-            PreparedHtml(html="<p>test</p>"),
+            prepare_html("<p>test</p>"),
             RasterOptions(width=64, height=32),
             timeout_seconds=0.01,
         )

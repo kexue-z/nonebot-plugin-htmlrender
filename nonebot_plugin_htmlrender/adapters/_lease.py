@@ -13,7 +13,6 @@ from enum import Enum, auto
 from typing import TYPE_CHECKING, Generic, TypeVar, final
 
 import anyio
-from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderExecutionError,
@@ -58,6 +57,7 @@ class _LeaseProviderState(Enum):
     OPEN = auto()
     CLOSING = auto()
     CLOSED = auto()
+    CLOSE_FAILED = auto()
 
 
 @final
@@ -89,6 +89,7 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
         self._drained = anyio.Event()
         self._drained.set()
         self._closed = anyio.Event()
+        self._close_error: BaseException | None = None
 
     def _attrs(self, **extra: str) -> dict[str, str]:
         return {**self._attributes, **extra}
@@ -102,6 +103,11 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
             return False
 
     def _ensure_open(self) -> None:
+        if self._state is _LeaseProviderState.CLOSE_FAILED:
+            raise ProviderLifecycleError(
+                "Execution lease provider close failed; the runtime is "
+                "retained and only a retried aclose() may release it."
+            ) from self._close_error
         if self._state is not _LeaseProviderState.OPEN:
             raise ProviderLifecycleError(
                 "Execution lease provider is closing or closed; build a new "
@@ -190,32 +196,38 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
                 await self._probe_fn(lease)
 
     async def aclose(self) -> None:
-        if self._state is _LeaseProviderState.CLOSED:
-            return
-        if self._state is _LeaseProviderState.CLOSING:
-            with anyio.CancelScope(shield=True):
-                with anyio.move_on_after(
-                    _DRAIN_TIMEOUT_SECONDS + _TEARDOWN_TIMEOUT_SECONDS
-                ):
-                    await self._closed.wait()
-            return
+        """Close the owned runtime; failures keep the owner and stay retryable.
 
-        self._state = _LeaseProviderState.CLOSING
-        lease = self._lease
-        self._lease = None
-        drained = self._drained
+        Concurrent calls share one close attempt's outcome. A drain timeout
+        or a teardown failure moves the provider to ``CLOSE_FAILED``: the
+        lease is retained, new work is rejected, and only a later
+        ``aclose()`` retries the release. ``CLOSED`` is entered exclusively
+        after the underlying close confirmed completion.
+        """
         with anyio.CancelScope(shield=True):
+            if self._state is _LeaseProviderState.CLOSED:
+                return
+            if self._state is _LeaseProviderState.CLOSING:
+                await self._closed.wait()
+                if self._state is _LeaseProviderState.CLOSED:
+                    return
+                raise ProviderLifecycleError(
+                    "The shared close attempt failed; retry aclose()."
+                ) from self._close_error
+
+            self._state = _LeaseProviderState.CLOSING
+            self._closed = anyio.Event()
             try:
                 if self._active_operations > 0:
                     with anyio.move_on_after(_DRAIN_TIMEOUT_SECONDS) as scope:
-                        await drained.wait()
+                        await self._drained.wait()
                     if scope.cancel_called:
-                        logger.opt(colors=True).warning(
-                            "<d>[htmlrender.adapters]</d> Waiting for render "
-                            "operations to drain exceeded the bounded wait of "
-                            "{timeout}s; closing the runtime.",
-                            timeout=_DRAIN_TIMEOUT_SECONDS,
+                        raise ProviderLifecycleError(
+                            "Render operations did not drain within the "
+                            f"bounded wait of {_DRAIN_TIMEOUT_SECONDS}s; the "
+                            "runtime is retained and close may be retried."
                         )
+                lease = self._lease
                 if lease is not None:
                     with observe_operation(
                         self._observer,
@@ -223,34 +235,47 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
                         self._attrs(),
                     ):
                         await self._close_lease(lease)
-            finally:
+                    self._lease = None
                 self._state = _LeaseProviderState.CLOSED
+                self._close_error = None
+            except BaseException as error:
+                self._state = _LeaseProviderState.CLOSE_FAILED
+                self._close_error = error
+                raise
+            finally:
                 self._closed.set()
 
     async def _teardown_locked(self) -> None:
         lease = self._lease
-        self._lease = None
-        if lease is not None:
+        if lease is None:
+            return
+        try:
             await self._close_lease(lease)
+        except BaseException as error:
+            # A stale rebuild must not stack a second runtime on top of an
+            # unconfirmed teardown; only a retried aclose() may recover.
+            self._state = _LeaseProviderState.CLOSE_FAILED
+            self._close_error = error
+            raise
+        self._lease = None
 
     async def _close_lease(self, lease: LeaseT) -> None:
         with anyio.CancelScope(shield=True):
             try:
-                with anyio.move_on_after(_TEARDOWN_TIMEOUT_SECONDS) as scope:
+                with anyio.fail_after(_TEARDOWN_TIMEOUT_SECONDS):
                     await self._close(lease)
+            except TimeoutError as error:
+                raise ProviderLifecycleError(
+                    "Closing the render runtime exceeded the bounded wait of "
+                    f"{_TEARDOWN_TIMEOUT_SECONDS}s; the lease is retained for "
+                    "a retried close."
+                ) from error
+            except ProviderLifecycleError:
+                raise
             except Exception as error:
-                logger.opt(colors=True).warning(
-                    "<d>[htmlrender.adapters]</d> Error while closing render "
-                    "resources: <r>{error}</r>.",
-                    error=error,
-                )
-                return
-            if scope.cancel_called:
-                logger.opt(colors=True).warning(
-                    "<d>[htmlrender.adapters]</d> Closing render resources "
-                    "exceeded the bounded wait of {timeout}s; continuing.",
-                    timeout=_TEARDOWN_TIMEOUT_SECONDS,
-                )
+                raise ProviderLifecycleError(
+                    f"Closing the render runtime failed: {error}"
+                ) from error
 
 
 @final

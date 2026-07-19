@@ -13,6 +13,7 @@ from nonebot_plugin_htmlrender.adapters.playwright.provider import (
     PROVIDER,
     PlaywrightProvider,
 )
+from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.materialize import (
     AssetMaterializationError,
 )
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
     from tests.adapters.conftest import RecordingOperationObserver
 
-PREPARED = PreparedHtml(html="<p>prepared</p>")
+PREPARED = prepare_html("<p>prepared</p>")
 
 
 def _dependencies(observer: RecordingOperationObserver) -> ProviderDependencies:
@@ -97,24 +98,16 @@ def test_availability_reports_missing_playwright_extra(
     assert "[playwright]" in (result.reason or "")
 
 
-def test_bootstrap_requirements_reflect_filehost_policy() -> None:
+def test_bootstrap_requirements_declare_no_external_plugins() -> None:
     plain = PlaywrightConfig()
     assert PROVIDER.bootstrap_requirements(plain) == ()
 
+    # The filehost transport is served by the htmlrender-owned hosted asset
+    # store, so even a filehost policy needs no external NoneBot plugin.
     filehost = PlaywrightConfig.model_validate(
         {"local_local_resource_policy": "filehost"}
     )
-    requirements = PROVIDER.bootstrap_requirements(filehost)
-    assert [item.plugin_name for item in requirements] == ["nonebot_plugin_filehost"]
-
-    default_off = PlaywrightConfig.model_validate(
-        {
-            "local_local_resource_policy": "filehost",
-            "resource_resolve_mode": "off",
-        }
-    )
-    requirements = PROVIDER.bootstrap_requirements(default_off)
-    assert [item.plugin_name for item in requirements] == ["nonebot_plugin_filehost"]
+    assert PROVIDER.bootstrap_requirements(filehost) == ()
 
 
 def test_compose_uses_constructor_injected_settings(
