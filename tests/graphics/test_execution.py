@@ -6,7 +6,12 @@ import pytest
 
 from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
 from nonebot_plugin_htmlrender.graphics.execution import RasterWorkBudget
-from nonebot_plugin_htmlrender.graphics.models import RasterScene
+from nonebot_plugin_htmlrender.graphics.models import (
+    FillRect,
+    PixelRect,
+    RasterScene,
+    RGBAColor,
+)
 
 
 async def test_budget_rejects_oversized_scene_before_reserving_work() -> None:
@@ -15,6 +20,18 @@ async def test_budget_rejects_oversized_scene_before_reserving_work() -> None:
     with pytest.raises(InvalidRenderRequest, match="16 pixels"):
         async with budget.reserve(RasterScene(4, 4)):
             raise AssertionError("oversized scene entered the work slot")
+
+
+async def test_budget_rejects_scene_with_too_many_draw_commands() -> None:
+    budget = RasterWorkBudget(max_pixels=16, max_concurrency=1, max_commands=2)
+    commands = tuple(
+        FillRect(PixelRect(0, 0, 1, 1), RGBAColor(0, 0, 0, 255)) for _ in range(3)
+    )
+    scene = RasterScene(4, 4, commands=commands)
+
+    with pytest.raises(InvalidRenderRequest, match="3 draw commands"):
+        async with budget.reserve(scene):
+            raise AssertionError("over-budget scene entered the work slot")
 
 
 async def test_budget_is_shared_across_concurrent_scene_work() -> None:

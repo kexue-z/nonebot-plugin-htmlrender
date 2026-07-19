@@ -24,19 +24,32 @@ if TYPE_CHECKING:
 
 @final
 class RasterWorkBudget:
-    """Bound per-request pixels and total concurrent native allocations."""
+    """Bound per-request pixels, draw commands, and native concurrency."""
 
-    def __init__(self, *, max_pixels: int, max_concurrency: int) -> None:
+    def __init__(
+        self,
+        *,
+        max_pixels: int,
+        max_concurrency: int,
+        max_commands: int = 100_000,
+    ) -> None:
         if max_pixels <= 0:
             raise ValueError("max_pixels must be positive")
         if max_concurrency <= 0:
             raise ValueError("max_concurrency must be positive")
+        if max_commands <= 0:
+            raise ValueError("max_commands must be positive")
         self._max_pixels = max_pixels
+        self._max_commands = max_commands
         self._limiter = anyio.CapacityLimiter(max_concurrency)
 
     @property
     def max_pixels(self) -> int:
         return self._max_pixels
+
+    @property
+    def max_commands(self) -> int:
+        return self._max_commands
 
     @property
     def max_concurrency(self) -> int:
@@ -50,6 +63,12 @@ class RasterWorkBudget:
             raise InvalidRenderRequest(
                 f"Raster scene contains {pixels} pixels, exceeding the configured "
                 f"limit of {self._max_pixels}."
+            )
+        command_count = len(scene.commands)
+        if command_count > self._max_commands:
+            raise InvalidRenderRequest(
+                f"Raster scene contains {command_count} draw commands, exceeding "
+                f"the configured limit of {self._max_commands}."
             )
         async with self._limiter:
             yield

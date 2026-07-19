@@ -79,9 +79,15 @@ class TakumiConfig(BaseModel):
     font_cache_policy: FileCachePolicy = FileCachePolicy.REVALIDATE
     max_concurrency: int = Field(default_factory=_default_concurrency, ge=1, le=64)
     compiled_cache_max_entries: int = Field(default=128, ge=0, le=4096)
-    compiled_cache_max_bytes: int = Field(
+    compiled_cache_max_source_bytes: int = Field(
         default=32 * 1024 * 1024,
         ge=0,
+        description=(
+            "Byte budget over the UTF-8 template source weight of cached "
+            "compiled entries; not native resident memory. "
+            "compiled_cache_max_entries stays the hard count bound on "
+            "native objects."
+        ),
     )
     html_options: TakumiHtmlOptionsConfig = Field(
         default_factory=TakumiHtmlOptionsConfig

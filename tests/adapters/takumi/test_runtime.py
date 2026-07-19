@@ -128,7 +128,7 @@ def _state(
         limiter=anyio.CapacityLimiter(2),
         config=TakumiConfig(
             compiled_cache_max_entries=cache_entries,
-            compiled_cache_max_bytes=cache_bytes,
+            compiled_cache_max_source_bytes=cache_bytes,
         ),
         resources=resource_service(),
     )
@@ -138,7 +138,7 @@ def test_compiled_cache_defaults_and_stats_surface_are_read_only() -> None:
     config = TakumiConfig()
     state = _state(_FakeRenderer())
 
-    assert config.compiled_cache_max_bytes == 32 * 1024 * 1024
+    assert config.compiled_cache_max_source_bytes == 32 * 1024 * 1024
     assert state.compiled_cache_stats.entries == 0
     assert TakumiRuntimeState.compiled_cache_stats.fset is None
 
@@ -664,3 +664,47 @@ async def test_close_rejects_new_calls_and_lets_in_flight_calls_finish(
     assert state.compiled_cache_stats.resident_weight == 0
     assert state.registered_font_families == ()
     await state.aclose()
+
+
+@pytest.mark.anyio
+async def test_create_runtime_state_releases_renderer_when_font_registration_fails(
+    monkeypatch: MonkeyPatch,
+    mocker: MockerFixture,
+) -> None:
+    """Alloc-then-raise must not leak the native renderer handle."""
+    from nonebot_plugin_htmlrender.adapters.takumi.runtime import (  # noqa: PLC0415
+        create_runtime_state,
+    )
+
+    closed: list[bool] = []
+
+    class _FailingRenderer:
+        def __init__(self, **kwargs: object) -> None:
+            del kwargs
+
+        def register_font(self, font: object) -> tuple[str, ...]:
+            del font
+            raise RuntimeError("native font registration failed")
+
+        def close(self) -> None:
+            closed.append(True)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "takumi_py",
+        SimpleNamespace(Renderer=_FailingRenderer, FontResource=_FontResource),
+    )
+    mocker.patch.object(
+        takumi_runtime,
+        "_load_font_payloads",
+        new=mocker.AsyncMock(return_value=(b"font-bytes",)),
+    )
+
+    config = TakumiConfig(
+        fonts=[TakumiFontConfig(path=Path("font.ttf"), name="Family")]
+    )
+
+    with pytest.raises(RuntimeError, match="native font registration failed"):
+        await create_runtime_state(config, resources=resource_service())
+
+    assert closed == [True]

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextlib import suppress
 from dataclasses import dataclass, field
 from functools import partial
 from hashlib import sha256
@@ -269,7 +270,7 @@ class TakumiRuntimeState:
         )
         self._compiled = SyncWeightedSingleflightLRU(
             max_entries=self.config.compiled_cache_max_entries,
-            max_weight=self.config.compiled_cache_max_bytes,
+            max_weight=self.config.compiled_cache_max_source_bytes,
             observer=observer,
             cache_name="takumi_compiled",
         )
@@ -648,6 +649,20 @@ async def _load_font_payloads(
     return cast("tuple[bytes, ...]", tuple(payloads))
 
 
+def _release_native_renderer(renderer: object) -> None:
+    """Best-effort release of a native renderer during failed construction.
+
+    The native handle is normally reclaimed on drop; this makes the release
+    deterministic when it exposes an explicit close/shutdown/release method.
+    """
+    for method_name in ("close", "shutdown", "release"):
+        method = getattr(renderer, method_name, None)
+        if callable(method):
+            with suppress(Exception):
+                method()
+            return
+
+
 def _normalize_images(
     images: Sequence[object] | None,
     *,
@@ -781,20 +796,26 @@ async def create_runtime_state(
         from takumi_py import Renderer  # noqa: PLC0415
 
         renderer = Renderer(load_default_fonts=config.load_default_fonts)
-        registrations: dict[str, _FontRegistration] = {}
-        all_families: list[str] = []
-        for source, spec in zip(sources, specs, strict=True):
-            existing = registrations.get(source)
-            _validate_font_registration(source, spec, existing)
-            if existing is None:
-                families = tuple(renderer.register_font(spec.to_native()))
-                existing = _FontRegistration(
-                    digest=spec.digest,
-                    options=spec.options,
-                    families=families,
-                )
-                registrations[source] = existing
-            all_families.extend(existing.families)
+        try:
+            registrations: dict[str, _FontRegistration] = {}
+            all_families: list[str] = []
+            for source, spec in zip(sources, specs, strict=True):
+                existing = registrations.get(source)
+                _validate_font_registration(source, spec, existing)
+                if existing is None:
+                    families = tuple(renderer.register_font(spec.to_native()))
+                    existing = _FontRegistration(
+                        digest=spec.digest,
+                        options=spec.options,
+                        families=families,
+                    )
+                    registrations[source] = existing
+                all_families.extend(existing.families)
+        except BaseException:
+            # Font registration failed after the native renderer was created;
+            # release it now so a failed lease creation cannot leak the handle.
+            _release_native_renderer(renderer)
+            raise
         return (
             renderer,
             tuple(dict.fromkeys(all_families)),

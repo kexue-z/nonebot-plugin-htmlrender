@@ -53,6 +53,7 @@ def build_graphics_capabilities(
     budget = RasterWorkBudget(
         max_pixels=settings.max_pixels,
         max_concurrency=settings.max_concurrency,
+        max_commands=settings.max_commands,
     )
     for backend in settings.backends:
         if backend == "pillow":
