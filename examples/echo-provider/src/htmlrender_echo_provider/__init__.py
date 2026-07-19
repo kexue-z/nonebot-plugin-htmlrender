@@ -28,7 +28,11 @@ from nonebot_plugin_htmlrender.providers import (
     ProviderDependencies,
     ResourceStrategy,
 )
-from nonebot_plugin_htmlrender.rendering import ProviderExecutionError, RenderedImage
+from nonebot_plugin_htmlrender.rendering import (
+    ProviderExecutionError,
+    RenderedImage,
+    UnsupportedRenderOption,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -94,6 +98,13 @@ class _EchoExecutor:
         timeout_seconds: float | None = None,
     ) -> RenderedImage:
         del prepared, resource_policy, timeout_seconds
+        # A render option the engine cannot honour is a stable
+        # UnsupportedRenderOption; ProviderExecutionError is reserved for
+        # actual runtime failures.
+        if options.format != "png":
+            raise UnsupportedRenderOption(
+                f"The echo provider renders PNG only, not {options.format!r}."
+            )
         try:
             return RenderedImage.from_bytes(
                 self._payload,
@@ -112,6 +123,9 @@ class EchoProvider:
     id: EngineId = "echo"
 
     def parse_settings(self, raw: Mapping[str, object]) -> EchoSettings:
+        unknown = set(raw) - {"color"}
+        if unknown:
+            raise ValueError(f"Unknown provider_config keys: {sorted(unknown)!r}")
         color = raw.get("color", "#000000")
         if not isinstance(color, str):
             raise ValueError("provider_config.color must be a string")

@@ -14,8 +14,8 @@ from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
 from nonebot_plugin_htmlrender.preparation import RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import EngineProvider
 from nonebot_plugin_htmlrender.rendering import (
-    ProviderExecutionError,
     RenderHtmlRequest,
+    UnsupportedRenderOption,
 )
 from nonebot_plugin_htmlrender.resources.config import ResourceStrategy
 
@@ -76,6 +76,18 @@ async def test_echo_provider_composes_and_renders() -> None:
     assert application.resources.strategy == ResourceStrategy()
 
 
+async def test_echo_provider_satisfies_lifecycle_conformance() -> None:
+    # The installable harness ships with the production package so provider
+    # authors can run it from a wheel; the example consumes it the same way.
+    from nonebot_plugin_htmlrender.providers.testing import (  # noqa: PLC0415
+        run_provider_lifecycle_conformance,
+    )
+
+    provider = _load_example_provider()
+    settings = RenderSettings.model_validate({"provider": "echo"})
+    await run_provider_lifecycle_conformance(provider, settings)
+
+
 async def test_echo_provider_rejects_unsupported_encoded_format() -> None:
     provider = _load_example_provider()
     runtime = prepare_runtime(
@@ -84,7 +96,7 @@ async def test_echo_provider_rejects_unsupported_encoded_format() -> None:
     )
     application = runtime.build_application()
     try:
-        with pytest.raises(ProviderExecutionError, match="format mismatch"):
+        with pytest.raises(UnsupportedRenderOption, match="PNG only"):
             await application.renderer.render_html(
                 RenderHtmlRequest(
                     html="<p>echo</p>",
@@ -93,3 +105,9 @@ async def test_echo_provider_rejects_unsupported_encoded_format() -> None:
             )
     finally:
         await application.aclose()
+
+
+def test_echo_provider_rejects_unknown_settings_keys() -> None:
+    provider = _load_example_provider()
+    with pytest.raises(ValueError, match="Unknown provider_config keys"):
+        provider.parse_settings({"color": "#123456", "bogus": True})
