@@ -15,7 +15,10 @@ if TYPE_CHECKING:
         ResourceResolveMode,
         ResourceStrategy,
     )
-    from nonebot_plugin_htmlrender.resources.models import ResourceRef
+    from nonebot_plugin_htmlrender.resources.models import (
+        ResourceRef,
+        ResourceResolution,
+    )
     from nonebot_plugin_htmlrender.resources.service import (
         ResolverSpec,
         ResourceService,
@@ -60,7 +63,7 @@ class ApplicationResources(Protocol):
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> dict[str, Any]: ...
+    ) -> ResourceResolution[dict[str, Any]]: ...
 
     async def to_resource_url(
         self,
@@ -70,7 +73,7 @@ class ApplicationResources(Protocol):
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> str: ...
+    ) -> ResourceResolution[str]: ...
 
     async def resolve_url_tokens(
         self,
@@ -80,7 +83,7 @@ class ApplicationResources(Protocol):
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> list[str]: ...
+    ) -> ResourceResolution[list[str]]: ...
 
     async def clear(self) -> None: ...
 
@@ -227,7 +230,7 @@ class AdmittedResourceService:
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> ResourceResolution[dict[str, Any]]:
         async with self._admission.operation():
             return await self._delegate.resolve_template_vars(
                 template_vars,
@@ -245,7 +248,7 @@ class AdmittedResourceService:
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> str:
+    ) -> ResourceResolution[str]:
         async with self._admission.operation():
             return await self._delegate.to_resource_url(
                 value,
@@ -263,7 +266,7 @@ class AdmittedResourceService:
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> list[str]:
+    ) -> ResourceResolution[list[str]]:
         async with self._admission.operation():
             return await self._delegate.resolve_url_tokens(
                 values,

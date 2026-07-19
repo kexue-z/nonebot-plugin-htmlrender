@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from functools import partial
 from importlib.resources import files
 import mimetypes
 import os
@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, TypeVar, final
 import anyio
 from anyio.to_thread import run_sync
 
+from nonebot_plugin_htmlrender.resources.config import RemoteAccessSettings
 from nonebot_plugin_htmlrender.resources.errors import (
     ResourceAccessDenied,
     ResourceNotFound,
@@ -22,6 +23,7 @@ from nonebot_plugin_htmlrender.resources.errors import (
 from nonebot_plugin_htmlrender.resources.models import (
     FileResourceRef,
     InlineResourceRef,
+    NotModified,
     PackageResourceRef,
     RemoteResourceRef,
     ResourceContent,
@@ -30,10 +32,15 @@ from nonebot_plugin_htmlrender.resources.models import (
 )
 from nonebot_plugin_htmlrender.resources.path_guard import validate_local_access
 
-from .remote import ConfiguredRemoteAccessPolicy, read_bounded, read_remote
+from .remote import (
+    ConfiguredRemoteAccessPolicy,
+    RemoteTransportExecutor,
+    read_bounded,
+    read_remote,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import AsyncIterator, Callable, Sequence
 
     from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
@@ -137,14 +144,18 @@ class CompositeResourceReader:
         self,
         worker: WorkerExecutor,
         *,
+        remote_transport: RemoteTransportExecutor,
         max_resource_bytes: int = 64 * 1024 * 1024,
         remote_access: RemoteAccessPolicy | None = None,
+        remote_timeout_seconds: float = 30.0,
     ) -> None:
         if max_resource_bytes < 0:
             raise ValueError("Resource read limit must not be negative.")
         self._worker = worker
         self._max_resource_bytes = max_resource_bytes
         self._remote_access = remote_access or ConfiguredRemoteAccessPolicy()
+        self._remote_transport = remote_transport
+        self._remote_timeout_seconds = remote_timeout_seconds
 
     async def read(
         self,
@@ -167,13 +178,14 @@ class CompositeResourceReader:
                     self._max_resource_bytes,
                 )
             if isinstance(reference, RemoteResourceRef):
-                return await self._worker.run_sync(
-                    partial(
-                        read_remote,
-                        reference,
-                        policy=self._remote_access,
-                        max_resource_bytes=self._max_resource_bytes,
-                    )
+                # Remote transport owns its own bounded, cancellable executor;
+                # it must not borrow the shared completion-bound worker pool.
+                return await read_remote(
+                    reference,
+                    policy=self._remote_access,
+                    transport=self._remote_transport,
+                    max_resource_bytes=self._max_resource_bytes,
+                    request_timeout_seconds=self._remote_timeout_seconds,
                 )
             if isinstance(reference, InlineResourceRef):
                 if (
@@ -202,6 +214,34 @@ class CompositeResourceReader:
                 f"Could not read resource {reference!r}: {error}"
             ) from error
         raise ResourceResolutionError(f"Unsupported resource reference: {reference!r}")
+
+    async def read_conditional(
+        self,
+        reference: ResourceRef,
+        revision: ResourceRevision,
+    ) -> ResourceContent | NotModified:
+        if isinstance(reference, RemoteResourceRef):
+            try:
+                return await read_remote(
+                    reference,
+                    policy=self._remote_access,
+                    transport=self._remote_transport,
+                    max_resource_bytes=self._max_resource_bytes,
+                    request_timeout_seconds=self._remote_timeout_seconds,
+                    conditional_revision=revision,
+                )
+            except ResourceResolutionError:
+                raise
+            except OSError as error:
+                raise ResourceResolutionError(str(error)) from error
+            except Exception as error:
+                raise ResourceResolutionError(
+                    f"Could not read resource {reference!r}: {error}"
+                ) from error
+        current = await self.revision(reference)
+        if current is not None and current == revision:
+            return NotModified(revision)
+        return await self.read(reference)
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
         if isinstance(reference, FileResourceRef):
@@ -348,10 +388,17 @@ class CachingResourceReader:
         try:
             cache_hit = False
             if stale is not None:
-                current = await self._inner.revision(reference)
-                if current is not None and current == stale.content.revision:
-                    content = stale.content
-                    cache_hit = True
+                known = stale.content.revision
+                if known is not None:
+                    # The reader maps the held revision to a source-native
+                    # conditional read (HTTP validators, stat compare); a
+                    # NotModified outcome reuses the cached bytes.
+                    outcome = await self._inner.read_conditional(reference, known)
+                    if isinstance(outcome, NotModified):
+                        content = stale.content
+                        cache_hit = True
+                    else:
+                        content = outcome
                 else:
                     content = await self._inner.read(reference)
             else:
@@ -417,6 +464,13 @@ class CachingResourceReader:
             evictions += 1
         return evictions
 
+    async def read_conditional(
+        self,
+        reference: ResourceRef,
+        revision: ResourceRevision,
+    ) -> ResourceContent | NotModified:
+        return await self._inner.read_conditional(reference, revision)
+
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
         return await self._inner.revision(reference)
 
@@ -464,14 +518,50 @@ def build_resource_reader(
     observer: CacheObserver,
     worker: WorkerExecutor,
     *,
+    remote_transport: RemoteTransportExecutor,
     remote_access: RemoteAccessPolicy | None = None,
+    remote_timeout_seconds: float = 30.0,
 ) -> CachingResourceReader:
     direct = CompositeResourceReader(
         worker,
         max_resource_bytes=settings.max_resource_bytes,
         remote_access=remote_access,
+        remote_transport=remote_transport,
+        remote_timeout_seconds=remote_timeout_seconds,
     )
     return CachingResourceReader(direct, settings=settings, observer=observer)
+
+
+@asynccontextmanager
+async def open_resource_reader(
+    settings: ResourceCacheSettings,
+    observer: CacheObserver,
+    worker: WorkerExecutor,
+    *,
+    remote_access: RemoteAccessSettings | None = None,
+) -> AsyncIterator[CachingResourceReader]:
+    """Build a reader that owns its remote transport for standalone use.
+
+    The composition root creates and closes the transport through the
+    application lifecycle; callers outside that lifecycle use this context
+    manager so the transport is always drained and closed on exit.
+    """
+    remote_settings = remote_access or RemoteAccessSettings()
+    transport = RemoteTransportExecutor(
+        max_concurrent_fetches=remote_settings.max_concurrent_fetches
+    )
+    try:
+        yield build_resource_reader(
+            settings,
+            observer,
+            worker,
+            remote_transport=transport,
+            remote_access=ConfiguredRemoteAccessPolicy(remote_settings),
+            remote_timeout_seconds=remote_settings.request_timeout_seconds,
+        )
+    finally:
+        with anyio.CancelScope(shield=True):
+            await transport.aclose()
 
 
 __all__ = [
@@ -479,5 +569,7 @@ __all__ = [
     "CachingResourceReader",
     "CompositeResourceReader",
     "ConfiguredLocalAccessPolicy",
+    "RemoteTransportExecutor",
     "build_resource_reader",
+    "open_resource_reader",
 ]

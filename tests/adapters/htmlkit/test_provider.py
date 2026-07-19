@@ -17,14 +17,14 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
 )
 from nonebot_plugin_htmlrender.bootstrap.composition import prepare_runtime
 from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
 from nonebot_plugin_htmlrender.preparation import (
-    PreparedHtml,
     PreparedStylesheet,
     RasterOptions,
-    RenderRequirement,
+    prepare_html,
 )
 from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
@@ -121,7 +121,10 @@ def _dependencies(
     strategy: ResourceStrategy | None = None,
 ) -> ProviderDependencies:
     worker = AnyioWorkerExecutor()
-    reader = CompositeResourceReader(worker)
+    reader = CompositeResourceReader(
+        worker,
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+    )
     local_access = ConfiguredLocalAccessPolicy(
         allowed_roots=(tmp_path,),
         allow_any=False,
@@ -217,8 +220,8 @@ async def test_executor_maps_supported_portable_options(
     )
     executor = bindings.prepared_html_executor
     assert executor is not None
-    prepared = PreparedHtml(
-        html="<!doctype html><html><body>hello</body></html>",
+    prepared = prepare_html(
+        "<!doctype html><html><body>hello</body></html>",
         base_url="https://example.test/root/",
         stylesheets=(
             PreparedStylesheet(
@@ -283,7 +286,7 @@ async def test_executor_translates_upstream_failure_at_stable_boundary(
 
     with pytest.raises(ProviderExecutionError, match="native failure"):
         await executor.execute(
-            PreparedHtml(html="<p>hello</p>"),
+            prepare_html("<p>hello</p>"),
             RasterOptions(device_pixel_ratio=1.0),
         )
 
@@ -307,7 +310,7 @@ async def test_executor_translates_invalid_upstream_artifact(
 
     with pytest.raises(ProviderExecutionError, match="format mismatch"):
         await executor.execute(
-            PreparedHtml(html="<p>hello</p>"),
+            prepare_html("<p>hello</p>"),
             RasterOptions(device_pixel_ratio=1.0, format="png"),
         )
 
@@ -338,7 +341,7 @@ async def test_executor_rejects_options_rc5_cannot_represent(
     assert executor is not None
 
     with pytest.raises(UnsupportedRenderOption, match=r"HTMLKit 0\.1\.0rc5"):
-        await executor.execute(PreparedHtml(html="<p>hello</p>"), options)
+        await executor.execute(prepare_html("<p>hello</p>"), options)
 
     assert api.calls == []
 
@@ -362,10 +365,7 @@ async def test_executor_rejects_javascript_requirement(
 
     with pytest.raises(UnsupportedRequirement, match="JavaScript"):
         await executor.execute(
-            PreparedHtml(
-                html="<script>void 0</script>",
-                requirements=frozenset({RenderRequirement.JAVASCRIPT}),
-            ),
+            prepare_html("<script>void 0</script>"),
             RasterOptions(device_pixel_ratio=1.0),
         )
 
@@ -389,7 +389,7 @@ def test_executor_reports_trio_as_stable_provider_error(
     async def run() -> None:
         with pytest.raises(ProviderUnavailable, match="asyncio-only"):
             await executor.execute(
-                PreparedHtml(html="<p>hello</p>"),
+                prepare_html("<p>hello</p>"),
                 RasterOptions(device_pixel_ratio=1.0),
             )
 
@@ -484,7 +484,7 @@ async def test_timeout_waits_for_native_drain_before_reporting(
 
     task = asyncio.create_task(
         executor.execute(
-            PreparedHtml(html="<p>hello</p>"),
+            prepare_html("<p>hello</p>"),
             RasterOptions(device_pixel_ratio=1.0),
             timeout_seconds=0.01,
         )

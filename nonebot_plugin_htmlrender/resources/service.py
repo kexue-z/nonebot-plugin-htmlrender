@@ -23,8 +23,10 @@ from .models import (
     FileResourceRef,
     InlineResourceRef,
     PackageResourceRef,
+    PublishedResource,
     RemoteResourceRef,
     ResourceRef,
+    ResourceResolution,
 )
 
 if TYPE_CHECKING:
@@ -40,6 +42,7 @@ _WINDOWS_ABS_PATH_RE = re.compile(r"^[A-Za-z]:[\\/]")
 
 TransportPolicy: TypeAlias = "LocalLocalResourcePolicy | RemoteLocalResourcePolicy"
 ResolverSpec: TypeAlias = "str | ResourceResolver | None"
+RequestHeadersByUrl: TypeAlias = "dict[str, Mapping[str, str]]"
 
 # Derived from the enum members themselves so a value rename cannot leave a
 # stale string behind.  Members whose values overlap across the two enums
@@ -129,6 +132,23 @@ def _candidate(value: str | Path, template_base: Path | None) -> Path:
         ) from error
 
 
+class _ConflictingRequestAuthorization(ResourceResolutionError):
+    """A publisher reused one URL with incompatible request capabilities."""
+
+
+def _record_published_resource(
+    published: PublishedResource,
+    request_headers_by_url: RequestHeadersByUrl,
+) -> None:
+    headers = dict(published.request_headers)
+    existing = request_headers_by_url.get(published.url)
+    if existing is not None and dict(existing) != headers:
+        raise _ConflictingRequestAuthorization(
+            "The asset publisher returned conflicting authorization for one URL."
+        )
+    request_headers_by_url[published.url] = headers
+
+
 class ResourceService:
     """Composition-owned resource reading and value-resolution service."""
 
@@ -139,11 +159,19 @@ class ResourceService:
         local_access: LocalAccessPolicy,
         strategy: ResourceStrategy,
         publisher: AssetPublisher | None = None,
+        max_scalar_concurrency: int = 16,
     ) -> None:
+        if max_scalar_concurrency <= 0:
+            raise ValueError("max_scalar_concurrency must be positive.")
         self._reader = reader
         self._local_access = local_access
         self._strategy = strategy
         self._publisher = publisher
+        # Deep or wide template variables recursively fan out one task per
+        # element. This limiter caps concurrent leaf resolution (the actual
+        # publish/read/custom-resolver I/O); it is held only in the
+        # non-recursive scalar step, so nested containers cannot deadlock it.
+        self._scalar_limiter = anyio.CapacityLimiter(max_scalar_concurrency)
 
     @property
     def strategy(self) -> ResourceStrategy:
@@ -247,6 +275,7 @@ class ResourceService:
         *,
         template_base: Path | None,
         lease_id: str | None,
+        request_headers_by_url: RequestHeadersByUrl,
     ) -> object:
         if policy in (
             LocalLocalResourcePolicy.PASSTHROUGH,
@@ -286,7 +315,9 @@ class ResourceService:
                 raise ResourceResolutionError(
                     "The filehost policy only accepts paths or bytes."
                 )
-            return await self._publisher.publish(publish_value, lease_id=lease_id)
+            published = await self._publisher.publish(publish_value, lease_id=lease_id)
+            _record_published_resource(published, request_headers_by_url)
+            return published.url
         raise ResourceResolutionError(f"Unsupported resource policy: {policy!r}")
 
     async def _resolve_scalar(
@@ -297,6 +328,7 @@ class ResourceService:
         strict: bool | None,
         resolver: ResolverSpec,
         lease_id: str | None,
+        request_headers_by_url: RequestHeadersByUrl,
     ) -> object:
         policy = self._policy(resolver)
         effective_strict = (
@@ -305,21 +337,25 @@ class ResourceService:
             else strict
         )
         try:
-            if isinstance(
-                policy, (LocalLocalResourcePolicy, RemoteLocalResourcePolicy)
-            ):
-                return await self._resolve_with_policy(
+            async with self._scalar_limiter:
+                if isinstance(
+                    policy, (LocalLocalResourcePolicy, RemoteLocalResourcePolicy)
+                ):
+                    return await self._resolve_with_policy(
+                        policy,
+                        value,
+                        template_base=template_base,
+                        lease_id=lease_id,
+                        request_headers_by_url=request_headers_by_url,
+                    )
+                return await self._resolve_with_custom(
                     policy,
                     value,
                     template_base=template_base,
-                    lease_id=lease_id,
                 )
-            return await self._resolve_with_custom(
-                policy,
-                value,
-                template_base=template_base,
-            )
         except Exception as error:
+            if isinstance(error, _ConflictingRequestAuthorization):
+                raise
             if policy is RemoteLocalResourcePolicy.ERROR or effective_strict:
                 if isinstance(error, ResourceResolutionError):
                     raise
@@ -328,7 +364,10 @@ class ResourceService:
                 if isinstance(error, PermissionError):
                     raise ResourceAccessDenied(str(error)) from error
                 raise ResourceResolutionError(str(error)) from error
-            logger.warning("Failed to resolve resource {!r}: {}", value, error)
+            logger.warning(
+                "Failed to resolve a resource (non-strict policy): {}",
+                type(error).__name__,
+            )
             return value
 
     async def _resolve_any(
@@ -339,6 +378,7 @@ class ResourceService:
         strict: bool | None,
         resolver: ResolverSpec,
         lease_id: str | None,
+        request_headers_by_url: RequestHeadersByUrl,
     ) -> object:
         if _is_scalar(value):
             return await self._resolve_scalar(
@@ -347,6 +387,7 @@ class ResourceService:
                 strict=strict,
                 resolver=resolver,
                 lease_id=lease_id,
+                request_headers_by_url=request_headers_by_url,
             )
         if isinstance(value, Mapping):
             items = tuple(value.items())
@@ -356,6 +397,7 @@ class ResourceService:
                 strict=strict,
                 resolver=resolver,
                 lease_id=lease_id,
+                request_headers_by_url=request_headers_by_url,
             )
             return {key: item for (key, _), item in zip(items, resolved, strict=True)}
         if isinstance(value, tuple):
@@ -366,6 +408,7 @@ class ResourceService:
                     strict=strict,
                     resolver=resolver,
                     lease_id=lease_id,
+                    request_headers_by_url=request_headers_by_url,
                 )
             )
         if isinstance(value, list):
@@ -375,6 +418,7 @@ class ResourceService:
                 strict=strict,
                 resolver=resolver,
                 lease_id=lease_id,
+                request_headers_by_url=request_headers_by_url,
             )
         if isinstance(value, set):
             resolved = await self._resolve_many(
@@ -383,6 +427,7 @@ class ResourceService:
                 strict=strict,
                 resolver=resolver,
                 lease_id=lease_id,
+                request_headers_by_url=request_headers_by_url,
             )
             try:
                 return set(resolved)
@@ -399,6 +444,7 @@ class ResourceService:
                 strict=strict,
                 resolver=resolver,
                 lease_id=lease_id,
+                request_headers_by_url=request_headers_by_url,
             )
         return value
 
@@ -410,6 +456,7 @@ class ResourceService:
         strict: bool | None,
         resolver: ResolverSpec,
         lease_id: str | None,
+        request_headers_by_url: RequestHeadersByUrl,
     ) -> list[object]:
         results: list[object] = [None] * len(values)
         errors: list[Exception | None] = [None] * len(values)
@@ -422,6 +469,7 @@ class ResourceService:
                     strict=strict,
                     resolver=resolver,
                     lease_id=lease_id,
+                    request_headers_by_url=request_headers_by_url,
                 )
             except Exception as error:
                 errors[index] = error
@@ -441,21 +489,26 @@ class ResourceService:
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> dict[str, Any]:
+    ) -> ResourceResolution[dict[str, Any]]:
+        request_headers_by_url: RequestHeadersByUrl = {}
         if not self.should_resolve(resolver):
-            return dict(template_vars)
+            return ResourceResolution(dict(template_vars))
         result = await self._resolve_any(
             template_vars,
             template_base=_normalize_template_base(template_base),
             strict=strict,
             resolver=resolver,
             lease_id=lease_id,
+            request_headers_by_url=request_headers_by_url,
         )
         if not isinstance(result, dict):
             raise ResourceResolutionError(
                 "Resolved template variables must remain a mapping."
             )
-        return cast("dict[str, Any]", result)
+        return ResourceResolution(
+            cast("dict[str, Any]", result),
+            request_headers_by_url,
+        )
 
     async def to_resource_url(
         self,
@@ -465,19 +518,21 @@ class ResourceService:
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> str:
+    ) -> ResourceResolution[str]:
+        request_headers_by_url: RequestHeadersByUrl = {}
         result = await self._resolve_any(
             value,
             template_base=_normalize_template_base(template_base),
             strict=strict,
             resolver=resolver,
             lease_id=lease_id,
+            request_headers_by_url=request_headers_by_url,
         )
         if not isinstance(result, str):
             raise ResourceResolutionError(
                 f"Resolved resource is not URL text: {type(result).__name__}."
             )
-        return result
+        return ResourceResolution(result, request_headers_by_url)
 
     async def resolve_url_tokens(
         self,
@@ -487,37 +542,45 @@ class ResourceService:
         strict: bool | None = None,
         resolver: ResolverSpec = None,
         lease_id: str | None = None,
-    ) -> list[str]:
+    ) -> ResourceResolution[list[str]]:
         base = _normalize_template_base(template_base)
         resolved: list[str] = []
+        request_headers_by_url: RequestHeadersByUrl = {}
         for raw in values:
             parsed = _split_resource_url(raw)
             if parsed.scheme or parsed.netloc or raw.startswith(("data:", "#")):
                 resolved.append(raw)
                 continue
+            token_headers_by_url: RequestHeadersByUrl = {}
             value = await self._resolve_scalar(
                 parsed.path,
                 template_base=base,
                 strict=strict,
                 resolver=resolver,
                 lease_id=lease_id,
+                request_headers_by_url=token_headers_by_url,
             )
             if not isinstance(value, str):
                 resolved.append(raw)
                 continue
             target = _split_resource_url(value)
-            resolved.append(
-                urlunsplit(
-                    (
-                        target.scheme,
-                        target.netloc,
-                        target.path,
-                        parsed.query or target.query,
-                        parsed.fragment,
-                    )
+            resolved_url = urlunsplit(
+                (
+                    target.scheme,
+                    target.netloc,
+                    target.path,
+                    parsed.query or target.query,
+                    parsed.fragment,
                 )
             )
-        return resolved
+            resolved.append(resolved_url)
+            headers = token_headers_by_url.get(value)
+            if headers is not None:
+                _record_published_resource(
+                    PublishedResource(resolved_url, headers),
+                    request_headers_by_url,
+                )
+        return ResourceResolution(resolved, request_headers_by_url)
 
     async def clear(self) -> None:
         await self._reader.clear()

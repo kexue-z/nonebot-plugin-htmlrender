@@ -5,12 +5,13 @@ from __future__ import annotations
 from importlib.util import find_spec
 from typing import TYPE_CHECKING
 
+from exceptiongroup import ExceptionGroup
 import nonebot
 from nonebot import require
 from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.adapters.resources import (
-    install_filehost_request_guard,
+    install_hosted_asset_store,
 )
 from nonebot_plugin_htmlrender.api._default import (
     set_default_application,
@@ -105,7 +106,7 @@ def initialize_plugin() -> RenderSettings:
     )
     publisher_settings = runtime.asset_publisher_settings
     if publisher_settings is not None:
-        install_filehost_request_guard(publisher_settings)
+        install_hosted_asset_store(publisher_settings)
     set_default_application(None)
     set_default_application_factory(runtime.build_application)
     _register_lifecycle_hooks(driver, runtime)
@@ -153,10 +154,17 @@ async def run_startup(runtime: ComposedRuntime) -> None:
         if settings.startup == RenderStartupMode.PROBE:
             try:
                 await application.probe()
-            except Exception:
+            except Exception as probe_error:
                 # A failed readiness probe must not leave a warmed runtime
-                # behind after NoneBot aborts startup.
-                await application.aclose()
+                # behind after NoneBot aborts startup. A cleanup failure must
+                # not mask the probe failure, so both are aggregated.
+                try:
+                    await application.aclose()
+                except Exception as close_error:
+                    raise ExceptionGroup(
+                        "Render probe failed and runtime cleanup also failed.",
+                        [probe_error, close_error],
+                    ) from probe_error
                 raise
     except Exception as error:
         logger.exception("Failed to start render runtime.")

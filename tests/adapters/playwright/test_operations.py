@@ -11,6 +11,7 @@ from nonebot_plugin_htmlrender.adapters.resources.reader import (
     AnyioWorkerExecutor,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
 )
 from nonebot_plugin_htmlrender.resources.config import (
     LocalLocalResourcePolicy,
@@ -18,7 +19,13 @@ from nonebot_plugin_htmlrender.resources.config import (
     ResourceResolveMode,
     ResourceStrategy,
 )
+from nonebot_plugin_htmlrender.resources.models import PublishedResource
 from nonebot_plugin_htmlrender.resources.service import ResourceService
+
+
+def _published(url: str, headers: dict[str, str] | None = None) -> PublishedResource:
+    return PublishedResource(url=url, request_headers=headers or {})
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -48,7 +55,10 @@ def _resources(
     resolve_mode: ResourceResolveMode = ResourceResolveMode.AUTO,
 ) -> ResourceService:
     return ResourceService(
-        reader=CompositeResourceReader(AnyioWorkerExecutor()),
+        reader=CompositeResourceReader(
+            AnyioWorkerExecutor(),
+            remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+        ),
         local_access=ConfiguredLocalAccessPolicy(allowed_roots=(), allow_any=True),
         strategy=ResourceStrategy(
             resolve_mode=resolve_mode,
@@ -384,8 +394,12 @@ async def test_remote_filehost_policy_publishes_materialized_assets(
     )
     publisher = mocker.Mock()
     publisher.create_lease.return_value = "lease"
-    publisher.request_headers.return_value = {}
-    publisher.publish = mocker.AsyncMock(return_value="http://filehost/filehost/avatar")
+    publisher.publish = mocker.AsyncMock(
+        return_value=_published(
+            "http://filehost/filehost/avatar",
+            {"X-HTMLRender-Filehost-Request": "unit-token"},
+        )
+    )
     publisher.release = mocker.AsyncMock()
 
     result = await render_prepared_html(
@@ -524,9 +538,8 @@ async def test_filehost_render_releases_owned_lease_under_cancellation(
 
     publisher = mocker.Mock()
     publisher.create_lease.return_value = "lease"
-    publisher.request_headers.return_value = {}
     publisher.publish = mocker.AsyncMock(
-        return_value="https://filehost.example/avatar.png"
+        return_value=_published("https://filehost.example/avatar.png")
     )
     mocker.patch.object(operations, "_execute_browser_load_plan", side_effect=execute)
     publisher.release = mocker.AsyncMock()
@@ -589,14 +602,17 @@ async def test_filehost_asset_graph_preserves_css_and_font_suffixes(
         *,
         lease_id: str,
         suffix: str | None,
-    ) -> str:
+    ) -> PublishedResource:
         assert lease_id == "lease"
-        return f"http://filehost/filehost/{len(payload)}{suffix or ''}"
+        return _published(
+            f"http://filehost/filehost/{len(payload)}{suffix or ''}",
+            {"X-HTMLRender-Filehost-Request": "unit-token"},
+        )
 
     publisher = mocker.Mock()
     publisher.publish = mocker.AsyncMock(side_effect=publish)
 
-    urls = await _publish_prepared_assets(
+    urls, authorization = await _publish_prepared_assets(
         prepared,
         publisher=publisher,
         lease_id="lease",
@@ -608,6 +624,12 @@ async def test_filehost_asset_graph_preserves_css_and_font_suffixes(
     assert calls[0].kwargs["suffix"] == ".woff2"
     assert calls[1].kwargs["suffix"] == ".css"
     assert urls[font.source].encode() in calls[1].args[0]
+    # Every publication's exact URL carries its own authorization.
+    assert set(authorization) == {urls[font.source], urls[stylesheet.source]}
+    assert all(
+        headers["X-HTMLRender-Filehost-Request"] == "unit-token"
+        for headers in authorization.values()
+    )
 
 
 @pytest.mark.anyio
@@ -664,19 +686,8 @@ async def test_local_file_policy_keeps_stylesheet_io_in_browser(
     assert "https://htmlrender.invalid" not in plan.html
 
 
-def test_should_attach_filehost_header_only_for_local_filehost_urls() -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
-        _should_attach_filehost_header,
-    )
-
-    assert _should_attach_filehost_header("http://render:9012/filehost/abc") is True
-    assert _should_attach_filehost_header("https://localhost/filehost/abc") is True
-    assert _should_attach_filehost_header("https://example.com/filehost/abc") is False
-    assert _should_attach_filehost_header("http://render:9012/assets/abc") is False
-
-
 @pytest.mark.anyio
-async def test_install_filehost_request_route_injects_header_selectively(
+async def test_install_filehost_request_route_injects_only_on_exact_published_url(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
@@ -684,45 +695,52 @@ async def test_install_filehost_request_route_injects_header_selectively(
     )
 
     page = mocker.AsyncMock()
-
+    published = "http://render:9012/filehost/abc?v=1"
     await _install_filehost_request_route(
         page,
-        filehost_headers={"X-HTMLRender-Filehost-Request": "unit-token"},
+        authorization={published: {"X-HTMLRender-Filehost-Request": "unit-token"}},
     )
 
     page.route.assert_awaited_once()
     route_handler = page.route.await_args.args[1]
 
-    filehost_route = SimpleNamespace(
-        request=SimpleNamespace(
-            url="http://render:9012/filehost/abc",
-            headers={"user-agent": "pw"},
-        ),
-        continue_=mocker.AsyncMock(),
+    def _route(url: str) -> SimpleNamespace:
+        return SimpleNamespace(
+            request=SimpleNamespace(url=url, headers={"user-agent": "pw"}),
+            continue_=mocker.AsyncMock(),
+            fetch=mocker.AsyncMock(return_value="api-response"),
+            fulfill=mocker.AsyncMock(),
+        )
+
+    # Exact published URL (port/fragment normalized) is fetched with the header
+    # and NO redirect following, then fulfilled directly.
+    exact = _route("http://render:9012/filehost/abc?v=1#frag")
+    await route_handler(exact)
+    exact.continue_.assert_not_awaited()
+    assert (
+        exact.fetch.await_args.kwargs["headers"]["X-HTMLRender-Filehost-Request"]
+        == "unit-token"
     )
-    await route_handler(filehost_route)
-    filehost_route.continue_.assert_awaited_once()
-    continued_headers = filehost_route.continue_.await_args.kwargs["headers"]
-    assert continued_headers["X-HTMLRender-Filehost-Request"] == "unit-token"
+    assert exact.fetch.await_args.kwargs["max_redirects"] == 0
+    exact.fulfill.assert_awaited_once_with(response="api-response")
 
-    external_route = SimpleNamespace(
-        request=SimpleNamespace(
-            url="https://example.com/filehost/abc",
-            headers={"user-agent": "pw"},
-        ),
-        continue_=mocker.AsyncMock(),
-    )
-    await route_handler(external_route)
-    external_route.continue_.assert_awaited_once_with()
+    # Same path, different query — no authorization, plain continue.
+    other_query = _route("http://render:9012/filehost/abc?v=2")
+    await route_handler(other_query)
+    other_query.fetch.assert_not_awaited()
+    other_query.continue_.assert_awaited_once_with()
 
+    # Same path prefix on another origin — no authorization.
+    external = _route("https://example.com/filehost/abc?v=1")
+    await route_handler(external)
+    external.fetch.assert_not_awaited()
+    external.continue_.assert_awaited_once_with()
 
-def test_operations_redact_url_masks_credentials_and_query() -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
-        _redact_url,
-    )
-
-    redacted = _redact_url("https://user:pass@example.com:8443/path?a=1#x")
-    assert redacted == "https://example.com:8443/path"
+    # Unpublished path on the same origin — no authorization.
+    unpublished = _route("http://render:9012/other/abc?v=1")
+    await route_handler(unpublished)
+    unpublished.fetch.assert_not_awaited()
+    unpublished.continue_.assert_awaited_once_with()
 
 
 @pytest.mark.anyio
@@ -853,27 +871,23 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
     cancelled_page.close.assert_awaited_once_with()
 
 
-def test_operation_helpers_misc_branches(mocker: MockerFixture) -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright import (  # noqa: PLC0415
-        _page,
+def test_normalize_request_url_drops_default_port_and_fragment() -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
+        _normalize_request_url,
     )
 
-    assert _page._iter_http_urls({"a": ("http://x", {"b": {"https://y"}})}) == [
-        "http://x",
-        "https://y",
-    ]
-    assert _page._is_local_or_private_target("http://localhost/a") is True
-    assert _page._is_local_or_private_target("mailto:a@b.com") is False
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright._page.urlsplit",
-        side_effect=RuntimeError,
+    assert (
+        _normalize_request_url("HTTP://Render:80/filehost/a?v=1#frag")
+        == "http://render/filehost/a?v=1"
     )
-    assert _page._redact_url("??") == "??"
+    assert (
+        _normalize_request_url("https://render:8443/filehost/a")
+        == "https://render:8443/filehost/a"
+    )
 
 
 @pytest.mark.anyio
-async def test_install_filehost_request_route_no_headers_is_noop(
+async def test_install_filehost_request_route_no_authorization_is_noop(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
@@ -881,5 +895,5 @@ async def test_install_filehost_request_route_no_headers_is_noop(
     )
 
     page = mocker.AsyncMock()
-    await install_filehost_request_route(page, filehost_headers={})
+    await install_filehost_request_route(page, authorization={})
     page.route.assert_not_awaited()

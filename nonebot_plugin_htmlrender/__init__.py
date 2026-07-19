@@ -52,6 +52,9 @@ from nonebot_plugin_htmlrender.bootstrap.settings import (
     RenderSettings as RenderSettings,
 )
 from nonebot_plugin_htmlrender.preparation import (
+    DocumentBase as DocumentBase,
+)
+from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset as PreparedAsset,
 )
 from nonebot_plugin_htmlrender.preparation import (
@@ -138,6 +141,9 @@ from nonebot_plugin_htmlrender.rendering import (
 from nonebot_plugin_htmlrender.rendering import (
     UnsupportedRequirement as UnsupportedRequirement,
 )
+from nonebot_plugin_htmlrender.resources import (
+    ResourceResolution as ResourceResolution,
+)
 
 __plugin_meta__: PluginMetadata = PluginMetadata(
     name="nonebot-plugin-htmlrender",
@@ -159,6 +165,7 @@ __all__ = [
     "CapabilityCatalog",
     "CapabilityKey",
     "CapabilityUnavailable",
+    "DocumentBase",
     "InvalidRenderRequest",
     "PreparationError",
     "PreparedAsset",
@@ -185,6 +192,7 @@ __all__ = [
     "Renderer",
     "RenderingError",
     "ResourcePolicy",
+    "ResourceResolution",
     "ResourceResolutionError",
     "UnsupportedRenderOption",
     "UnsupportedRequirement",

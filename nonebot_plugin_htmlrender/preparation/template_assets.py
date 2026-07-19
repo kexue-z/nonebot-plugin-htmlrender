@@ -74,7 +74,7 @@ async def stage_template_variables(
         strict=strict,
         resolver=resolver,
     )
-    return resolved, resolver.assets()
+    return resolved.value, resolver.assets()
 
 
 __all__ = ["stage_template_variables"]

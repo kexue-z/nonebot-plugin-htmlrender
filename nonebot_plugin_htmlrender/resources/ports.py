@@ -8,7 +8,13 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from .config import ResourceStrategy
-    from .models import ResourceContent, ResourceRef, ResourceRevision
+    from .models import (
+        NotModified,
+        PublishedResource,
+        ResourceContent,
+        ResourceRef,
+        ResourceRevision,
+    )
     from .templating import ExtensionSpec, FilterCallable, TemplateSource
 
 R = TypeVar("R")
@@ -21,6 +27,21 @@ class ResourceReader(Protocol):
         *,
         refresh: bool = False,
     ) -> ResourceContent: ...
+
+    async def read_conditional(
+        self,
+        reference: ResourceRef,
+        revision: ResourceRevision,
+    ) -> ResourceContent | NotModified:
+        """Read only when the source moved past ``revision``.
+
+        The caller supplies the revision it already holds; the reader maps
+        it to a source-native conditional read (``If-None-Match`` /
+        ``If-Modified-Since`` for HTTP, a stat compare for files) and
+        returns :class:`NotModified` when the cached bytes are still
+        current. Readers keep no validator state of their own.
+        """
+        ...
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None: ...
 
@@ -74,15 +95,13 @@ class AssetPublisher(Protocol):
 
     async def release(self, lease_id: str) -> None: ...
 
-    def request_headers(self) -> Mapping[str, str]: ...
-
     async def publish(
         self,
         value: str | Path | bytes,
         *,
         lease_id: str | None = None,
         suffix: str | None = None,
-    ) -> str: ...
+    ) -> PublishedResource: ...
 
     async def startup(self) -> None: ...
 

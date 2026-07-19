@@ -49,7 +49,6 @@ def test_default_plugin_import_does_not_load_engines_or_filehost() -> None:
             "nonebot_plugin_htmlrender.adapters.playwright.render",
             "nonebot_plugin_htmlrender.adapters.skia.renderer",
             "nonebot_plugin_htmlrender.adapters.takumi.provider",
-            "nonebot_plugin_filehost",
         } & set(sys.modules)
         if unexpected:
             raise SystemExit(f"unexpected lazy modules loaded: {sorted(unexpected)}")
@@ -93,7 +92,6 @@ def test_playwright_provider_off_startup_stays_lazy() -> None:
         unexpected = {
             "nonebot_plugin_htmlkit",
             "playwright.async_api",
-            "nonebot_plugin_filehost",
             "nonebot_plugin_htmlrender.adapters.playwright.render",
         } & set(sys.modules)
         if unexpected:
@@ -218,7 +216,7 @@ def test_missing_playwright_extra_keeps_preparation_available() -> None:
     assert result.returncode == 0, result.stderr
 
 
-def test_filehost_policy_loads_filehost_before_startup() -> None:
+def test_filehost_policy_mounts_hosted_assets_before_startup() -> None:
     result = _run_python(
         """
         import sys
@@ -236,17 +234,19 @@ def test_filehost_policy_loads_filehost_before_startup() -> None:
                     "remote_local_resource_policy": "filehost",
                     "local_local_resource_policy": "filehost",
                 },
+                "resources": {
+                    "filehost": {
+                        "public_base_url": "http://assets.example/htmlrender/",
+                    },
+                },
             },
         )
         nonebot.require("nonebot_plugin_htmlrender")
 
-        missing = {
-            "nonebot_plugin_filehost",
-        } - set(sys.modules)
-        if missing:
-            raise SystemExit(
-                f"expected filehost modules were not loaded: {sorted(missing)}"
-            )
+        driver = nonebot.get_driver()
+        paths = [route.path for route in driver.server_app.routes]
+        if not any(path.startswith("/_htmlrender/assets/") for path in paths):
+            raise SystemExit("hosted asset mount was not installed at import")
 
         unexpected = {
             "playwright.async_api",

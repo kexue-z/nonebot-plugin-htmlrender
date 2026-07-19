@@ -11,6 +11,7 @@ from nonebot_plugin_htmlrender import api
 from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.adapters.templates import JinjaTemplateCompiler
@@ -19,6 +20,7 @@ from nonebot_plugin_htmlrender.api._default import (
     set_default_application_factory,
 )
 from nonebot_plugin_htmlrender.application import build_application
+from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
@@ -101,7 +103,12 @@ def default_executor() -> Iterator[_FakeExecutor]:
         allow_any=True,
     )
     resources = ResourceService(
-        reader=build_resource_reader(ResourceCacheSettings(), observer, worker),
+        reader=build_resource_reader(
+            ResourceCacheSettings(),
+            observer,
+            worker,
+            remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+        ),
         local_access=local_access,
         strategy=ResourceStrategy(),
     )
@@ -266,7 +273,7 @@ async def test_render_template_and_template_html(
 async def test_rasterize_html_uses_given_prepared(
     default_executor: _FakeExecutor,
 ) -> None:
-    prepared = PreparedHtml(html="<p>direct</p>")
+    prepared = prepare_html("<p>direct</p>")
 
     artifact = await api.rasterize_html(
         prepared,

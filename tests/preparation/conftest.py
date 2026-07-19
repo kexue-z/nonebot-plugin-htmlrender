@@ -30,6 +30,7 @@ def local_access(tmp_path: Path) -> ConfiguredLocalAccessPolicy:
 def resources(local_access: ConfiguredLocalAccessPolicy) -> ResourceService:
     from nonebot_plugin_htmlrender.adapters.resources import (  # noqa: PLC0415
         AnyioWorkerExecutor,
+        RemoteTransportExecutor,
         build_resource_reader,
     )
     from nonebot_plugin_htmlrender.resources.config import (  # noqa: PLC0415
@@ -45,7 +46,12 @@ def resources(local_access: ConfiguredLocalAccessPolicy) -> ResourceService:
 
     observer = NoopCacheObserver()
     worker = AnyioWorkerExecutor()
-    reader = build_resource_reader(ResourceCacheSettings(), observer, worker)
+    reader = build_resource_reader(
+        ResourceCacheSettings(),
+        observer,
+        worker,
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+    )
     return ResourceService(
         reader=reader,
         local_access=local_access,

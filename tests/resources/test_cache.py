@@ -13,6 +13,7 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     CachingResourceReader,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.adapters.resources import reader as reader_module
@@ -26,6 +27,7 @@ from nonebot_plugin_htmlrender.resources.config import ResourceCacheSettings
 from nonebot_plugin_htmlrender.resources.models import (
     FileResourceRef,
     InlineResourceRef,
+    NotModified,
     PackageResourceRef,
     RemoteResourceRef,
     ResourceContent,
@@ -71,6 +73,17 @@ class MemoryReader:
         self.reads.append(key)
         self.refreshes.append(refresh)
         return self.contents[key]
+
+    async def read_conditional(
+        self,
+        reference: ResourceRef,
+        revision: ResourceRevision,
+    ) -> ResourceContent | NotModified:
+        key = reference.cache_key
+        self.revisions.append(key)
+        if self.contents[key].revision == revision:
+            return NotModified(revision)
+        return await self.read(reference)
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
         key = reference.cache_key
@@ -205,7 +218,10 @@ async def test_composite_reader_supports_all_reference_kinds(
 ) -> None:
     path = tmp_path / "asset.txt"
     path.write_text("filesystem", encoding="utf-8")
-    reader = CompositeResourceReader(AnyioWorkerExecutor())
+    reader = CompositeResourceReader(
+        AnyioWorkerExecutor(),
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+    )
 
     file_content = await reader.read(FileResourceRef(path))
     package_content = await reader.read(
@@ -225,7 +241,7 @@ async def test_composite_reader_supports_all_reference_kinds(
     remote_read = mocker.patch.object(
         reader_module,
         "read_remote",
-        return_value=remote_content,
+        new=mocker.AsyncMock(return_value=remote_content),
     )
     remote = RemoteResourceRef("https://assets.example/card.css")
 
@@ -258,6 +274,7 @@ async def test_composite_reader_enforces_per_resource_size_limit(
     path.write_bytes(b"12345")
     reader = CompositeResourceReader(
         AnyioWorkerExecutor(),
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
         max_resource_bytes=4,
     )
 
@@ -272,7 +289,10 @@ async def test_composite_reader_translates_source_errors(
     tmp_path: Path,
     mocker: MockerFixture,
 ) -> None:
-    reader = CompositeResourceReader(AnyioWorkerExecutor())
+    reader = CompositeResourceReader(
+        AnyioWorkerExecutor(),
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+    )
     missing = FileResourceRef(tmp_path / "missing.bin")
 
     with pytest.raises(ResourceNotFound):
@@ -291,7 +311,9 @@ async def test_composite_reader_translates_source_errors(
     mocker.patch.object(
         reader_module,
         "read_remote",
-        side_effect=ResourceNotFound(f"Remote resource was not found: {remote.url}"),
+        new=mocker.AsyncMock(
+            side_effect=ResourceNotFound(f"Remote resource was not found: {remote.url}")
+        ),
     )
     with pytest.raises(ResourceNotFound, match="was not found"):
         await reader.read(remote)
@@ -299,7 +321,7 @@ async def test_composite_reader_translates_source_errors(
     mocker.patch.object(
         reader_module,
         "read_remote",
-        side_effect=OSError("connection reset"),
+        new=mocker.AsyncMock(side_effect=OSError("connection reset")),
     )
     with pytest.raises(ResourceResolutionError, match="connection reset"):
         await reader.read(remote)
@@ -725,6 +747,7 @@ async def test_built_reader_serves_files_and_refreshes(tmp_path: Path) -> None:
         ResourceCacheSettings(revalidate_seconds=60),
         NoopCacheObserver(),
         AnyioWorkerExecutor(),
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
     )
     reference = FileResourceRef(path)
 

@@ -8,6 +8,7 @@ import pytest
 from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.application import build_application
@@ -100,7 +101,12 @@ def resources(tmp_path: Path) -> ResourceService:
     observer = NoopCacheObserver()
     worker = AnyioWorkerExecutor()
     return ResourceService(
-        reader=build_resource_reader(ResourceCacheSettings(), observer, worker),
+        reader=build_resource_reader(
+            ResourceCacheSettings(),
+            observer,
+            worker,
+            remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+        ),
         local_access=ConfiguredLocalAccessPolicy(
             allowed_roots=(tmp_path,),
             allow_any=False,

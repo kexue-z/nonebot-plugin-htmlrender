@@ -232,6 +232,14 @@ async def test_available_provider_receives_explicit_dependencies_and_renders() -
     assert (artifact.width, artifact.height) == (1600, 733)
 
 
+_FILEHOST_SETTINGS = {
+    "provider": "fake-engine",
+    "resources": {
+        "filehost": {"public_base_url": "http://assets.example/htmlrender"},
+    },
+}
+
+
 def test_filehost_strategy_injects_asset_publisher() -> None:
     provider = _FakeProvider(
         strategy=ResourceStrategy(
@@ -239,7 +247,7 @@ def test_filehost_strategy_injects_asset_publisher() -> None:
             remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
         )
     )
-    settings = RenderSettings.model_validate({"provider": "fake-engine"})
+    settings = RenderSettings.model_validate(_FILEHOST_SETTINGS)
 
     application = prepare_runtime(
         settings,
@@ -248,6 +256,19 @@ def test_filehost_strategy_injects_asset_publisher() -> None:
 
     assert provider.dependencies[0].asset_publisher is not None
     assert provider.dependencies[0].resources is not application.resources
+
+
+def test_filehost_strategy_requires_public_base_url() -> None:
+    provider = _FakeProvider(
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        )
+    )
+    settings = RenderSettings.model_validate({"provider": "fake-engine"})
+
+    with pytest.raises(ProviderUnavailable, match="public_base_url"):
+        prepare_runtime(settings, explicit_providers=[provider])
 
 
 def test_filehost_strategy_off_keeps_publisher_for_per_call_override() -> None:
@@ -259,7 +280,7 @@ def test_filehost_strategy_off_keeps_publisher_for_per_call_override() -> None:
         )
     )
     runtime = prepare_runtime(
-        RenderSettings.model_validate({"provider": "fake-engine"}),
+        RenderSettings.model_validate(_FILEHOST_SETTINGS),
         explicit_providers=[provider],
     )
 

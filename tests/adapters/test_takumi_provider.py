@@ -23,6 +23,7 @@ from nonebot_plugin_htmlrender.adapters.takumi.provider import (
     TakumiProvider,
 )
 from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
+from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import (
     ProviderAvailability,
@@ -48,7 +49,7 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
     from tests.adapters.conftest import RecordingOperationObserver
 
-PREPARED = PreparedHtml(html="<p>prepared</p>")
+PREPARED = prepare_html("<p>prepared</p>")
 OPTIONS = RasterOptions(width=320, height=240, device_pixel_ratio=2.0)
 
 
@@ -458,7 +459,10 @@ async def test_typed_extension_holds_an_operation_lease_until_context_exit(
         anyio.create_task_group() as task_group,
         capability.extension() as extension,
     ):
-        assert extension._observer is operation_observer
+        # Observable contract: the leased runtime stays open for the whole
+        # extension context, even while aclose is racing to drain it.
+        del extension
+        assert created[0].closed is False
         task_group.start_soon(bindings.lifecycle.aclose)
         await checkpoint()
         assert created[0].closed is False

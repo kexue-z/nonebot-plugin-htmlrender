@@ -8,6 +8,7 @@ if TYPE_CHECKING:
     from collections.abc import Mapping
     from pathlib import Path
 
+    from nonebot_plugin_htmlrender.resources.models import ResourceResolution
     from nonebot_plugin_htmlrender.resources.service import ResolverSpec
 
 
@@ -17,7 +18,7 @@ async def resolve_template_vars(
     template_base: str | Path | None = None,
     strict: bool | None = None,
     resolver: ResolverSpec = None,
-) -> dict[str, Any]:
+) -> ResourceResolution[dict[str, Any]]:
     return await get_default_application().resources.resolve_template_vars(
         template_vars,
         template_base=template_base,
@@ -32,7 +33,7 @@ async def to_resource_url(
     template_base: str | Path | None = None,
     strict: bool | None = None,
     resolver: ResolverSpec = None,
-) -> str:
+) -> ResourceResolution[str]:
     return await get_default_application().resources.to_resource_url(
         value,
         template_base=template_base,

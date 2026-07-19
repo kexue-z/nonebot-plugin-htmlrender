@@ -16,6 +16,7 @@ from nonebot_plugin_htmlrender.application import (
     RenderTemplateHtml,
     RenderText,
 )
+from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityUnavailable,
@@ -42,7 +43,7 @@ if TYPE_CHECKING:
         FilterCallable,
     )
 
-PREPARED = PreparedHtml(html="<p>prepared</p>")
+PREPARED = prepare_html("<p>prepared</p>")
 
 
 @dataclass
@@ -334,7 +335,7 @@ async def test_render_template_and_template_html() -> None:
 
 async def test_rasterize_html_passes_prepared_through() -> None:
     renderer, _, executor = _full_renderer()
-    prepared = PreparedHtml(html="<p>direct</p>")
+    prepared = prepare_html("<p>direct</p>")
 
     artifact = await renderer.rasterize_html(
         RasterizeHtmlRequest(prepared=prepared, options=RasterOptions(width=320))

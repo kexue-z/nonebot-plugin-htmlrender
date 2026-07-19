@@ -15,7 +15,9 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     ConfiguredLocalAccessPolicy,
     FilehostAssetPublisher,
-    install_filehost_request_guard,
+    HostedAssetCapacityError,
+    HostedAssetStore,
+    install_hosted_asset_store,
 )
 from nonebot_plugin_htmlrender.adapters.resources import publisher as publisher_module
 from nonebot_plugin_htmlrender.rendering.errors import ProviderLifecycleError
@@ -73,14 +75,16 @@ async def test_content_addressed_cache_normalizes_suffix_and_reports_events(
         new=mocker.AsyncMock(return_value="https://assets.example/value.css"),
     )
 
-    assert await publisher.publish(b"value", suffix="css") == (
+    assert (await publisher.publish(b"value", suffix="css")).url == (
         "https://assets.example/value.css"
     )
-    assert await publisher.publish(b"value", suffix=".CSS") == (
+    assert (await publisher.publish(b"value", suffix=".CSS")).url == (
         "https://assets.example/value.css"
     )
 
-    upload.assert_awaited_once_with(b"value", ".css")
+    upload.assert_awaited_once_with(
+        (sha256(b"value").hexdigest(), ".css"), b"value", set()
+    )
     assert recording_observer.calls[-2:] == [
         ("filehost", {"miss": 1, "load": 1}, 1, None),
         ("filehost", {"hit": 1}, 1, None),
@@ -93,16 +97,16 @@ async def test_same_content_with_different_suffixes_has_distinct_assets(
 ) -> None:
     publisher = _publisher()
 
-    async def upload(data: bytes, suffix: str) -> str:
-        del data
-        return f"https://assets.example/value{suffix}"
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
+        del data, lease_ids
+        return f"https://assets.example/value{key[1]}"
 
     upload_mock = mocker.patch.object(publisher, "_upload", side_effect=upload)
 
-    assert await publisher.publish(b"value", suffix="css") == (
+    assert (await publisher.publish(b"value", suffix="css")).url == (
         "https://assets.example/value.css"
     )
-    assert await publisher.publish(b"value", suffix="woff2") == (
+    assert (await publisher.publish(b"value", suffix="woff2")).url == (
         "https://assets.example/value.woff2"
     )
     assert upload_mock.await_count == 2
@@ -129,15 +133,16 @@ async def test_filesystem_publish_reads_snapshot_and_preserves_suffix(
     asset.write_bytes(b"first")
     publisher = _publisher()
 
-    async def upload(data: bytes, suffix: str) -> str:
-        return f"https://assets.example/{data.decode()}{suffix.lower()}"
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
+        del lease_ids
+        return f"https://assets.example/{data.decode()}{key[1]}"
 
     upload_mock = mocker.patch.object(publisher, "_upload", side_effect=upload)
 
-    assert await publisher.publish(asset) == "https://assets.example/first.css"
-    assert await publisher.publish(asset) == "https://assets.example/first.css"
+    assert (await publisher.publish(asset)).url == "https://assets.example/first.css"
+    assert (await publisher.publish(asset)).url == "https://assets.example/first.css"
     asset.write_bytes(b"second")
-    assert await publisher.publish(asset) == "https://assets.example/second.css"
+    assert (await publisher.publish(asset)).url == "https://assets.example/second.css"
     with pytest.raises(ValueError, match="cannot override"):
         await publisher.publish(asset, suffix="bin")
 
@@ -171,9 +176,9 @@ async def test_concurrent_publish_is_singleflight(mocker: MockerFixture) -> None
     release_upload = anyio.Event()
     calls = 0
 
-    async def upload(data: bytes, suffix: str) -> str:
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
         nonlocal calls
-        del data, suffix
+        del key, data, lease_ids
         calls += 1
         upload_started.set()
         await release_upload.wait()
@@ -183,7 +188,7 @@ async def test_concurrent_publish_is_singleflight(mocker: MockerFixture) -> None
     results: list[str] = []
 
     async def publish() -> None:
-        results.append(await publisher.publish(b"shared"))
+        results.append((await publisher.publish(b"shared")).url)
 
     async with anyio.create_task_group() as group:
         group.start_soon(publish)
@@ -207,9 +212,9 @@ async def test_singleflight_broadcasts_errors_and_allows_retry(
     failing = True
     calls = 0
 
-    async def upload(data: bytes, suffix: str) -> str:
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
         nonlocal calls
-        del data, suffix
+        del key, data, lease_ids
         calls += 1
         upload_started.set()
         await release_upload.wait()
@@ -240,7 +245,7 @@ async def test_singleflight_broadcasts_errors_and_allows_retry(
     assert calls == 1
 
     failing = False
-    assert await publisher.publish(b"shared") == "https://assets.example/retry"
+    assert (await publisher.publish(b"shared")).url == "https://assets.example/retry"
     assert calls == 2
 
 
@@ -255,9 +260,9 @@ async def test_every_singleflight_waiter_attaches_its_lease(
     release_upload = anyio.Event()
     calls = 0
 
-    async def upload(data: bytes, suffix: str) -> str:
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
         nonlocal calls
-        del data, suffix
+        del key, data, lease_ids
         calls += 1
         upload_started.set()
         await release_upload.wait()
@@ -267,7 +272,7 @@ async def test_every_singleflight_waiter_attaches_its_lease(
     results: list[str] = []
 
     async def publish(lease_id: str) -> None:
-        results.append(await publisher.publish(b"shared", lease_id=lease_id))
+        results.append((await publisher.publish(b"shared", lease_id=lease_id)).url)
 
     async with anyio.create_task_group() as group:
         group.start_soon(publish, first_lease)
@@ -278,11 +283,11 @@ async def test_every_singleflight_waiter_attaches_its_lease(
 
     assert results == ["https://assets.example/1"] * 2
     await publisher.release(first_lease)
-    assert await publisher.publish(b"shared") == "https://assets.example/1"
+    assert (await publisher.publish(b"shared")).url == "https://assets.example/1"
     assert calls == 1
 
     await publisher.release(second_lease)
-    assert await publisher.publish(b"shared") == "https://assets.example/2"
+    assert (await publisher.publish(b"shared")).url == "https://assets.example/2"
     assert calls == 2
 
 
@@ -296,9 +301,9 @@ async def test_release_detaches_lease_from_inflight_publish(
     release_upload = anyio.Event()
     calls = 0
 
-    async def upload(data: bytes, suffix: str) -> str:
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
         nonlocal calls
-        del data, suffix
+        del key, data, lease_ids
         calls += 1
         upload_started.set()
         await release_upload.wait()
@@ -315,7 +320,7 @@ async def test_release_detaches_lease_from_inflight_publish(
         await publisher.release(lease)
         release_upload.set()
 
-    assert await publisher.publish(b"shared") == "https://assets.example/2"
+    assert (await publisher.publish(b"shared")).url == "https://assets.example/2"
     assert calls == 2
 
 
@@ -328,9 +333,9 @@ async def test_clear_does_not_admit_an_older_inflight_mapping(
     release_upload = anyio.Event()
     calls = 0
 
-    async def upload(data: bytes, suffix: str) -> str:
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
         nonlocal calls
-        del data, suffix
+        del key, data, lease_ids
         calls += 1
         if calls == 1:
             upload_started.set()
@@ -345,7 +350,7 @@ async def test_clear_does_not_admit_an_older_inflight_mapping(
         await publisher.clear()
         release_upload.set()
 
-    assert await publisher.publish(b"shared") == "https://assets.example/2"
+    assert (await publisher.publish(b"shared")).url == "https://assets.example/2"
     assert calls == 2
 
 
@@ -366,12 +371,12 @@ async def test_aclose_terminates_only_the_target_instance(
         new=mocker.AsyncMock(return_value="second:1"),
     )
 
-    assert await first.publish(b"value") == "first:1"
-    assert await second.publish(b"value") == "second:1"
+    assert (await first.publish(b"value")).url == "first:1"
+    assert (await second.publish(b"value")).url == "second:1"
     await first.aclose()
     with pytest.raises(ProviderLifecycleError, match="closed"):
         await first.publish(b"value")
-    assert await second.publish(b"value") == "second:1"
+    assert (await second.publish(b"value")).url == "second:1"
 
     assert first_upload.await_count == 1
     assert second_upload.await_count == 1
@@ -387,8 +392,8 @@ async def test_aclose_drains_an_inflight_publish_before_terminating(
     close_finished = anyio.Event()
     result: list[str] = []
 
-    async def upload(data: bytes, suffix: str) -> str:
-        del data, suffix
+    async def upload(key: tuple[str, str], data: bytes, lease_ids: set[str]) -> str:
+        del key, data, lease_ids
         upload_started.set()
         await release_upload.wait()
         return "https://assets.example/drained"
@@ -396,7 +401,7 @@ async def test_aclose_drains_an_inflight_publish_before_terminating(
     mocker.patch.object(publisher, "_upload", side_effect=upload)
 
     async def publish() -> None:
-        result.append(await publisher.publish(b"value"))
+        result.append((await publisher.publish(b"value")).url)
 
     async def close() -> None:
         await publisher.aclose()
@@ -428,20 +433,32 @@ async def test_publisher_survives_failing_observer(
         new=mocker.AsyncMock(return_value="https://assets.example/value"),
     )
 
-    assert await publisher.publish(b"value") == "https://assets.example/value"
-    assert await publisher.publish(b"value") == "https://assets.example/value"
+    assert (await publisher.publish(b"value")).url == "https://assets.example/value"
+    assert (await publisher.publish(b"value")).url == "https://assets.example/value"
 
 
-def test_request_headers_and_leases_are_instance_owned() -> None:
+@pytest.mark.anyio
+async def test_published_headers_and_leases_are_instance_owned(
+    mocker: MockerFixture,
+) -> None:
     first = _publisher(header_value="first-token")
     second = _publisher(header_value="second-token")
+    mocker.patch.object(
+        first, "_upload", new=mocker.AsyncMock(return_value="https://a/1")
+    )
+    mocker.patch.object(
+        second, "_upload", new=mocker.AsyncMock(return_value="https://a/2")
+    )
 
-    assert first.request_headers() == {"X-Test-Filehost": "first-token"}
-    assert second.request_headers() == {"X-Test-Filehost": "second-token"}
+    first_published = await first.publish(b"value")
+    second_published = await second.publish(b"value")
+    assert dict(first_published.request_headers) == {"X-Test-Filehost": "first-token"}
+    assert dict(second_published.request_headers) == {"X-Test-Filehost": "second-token"}
     assert first.create_lease() != first.create_lease()
 
 
-def test_request_header_can_be_derived_from_injected_settings(
+@pytest.mark.anyio
+async def test_request_header_can_be_derived_from_injected_settings(
     mocker: MockerFixture,
 ) -> None:
     mocker.patch.object(
@@ -463,8 +480,12 @@ def test_request_header_can_be_derived_from_injected_settings(
             allow_any=True,
         ),
     )
+    mocker.patch.object(
+        publisher, "_upload", new=mocker.AsyncMock(return_value="https://a/x")
+    )
 
-    assert publisher.request_headers() == {
+    published = await publisher.publish(b"value")
+    assert dict(published.request_headers) == {
         "X-Custom-Filehost": sha256(b"custom-salt:device-id").hexdigest()
     }
 
@@ -500,15 +521,75 @@ async def test_startup_prewarms_only_configured_asset_extensions(
         "_upload",
         new=mocker.AsyncMock(return_value="https://assets.example/prewarmed"),
     )
-    mocker.patch("nonebot.get_driver", return_value=object())
+    # startup() binds the hosted-store namespace; these tests exercise the
+    # prewarm scan only, so the binding is stubbed alongside the upload.
+    mocker.patch.object(publisher, "_attach_namespace", return_value=None)
 
     await publisher.startup()
 
     assert upload.await_count == 2
-    assert {call.args for call in upload.await_args_list} == {
+    assert {(call.args[1], call.args[0][1]) for call in upload.await_args_list} == {
         (b"first", ".css"),
-        (b"second", ".CSS"),
+        (b"second", ".css"),
     }
+
+
+@pytest.mark.anyio
+async def test_startup_failure_rolls_back_partial_prewarm_state(
+    tmp_path: Path,
+    mocker: MockerFixture,
+) -> None:
+    root = tmp_path / "assets"
+    root.mkdir()
+    first = root / "first.css"
+    second = root / "second.css"
+    first.write_bytes(b"first")
+    second.write_bytes(b"second")
+    settings = AssetPublisherSettings(
+        request_header_value="prewarm-header",
+        prewarm_enabled=True,
+        prewarm_max_files=8,
+        # File roots keep the prewarm order deterministic across platforms.
+        prewarm_paths=(first, second),
+        prewarm_extensions=("css",),
+    )
+    publisher = FilehostAssetPublisher(
+        settings=settings,
+        observer=NoopCacheObserver(),
+        worker=AnyioWorkerExecutor(),
+        local_access=ConfiguredLocalAccessPolicy(
+            allowed_roots=(root,),
+            allow_any=False,
+        ),
+    )
+
+    async def fake_upload(
+        key: tuple[str, str],
+        data: bytes,
+        lease_ids: set[str],
+    ) -> str:
+        del key, lease_ids
+        if data == b"second":
+            raise KeyboardInterrupt
+        return "https://assets.example/prewarmed-first"
+
+    upload = mocker.patch.object(
+        publisher,
+        "_upload",
+        new=mocker.AsyncMock(side_effect=fake_upload),
+    )
+    mocker.patch.object(publisher, "_attach_namespace", return_value=None)
+
+    with pytest.raises(KeyboardInterrupt):
+        await publisher.startup()
+
+    # The partially prewarmed publication must not survive the failed step:
+    # republishing the same payload uploads again instead of reusing a stale
+    # cache entry.
+    upload.side_effect = None
+    upload.return_value = "https://assets.example/after-rollback"
+    published = await publisher.publish(b"first", suffix=".css")
+    assert published.url == "https://assets.example/after-rollback"
 
 
 class FakeASGIDriver(ASGIMixin):
@@ -534,7 +615,7 @@ class FakeASGIDriver(ASGIMixin):
         del setup
 
 
-def test_bootstrap_installs_an_idempotent_filehost_request_guard(
+def test_hosted_store_serves_only_guarded_known_assets(
     mocker: MockerFixture,
 ) -> None:
     app = FastAPI()
@@ -547,34 +628,115 @@ def test_bootstrap_installs_an_idempotent_filehost_request_guard(
     settings = AssetPublisherSettings(
         request_header_name="X-Test-Filehost",
         request_header_value="guard-token",
+        public_base_url="http://public.example/assets",
     )
 
-    assert install_filehost_request_guard(settings)
-    assert install_filehost_request_guard(settings)
+    store = install_hosted_asset_store(settings)
+    assert store is not None
+    assert install_hosted_asset_store(settings) is store
 
-    assert len(app.user_middleware) == 1
+    namespace = store.open_namespace(
+        headers={"X-Test-Filehost": "guard-token"},
+        public_base_url="http://public.example/assets/",
+    )
+    url = anyio.run(namespace.put, "abc.css", b"body{}")
+    ns_id = namespace.url_for("x").rsplit("/", 2)[-2]
+    assert url == f"http://public.example/assets/{ns_id}/abc.css"
+
     with TestClient(app) as client:
-        rejected = client.get("/filehost/ping")
+        # Other plugins' routes stay untouched: no guard header required.
+        assert client.get("/filehost/ping").status_code == 200
+
+        rejected = client.get(f"/_htmlrender/assets/{ns_id}/abc.css")
         assert rejected.status_code == 403
-        assert "access-control-allow-origin" not in rejected.headers
+
         response = client.get(
-            "/filehost/ping",
+            f"/_htmlrender/assets/{ns_id}/abc.css",
             headers={"X-Test-Filehost": "guard-token"},
         )
-    assert response.status_code == 200
-    assert response.json() == {"ok": True}
-    assert response.headers["access-control-allow-origin"] == "*"
+        assert response.status_code == 200
+        assert response.content == b"body{}"
+        assert response.headers["access-control-allow-origin"] == "*"
+
+        missing = client.get(
+            f"/_htmlrender/assets/{ns_id}/missing.css",
+            headers={"X-Test-Filehost": "guard-token"},
+        )
+        assert missing.status_code == 404
 
 
-def test_request_guard_rejects_installation_after_asgi_startup(
-    mocker: MockerFixture,
-) -> None:
-    app = FastAPI()
-    mocker.patch("nonebot.get_driver", return_value=FakeASGIDriver(app))
-    settings = AssetPublisherSettings(request_header_value="guard-token")
+@pytest.mark.anyio
+async def test_hosted_store_capacity_evicts_lease_free_and_rejects_when_pinned() -> (
+    None
+):
+    store = HostedAssetStore(max_entries=2, max_bytes=1024)
+    namespace = store.open_namespace(
+        headers={},
+        public_base_url="http://public.example/a/",
+    )
+    ns_id = namespace.url_for("x").rsplit("/", 2)[-2]
 
-    with (
-        TestClient(app),
-        pytest.raises(ProviderLifecycleError, match="before the ASGI"),
-    ):
-        install_filehost_request_guard(settings)
+    await namespace.put("a", b"aa", lease_ids=("lease-a",))
+    await namespace.put("b", b"bb")
+    resident = store.lookup(ns_id, "b")
+    assert resident is not None
+    evicted_path = resident.path
+
+    await namespace.put("c", b"cc")
+    assert store.lookup(ns_id, "b") is None
+    assert not evicted_path.exists()
+    assert store.lookup(ns_id, "a") is not None
+
+    assert await namespace.attach("c", "lease-c")
+    with pytest.raises(HostedAssetCapacityError):
+        await namespace.put("d", b"dd")
+
+    await store.aclose()
+
+
+@pytest.mark.anyio
+async def test_publisher_and_store_share_lease_and_residency_state() -> None:
+    store = HostedAssetStore(max_entries=8, max_bytes=1024)
+    publisher = _publisher()
+    publisher._namespace = store.open_namespace(
+        headers={"X-Test-Filehost": "test-header-value"},
+        public_base_url="http://public.example/assets/",
+    )
+    namespace_id = publisher._namespace.url_for("x").rsplit("/", 2)[-2]
+    lease = publisher.create_lease()
+
+    published = await publisher.publish(b"asset", lease_id=lease, suffix=".css")
+    name = published.url.rsplit("/", 1)[-1]
+    asset = store.lookup(namespace_id, name)
+    assert asset is not None
+    assert lease in asset.leases
+
+    # A cache hit re-confirms residency and pins the second lease in the
+    # store as well.
+    second_lease = publisher.create_lease()
+    again = await publisher.publish(b"asset", lease_id=second_lease, suffix=".css")
+    assert again.url == published.url
+    assert second_lease in asset.leases
+
+    # Releasing forwards to the store.
+    await publisher.release(lease)
+    await publisher.release(second_lease)
+    assert asset.leases == set()
+
+    # If the store dropped the asset, a reused URL mapping must not survive:
+    # the publisher republishes instead of serving a dead URL.
+    await store.close_namespace(namespace_id)
+    assert store.lookup(namespace_id, name) is None
+    replay = await publisher.publish(b"asset", suffix=".css")
+    assert store.lookup(namespace_id, replay.url.rsplit("/", 1)[-1]) is not None
+
+    # clear() drops the namespace's lease-free assets and their files.
+    replayed = store.lookup(namespace_id, name)
+    assert replayed is not None
+    path = replayed.path
+    await publisher.clear()
+    assert store.lookup(namespace_id, name) is None
+    assert not path.exists()
+
+    await publisher.aclose()
+    await store.aclose()

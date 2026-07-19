@@ -3,8 +3,60 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path, PurePosixPath
-from typing import TypeAlias
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Generic, TypeAlias, TypeVar
 from urllib.parse import urlsplit
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+T = TypeVar("T")
+
+
+@dataclass(frozen=True, slots=True)
+class PublishedResource:
+    """A published asset URL bundled with the exact request authorization.
+
+    ``request_headers`` are the headers a consumer must send to fetch this
+    specific URL. The authorization travels with the URL so callers never
+    infer it from host, path prefix or network location.
+    """
+
+    url: str
+    request_headers: Mapping[str, str] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "request_headers",
+            MappingProxyType(dict(self.request_headers)),
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class ResourceResolution(Generic[T]):
+    """A resolved value bundled with exact per-URL request authorization.
+
+    ``request_headers_by_url`` is intentionally keyed by the resolved URL
+    instead of a host or path prefix. Consumers must apply each header set
+    only to the matching URL.
+    """
+
+    value: T
+    request_headers_by_url: Mapping[str, Mapping[str, str]] = field(
+        default_factory=dict
+    )
+
+    def __post_init__(self) -> None:
+        frozen_headers = {
+            url: MappingProxyType(dict(headers))
+            for url, headers in sorted(self.request_headers_by_url.items())
+        }
+        object.__setattr__(
+            self,
+            "request_headers_by_url",
+            MappingProxyType(frozen_headers),
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,6 +73,13 @@ class ResourceContent:
     data: bytes
     media_type: str | None = None
     revision: ResourceRevision | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class NotModified:
+    """Typed conditional-read outcome: the cached revision is still current."""
+
+    revision: ResourceRevision
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,9 +158,12 @@ ResourceRef: TypeAlias = (
 __all__ = [
     "FileResourceRef",
     "InlineResourceRef",
+    "NotModified",
     "PackageResourceRef",
+    "PublishedResource",
     "RemoteResourceRef",
     "ResourceContent",
     "ResourceRef",
+    "ResourceResolution",
     "ResourceRevision",
 ]

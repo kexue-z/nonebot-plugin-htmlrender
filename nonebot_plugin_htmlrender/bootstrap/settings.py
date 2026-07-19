@@ -11,6 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 # Pydantic resolves this annotation while constructing the model.
 from nonebot_plugin_htmlrender.graphics.models import GraphicsBackendName  # noqa: TC001
+from nonebot_plugin_htmlrender.resources.config import normalize_public_base_url
 
 
 class RenderStartupMode(str, Enum):
@@ -40,6 +41,8 @@ class TemplateSettings(_StrictRenderModel):
     """Sizing of the template environment cache."""
 
     environment_cache_max_entries: int = Field(default=64, ge=0)
+    environment_compiled_cache_size: int = Field(default=256, ge=0)
+    """Compiled-template cache size per Jinja environment; 0 disables it."""
 
 
 class LocalAccessSettings(_StrictRenderModel):
@@ -65,6 +68,8 @@ class RemoteAccessSettings(_StrictRenderModel):
     allow_hosts: list[str] = Field(default_factory=list)
     deny_hosts: list[str] = Field(default_factory=list)
     max_redirects: int = Field(default=5, ge=0)
+    request_timeout_seconds: float = Field(default=30.0, gt=0.0)
+    max_concurrent_fetches: int = Field(default=8, gt=0)
 
 
 class FilehostSettings(_StrictRenderModel):
@@ -80,6 +85,23 @@ class FilehostSettings(_StrictRenderModel):
     prewarm_max_files: int = Field(default=256, ge=0)
     prewarm_paths: list[Path] = Field(default_factory=list)
     prewarm_extensions: list[str] = Field(default_factory=list)
+    public_base_url: str | None = Field(default=None)
+    """Externally reachable absolute base of the hosted asset collection.
+
+    Required whenever the selected resource strategy uses the filehost
+    transport; deployment configuration mapped by the reverse proxy to the
+    fixed internal mount, never derived from bind addresses, ``Host`` /
+    ``Forwarded`` headers, or request context.
+    """
+    max_entries: int = Field(default=256, gt=0)
+    max_bytes: int = Field(default=256 * 1024 * 1024, gt=0)
+
+    @field_validator("public_base_url")
+    @classmethod
+    def _normalize_public_base_url(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        return normalize_public_base_url(value)
 
 
 class ObservabilitySettings(_StrictRenderModel):
@@ -95,6 +117,7 @@ class GraphicsSettings(_StrictRenderModel):
     backends: tuple[GraphicsBackendName, ...] = ()
     max_pixels: int = Field(default=16 * 1024 * 1024, gt=0)
     max_concurrency: int = Field(default=2, gt=0)
+    max_commands: int = Field(default=100_000, gt=0)
 
     @field_validator("backends")
     @classmethod

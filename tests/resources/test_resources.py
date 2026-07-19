@@ -10,6 +10,7 @@ import pytest
 from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.rendering.errors import (
@@ -26,7 +27,9 @@ from nonebot_plugin_htmlrender.resources.config import (
 from nonebot_plugin_htmlrender.resources.models import (
     FileResourceRef,
     InlineResourceRef,
+    NotModified,
     PackageResourceRef,
+    PublishedResource,
     ResourceContent,
     ResourceRef,
     ResourceRevision,
@@ -35,8 +38,6 @@ from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from pytest_mock import MockerFixture
 
 
@@ -62,18 +63,18 @@ class RecordingPublisher:
     async def release(self, lease_id: str) -> None:
         self.released.append(lease_id)
 
-    def request_headers(self) -> Mapping[str, str]:
-        return {"X-Test-Asset": "token"}
-
     async def publish(
         self,
         value: str | Path | bytes,
         *,
         lease_id: str | None = None,
         suffix: str | None = None,
-    ) -> str:
+    ) -> PublishedResource:
         self.published.append((value, lease_id, suffix))
-        return f"{self.prefix}{_published_label(value)}"
+        return PublishedResource(
+            url=f"{self.prefix}{_published_label(value)}",
+            request_headers={"X-Test-Asset": "token"},
+        )
 
     async def startup(self) -> None:
         self.started += 1
@@ -83,6 +84,21 @@ class RecordingPublisher:
 
     async def aclose(self) -> None:
         self.closed += 1
+
+
+class ConflictingPublisher(RecordingPublisher):
+    async def publish(
+        self,
+        value: str | Path | bytes,
+        *,
+        lease_id: str | None = None,
+        suffix: str | None = None,
+    ) -> PublishedResource:
+        self.published.append((value, lease_id, suffix))
+        return PublishedResource(
+            url="https://assets.example/shared",
+            request_headers={"X-Test-Asset": _published_label(value)},
+        )
 
 
 class RecordingReader:
@@ -103,6 +119,15 @@ class RecordingReader:
         self.reads += 1
         self.refreshes.append(refresh)
         return self.content
+
+    async def read_conditional(
+        self,
+        reference: ResourceRef,
+        revision: ResourceRevision,
+    ) -> ResourceContent | NotModified:
+        if self.content.revision == revision:
+            return NotModified(revision)
+        return await self.read(reference)
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
         del reference
@@ -171,6 +196,7 @@ def _resources(
             ResourceCacheSettings(revalidate_seconds=60),
             NoopCacheObserver(),
             AnyioWorkerExecutor(),
+            remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
         ),
         local_access=ConfiguredLocalAccessPolicy(
             allowed_roots=(tmp_path,),
@@ -268,14 +294,15 @@ async def test_local_file_strategy_resolves_nested_values(tmp_path: Path) -> Non
     )
 
     expected = image.resolve().as_uri()
-    assert result == {
+    assert result.value == {
         "path": expected,
         "relative": expected,
         "bare_text": "logo.png",
         "nested": [expected, (expected,), {expected}],
         "plain": "hello world",
     }
-    assert await resources.to_resource_url(image) == expected
+    assert (await resources.to_resource_url(image)).value == expected
+    assert result.request_headers_by_url == {}
 
 
 @pytest.mark.anyio
@@ -294,7 +321,10 @@ async def test_plain_text_classification_never_probes_the_filesystem(
         template_base=template_root,
     )
 
-    assert result == {"caption": "looks-like-file.png", "plain": "hello world"}
+    assert result.value == {
+        "caption": "looks-like-file.png",
+        "plain": "hello world",
+    }
     assert exists_spy.call_count == 0
 
 
@@ -308,8 +338,8 @@ async def test_resolve_mode_off_requires_an_explicit_override(tmp_path: Path) ->
     )
 
     values = {"asset": asset}
-    assert await resources.resolve_template_vars(values) == values
-    assert await resources.resolve_template_vars(values, resolver="file") == {
+    assert (await resources.resolve_template_vars(values)).value == values
+    assert (await resources.resolve_template_vars(values, resolver="file")).value == {
         "asset": asset.as_uri()
     }
 
@@ -334,7 +364,7 @@ async def test_remote_memory_and_error_strategies_are_explicit(tmp_path: Path) -
     )
 
     values = {"path": asset, "bytes": b"asset"}
-    assert await memory.resolve_template_vars(values) == values
+    assert (await memory.resolve_template_vars(values)).value == values
     with pytest.raises(ResourceResolutionError, match="disabled"):
         await denied.resolve_template_vars(values)
 
@@ -370,18 +400,63 @@ async def test_filehost_policy_uses_injected_publisher_and_access_policy(
         lease_id=lease,
     )
 
-    assert result == {
+    assert result.value == {
         "absolute": "https://assets.example/asset.bin",
         "relative": "https://assets.example/asset.bin",
         "bytes": "https://assets.example/raw",
         "buffer": "https://assets.example/buffer",
         "mutable": "https://assets.example/mutable",
     }
+    assert result.request_headers_by_url == {
+        "https://assets.example/asset.bin": {"X-Test-Asset": "token"},
+        "https://assets.example/buffer": {"X-Test-Asset": "token"},
+        "https://assets.example/mutable": {"X-Test-Asset": "token"},
+        "https://assets.example/raw": {"X-Test-Asset": "token"},
+    }
     assert len(publisher.published) == 5
     assert publisher.published.count((asset.resolve(), lease, None)) == 2
     assert (b"raw", lease, None) in publisher.published
     assert (b"buffer", lease, None) in publisher.published
     assert (b"mutable", lease, None) in publisher.published
+
+
+@pytest.mark.anyio
+async def test_filehost_single_url_carries_exact_request_headers(
+    tmp_path: Path,
+) -> None:
+    resources = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+        publisher=RecordingPublisher(),
+    )
+
+    result = await resources.to_resource_url(b"single")
+
+    assert result.value == "https://assets.example/single"
+    assert result.request_headers_by_url == {result.value: {"X-Test-Asset": "token"}}
+
+
+@pytest.mark.anyio
+async def test_filehost_rejects_conflicting_capabilities_for_one_url(
+    tmp_path: Path,
+) -> None:
+    resources = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+        publisher=ConflictingPublisher(),
+    )
+
+    with pytest.raises(ResourceResolutionError, match="conflicting authorization"):
+        await resources.resolve_template_vars(
+            {"first": b"first", "second": b"second"},
+            strict=False,
+        )
 
 
 @pytest.mark.anyio
@@ -408,7 +483,9 @@ async def test_filehost_policy_rejects_outside_paths_in_strict_mode(
         publisher=publisher,
     )
 
-    assert await resources.resolve_template_vars({"asset": asset}) == {"asset": asset}
+    assert (await resources.resolve_template_vars({"asset": asset})).value == {
+        "asset": asset
+    }
     with pytest.raises(ResourceResolutionError, match="outside allowed roots"):
         await resources.resolve_template_vars({"asset": asset}, strict=True)
     assert publisher.published == []
@@ -435,10 +512,12 @@ async def test_explicit_tolerant_resolution_overrides_strict_strategy(
 
     with pytest.raises(ResourceResolutionError, match="outside allowed roots"):
         await resources.resolve_template_vars({"asset": asset})
-    assert await resources.resolve_template_vars(
-        {"asset": asset},
-        strict=False,
-    ) == {"asset": asset}
+    assert (
+        await resources.resolve_template_vars(
+            {"asset": asset},
+            strict=False,
+        )
+    ).value == {"asset": asset}
 
 
 @pytest.mark.anyio
@@ -471,7 +550,7 @@ async def test_custom_resolver_runs_recursively_and_concurrently(
         resolver=resolver,
     )
 
-    assert result == {
+    assert result.value == {
         "paths": [f"resolved:templates:{index}.bin" for index in range(8)]
     }
     assert resolver.max_active > 1
@@ -482,10 +561,12 @@ async def test_custom_resolver_failure_is_soft_unless_strict(tmp_path: Path) -> 
     asset = tmp_path / "asset.bin"
     resources = _resources(tmp_path)
 
-    assert await resources.resolve_template_vars(
-        {"asset": asset},
-        resolver=FailingResolver(),
-    ) == {"asset": asset}
+    assert (
+        await resources.resolve_template_vars(
+            {"asset": asset},
+            resolver=FailingResolver(),
+        )
+    ).value == {"asset": asset}
     with pytest.raises(ResourceResolutionError, match="resolver unavailable"):
         await resources.resolve_template_vars(
             {"asset": asset},
@@ -503,8 +584,6 @@ async def test_unknown_or_malformed_resolvers_fail_at_the_boundary(
 
     with pytest.raises(InvalidRenderRequest, match="Unknown resource policy"):
         await resources.resolve_template_vars({"asset": asset}, resolver="missing")
-    with pytest.raises(InvalidRenderRequest, match=r"must expose resolve\(\)"):
-        await resources.resolve_template_vars({"asset": asset}, resolver=object())
 
 
 async def test_resource_path_normalization_uses_stable_errors(
@@ -560,12 +639,38 @@ async def test_url_token_resolution_preserves_external_urls_query_and_fragment(
         template_base=root,
     )
 
-    assert result == [
+    assert result.value == [
         f"{(root / 'style.css').as_uri()}?v=1#theme",
         "https://cdn.example/site.css?v=2",
         "data:text/plain,hello",
         "#section",
     ]
+
+
+@pytest.mark.anyio
+async def test_filehost_url_token_authorization_uses_the_final_url(
+    tmp_path: Path,
+) -> None:
+    root = tmp_path / "assets"
+    root.mkdir()
+    (root / "style.css").write_text("body{}", encoding="utf-8")
+    resources = _resources(
+        tmp_path,
+        strategy=ResourceStrategy(
+            is_remote=True,
+            remote_local_policy=RemoteLocalResourcePolicy.FILEHOST,
+        ),
+        publisher=RecordingPublisher(),
+    )
+
+    result = await resources.resolve_url_tokens(
+        ["style.css?v=1#theme"],
+        template_base=root,
+    )
+
+    expected = "https://assets.example/style.css?v=1#theme"
+    assert result.value == [expected]
+    assert result.request_headers_by_url == {expected: {"X-Test-Asset": "token"}}
 
 
 @pytest.mark.anyio
@@ -596,9 +701,11 @@ async def test_service_instances_can_select_opposite_transport_strategies(
         ),
     )
 
-    assert await local.resolve_template_vars({"asset": asset}) == {
+    assert (await local.resolve_template_vars({"asset": asset})).value == {
         "asset": asset.as_uri()
     }
-    assert await remote.resolve_template_vars({"asset": asset}) == {"asset": asset}
+    assert (await remote.resolve_template_vars({"asset": asset})).value == {
+        "asset": asset
+    }
     assert local.strategy.is_remote is False
     assert remote.strategy.is_remote is True

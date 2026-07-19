@@ -5,6 +5,7 @@ from hashlib import sha256
 from importlib import import_module
 from pathlib import Path
 import time
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 import uuid
 
@@ -12,8 +13,7 @@ import anyio
 from nonebot.log import logger
 
 if TYPE_CHECKING:
-    from starlette.middleware.base import RequestResponseEndpoint
-    from starlette.responses import Response
+    from collections.abc import Mapping
 
     from nonebot_plugin_htmlrender.resources.config import AssetPublisherSettings
     from nonebot_plugin_htmlrender.resources.observation import CacheObserver
@@ -29,6 +29,9 @@ from nonebot_plugin_htmlrender.resources.errors import (
     ResourceResolutionError,
     ResourceSizeExceeded,
 )
+from nonebot_plugin_htmlrender.resources.models import PublishedResource
+
+from .hosted import HostedAssetNamespace, acquire_hosted_asset_store
 
 
 @dataclass(slots=True)
@@ -116,73 +119,14 @@ def _request_guard_values(settings: AssetPublisherSettings) -> tuple[str, str]:
     return header_name, value
 
 
-def install_filehost_request_guard(settings: AssetPublisherSettings) -> bool:
-    """Install the host middleware before the ASGI application starts.
-
-    ``Application.startup()`` can run from inside ASGI lifespan, which is too
-    late for FastAPI middleware mutation. The NoneBot bootstrap calls this
-    adapter while importing the plugin instead.
-    """
-    try:
-        from fastapi import FastAPI, Request  # noqa: PLC0415
-        from fastapi.responses import PlainTextResponse  # noqa: PLC0415
-        from nonebot import get_driver  # noqa: PLC0415
-        from nonebot.drivers import ASGIMixin  # noqa: PLC0415
-    except Exception as error:
-        logger.debug("Filehost request guard is unavailable: {}", error)
-        return False
-
-    try:
-        driver = get_driver()
-    except Exception as error:
-        logger.debug("Filehost request guard has no active NoneBot driver: {}", error)
-        return False
-    if not isinstance(driver, ASGIMixin) or not isinstance(driver.server_app, FastAPI):
-        return False
-
-    app = driver.server_app
-    guard = _request_guard_values(settings)
-    state_key = "_htmlrender_filehost_guard"
-    installed = getattr(app.state, state_key, None)
-    if installed is not None:
-        if installed != guard:
-            raise ProviderLifecycleError(
-                "The ASGI application already has a filehost request guard "
-                "with different settings."
-            )
-        return True
-    if app.middleware_stack is not None:
-        raise ProviderLifecycleError(
-            "The filehost request guard must be installed before the ASGI "
-            "application starts. Load nonebot-plugin-htmlrender during plugin "
-            "initialization."
-        )
-
-    header_name, header_value = guard
-
-    @app.middleware("http")
-    async def _guard(
-        request: Request,
-        call_next: RequestResponseEndpoint,
-    ) -> Response:
-        is_filehost = request.url.path.startswith("/filehost/")
-        if is_filehost and request.headers.get(header_name) != header_value:
-            return PlainTextResponse("Forbidden", status_code=403)
-        response = await call_next(request)
-        if is_filehost:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-        return response
-
-    setattr(app.state, state_key, guard)
-    logger.info(
-        "Filehost request guard enabled with header {!r}",
-        header_name,
-    )
-    return True
-
-
 class FilehostAssetPublisher:
-    """Instance-owned, content-addressed publisher for nonebot-plugin-filehost."""
+    """Instance-owned, content-addressed publisher over the hosted store.
+
+    Publishing goes exclusively through this application's
+    :class:`HostedAssetNamespace`; the process-level store owns files,
+    capacity, and the request-guard registry, while this publisher owns
+    reuse freshness (TTL), leases, and singleflight per content digest.
+    """
 
     def __init__(
         self,
@@ -204,12 +148,38 @@ class FilehostAssetPublisher:
         self._drained = anyio.Event()
         self._drained.set()
         self._header_name, self._header_value = _request_guard_values(settings)
+        self._request_headers: Mapping[str, str] = MappingProxyType(
+            {self._header_name: self._header_value}
+        )
+        self._namespace: HostedAssetNamespace | None = None
 
     def create_lease(self) -> str:
         return f"lease:{uuid.uuid4().hex}"
 
-    def request_headers(self) -> dict[str, str]:
-        return {self._header_name: self._header_value}
+    def _published(self, url: str) -> PublishedResource:
+        return PublishedResource(url=url, request_headers=self._request_headers)
+
+    def _attach_namespace(self) -> HostedAssetNamespace:
+        """Bind this publisher to its private namespace in the host store."""
+        if self._namespace is not None:
+            return self._namespace
+        if self._settings.public_base_url is None:
+            raise ProviderLifecycleError(
+                "The filehost transport requires "
+                "`render.resources.filehost.public_base_url`."
+            )
+        store = acquire_hosted_asset_store()
+        if store is None:
+            raise ProviderLifecycleError(
+                "The hosted asset store is not installed; the filehost "
+                "transport requires a NoneBot FastAPI ASGI host with "
+                "nonebot-plugin-htmlrender loaded at plugin initialization."
+            )
+        self._namespace = store.open_namespace(
+            headers=self._request_headers,
+            public_base_url=self._settings.public_base_url,
+        )
+        return self._namespace
 
     async def startup(self) -> None:
         async with self._lock:
@@ -217,7 +187,15 @@ class FilehostAssetPublisher:
                 raise ProviderLifecycleError(
                     "The filehost publisher is already closed."
                 )
-        await self._prewarm()
+        self._attach_namespace()
+        try:
+            await self._prewarm()
+        except BaseException:
+            # The composition root only rolls back completed steps; partial
+            # prewarm state is this step's own to drop before re-raising.
+            with anyio.CancelScope(shield=True):
+                await self.clear()
+            raise
 
     async def _prewarm(self) -> None:
         if not self._settings.prewarm_enabled or self._settings.prewarm_max_files == 0:
@@ -246,7 +224,8 @@ class FilehostAssetPublisher:
                 await self.publish(data, suffix=suffix)
             except Exception as error:  # noqa: PERF203 -- optional files are isolated
                 logger.warning(
-                    "Could not prewarm filehost resource {}: {}", path, error
+                    "Could not prewarm a filehost resource: {}",
+                    type(error).__name__,
                 )
 
     async def aclose(self) -> None:
@@ -261,19 +240,32 @@ class FilehostAssetPublisher:
             )
         async with self._lock:
             self._entries.clear()
+        namespace = self._namespace
+        if namespace is not None:
+            with anyio.CancelScope(shield=True):
+                await namespace.aclose()
 
     async def clear(self) -> None:
         """Clear published URL mappings without terminating the instance."""
         async with self._lock:
             self._epoch += 1
             self._entries.clear()
+        namespace = self._namespace
+        if namespace is not None:
+            await namespace.clear()
 
-    async def _upload(self, data: bytes, suffix: str) -> str:
-        module = import_module("nonebot_plugin_filehost")
-        file_host = (
-            module.FileHost(data, suffix=suffix) if suffix else module.FileHost(data)
+    async def _upload(
+        self,
+        key: tuple[str, str],
+        data: bytes,
+        lease_ids: set[str],
+    ) -> str:
+        digest, suffix = key
+        return await self._attach_namespace().put(
+            f"{digest}{suffix}",
+            data,
+            lease_ids=lease_ids,
         )
-        return str(await file_host.to_url())
 
     def _record(self, events: dict[str, int]) -> None:
         try:
@@ -287,7 +279,7 @@ class FilehostAssetPublisher:
         *,
         lease_id: str | None = None,
         suffix: str | None = None,
-    ) -> str:
+    ) -> PublishedResource:
         if isinstance(value, (str, Path)):
             if suffix is not None:
                 raise ValueError("suffix cannot override a filesystem resource suffix")
@@ -335,11 +327,25 @@ class FilehostAssetPublisher:
             for cache_key in expired:
                 self._entries.pop(cache_key, None)
             entry = self._entries.get(key)
+            hit_url: str | None = None
             if entry is not None:
                 if lease_id is not None:
                     entry.leases.add(lease_id)
+                hit_url = entry.url
+        if hit_url is not None:
+            # The URL mapping must not outlive the bytes: confirm the store
+            # still holds the asset (pinning it to the lease) before reuse.
+            if await self._confirm_hosted(key, lease_id):
                 self._record({"hit": 1})
-                return entry.url
+                return self._published(hit_url)
+            async with self._lock:
+                current = self._entries.get(key)
+                if current is not None and current.url == hit_url:
+                    self._entries.pop(key, None)
+
+        async with self._lock:
+            if self._closed:
+                raise ProviderLifecycleError("The filehost publisher is closed.")
             inflight = self._inflight.get(key)
             owner = inflight is None
             if inflight is None:
@@ -357,9 +363,10 @@ class FilehostAssetPublisher:
                 return await self.publish(
                     data, lease_id=lease_id, suffix=normalized_suffix
                 )
-            return inflight.url
+            return self._published(inflight.url)
         try:
-            url = await self._upload(data, normalized_suffix)
+            uploaded_leases = set(inflight.leases)
+            url = await self._upload(key, data, uploaded_leases)
             with anyio.CancelScope(shield=True):
                 async with self._lock:
                     if inflight.epoch == self._epoch:
@@ -374,21 +381,20 @@ class FilehostAssetPublisher:
                     inflight.url = url
                     inflight.event.set()
                     self._record({"miss": 1, "load": 1})
-            return url
+                    late_leases = set(inflight.leases) - uploaded_leases
+                namespace = self._namespace
+                if namespace is not None:
+                    for late in late_leases:
+                        await namespace.attach(f"{key[0]}{key[1]}", late)
+            return self._published(url)
         except BaseException as error:
             published_error: BaseException = error
             if isinstance(error, Exception) and not isinstance(
                 error, ResourceResolutionError
             ):
-                if isinstance(error, ModuleNotFoundError):
-                    published_error = ResourceResolutionError(
-                        "The filehost resource policy requires the "
-                        "nonebot-plugin-filehost extra."
-                    )
-                else:
-                    published_error = ResourceResolutionError(
-                        f"Could not publish resource: {error}"
-                    )
+                published_error = ResourceResolutionError(
+                    f"Could not publish resource: {error}"
+                )
             with anyio.CancelScope(shield=True):
                 async with self._lock:
                     self._inflight.pop(key, None)
@@ -400,6 +406,20 @@ class FilehostAssetPublisher:
                 raise
             raise published_error from error
 
+    async def _confirm_hosted(
+        self,
+        key: tuple[str, str],
+        lease_id: str | None,
+    ) -> bool:
+        """Confirm the store still holds a reused asset; pin it when leased."""
+        namespace = self._namespace
+        if namespace is None:
+            return True
+        name = f"{key[0]}{key[1]}"
+        if lease_id is not None:
+            return await namespace.attach(name, lease_id)
+        return await namespace.touch(name)
+
     async def release(self, lease_id: str) -> None:
         async with self._lock:
             now = time.monotonic()
@@ -409,6 +429,9 @@ class FilehostAssetPublisher:
                 if lease_id in entry.leases:
                     entry.leases.remove(lease_id)
                     entry.expires_at = now + self._settings.cache_ttl_seconds
+        namespace = self._namespace
+        if namespace is not None:
+            await namespace.release(lease_id)
 
 
-__all__ = ["FilehostAssetPublisher", "install_filehost_request_guard"]
+__all__ = ["FilehostAssetPublisher"]

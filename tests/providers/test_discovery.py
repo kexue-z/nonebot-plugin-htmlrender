@@ -10,6 +10,7 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
 )
 from nonebot_plugin_htmlrender.providers import discovery
 from nonebot_plugin_htmlrender.providers.sdk import (
@@ -198,7 +199,10 @@ def test_reserved_id_loads_first_party_module(
 
 def test_provider_dependencies_shape() -> None:
     worker = AnyioWorkerExecutor()
-    reader = CompositeResourceReader(worker)
+    reader = CompositeResourceReader(
+        worker,
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+    )
     local_access = ConfiguredLocalAccessPolicy(allowed_roots=(), allow_any=False)
     resources = ResourceService(
         reader=reader,

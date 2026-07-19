@@ -16,11 +16,12 @@ dependencies = [
     "pygments>=2.10.0",
     "pymdown-extensions>=11.0",
     "python-markdown-math>=0.8",
-    "tenacity>=9.1.2",
     "typing-extensions>=4.15.0",
 ]
 [project.optional-dependencies]
-filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
+filehost = [
+ "py-machineid>=0.8.0",
+]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
 takumi = ["takumi-py==0.2.0"]
@@ -28,7 +29,6 @@ playwright = [
     "playwright>=1.60.0",
 ]
 all = [
-    "nonebot-plugin-filehost>=0.2.0",
     "nonebot-plugin-htmlkit==0.1.0rc5",
     "nonebot-plugin-prometheus>=0.4.0",
     "nonebot-plugin-sentry>=2.0.0",
@@ -66,7 +66,6 @@ docs = [
     "mkdocstrings-python>=2.0.1",
 ]
 remote-smoke = [
-    "nonebot-plugin-filehost>=0.2.0",
     "nonebot2[fastapi]>=2.5.0",
     "pillow>=12.0.0",
     "playwright>=1.60.0",
@@ -93,10 +92,8 @@ markers = [
 
 [tool.coverage.run]
 omit = [
-    # Telemetry / observability
-    "nonebot_plugin_htmlrender/adapters/observability/*",
-    "nonebot_plugin_htmlrender/adapters/playwright/telemetry.py",
-    # Signal & process management
+    # Signal & process management (host OS integration, exercised by the
+    # install smoke matrix rather than unit coverage)
     "nonebot_plugin_htmlrender/adapters/playwright/_support/signal.py",
     "nonebot_plugin_htmlrender/adapters/playwright/_support/process.py",
     # Installation helpers

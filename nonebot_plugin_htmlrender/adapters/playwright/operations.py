@@ -4,10 +4,9 @@ from html import unescape
 import mimetypes
 from pathlib import Path
 from typing import TYPE_CHECKING, cast
-from urllib.parse import urldefrag, urlsplit
+from urllib.parse import urldefrag, urlsplit, urlunsplit
 
 from anyio import CancelScope
-from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
@@ -20,7 +19,6 @@ from nonebot_plugin_htmlrender.preparation.materialize import (
 from nonebot_plugin_htmlrender.preparation.media import guess_asset_media_type
 from nonebot_plugin_htmlrender.preparation.references import (
     css_resource_references,
-    inspect_html_references,
     rewrite_css_references,
 )
 from nonebot_plugin_htmlrender.rendering.errors import ResourceResolutionError
@@ -99,25 +97,12 @@ def _prepared_references(
     *,
     fallback_base_url: str | None = None,
 ) -> list[tuple[str, str | None]]:
-    root_base = prepared.base_url or fallback_base_url
-    snapshot = inspect_html_references(
-        prepared.html,
-        base_url=root_base,
+    document_base_url = prepared.document_base.resolve(
+        fallback_base_url=fallback_base_url
     )
-    # ``prepare_html`` fixes the document base, but it is only authoritative
-    # when the payload carried its own base URL: with an executor-supplied
-    # fallback base a relative ``<base href>`` must resolve against it.
-    recomputed_base = (
-        resolve_document_reference(root_base, snapshot.base_href)
-        if snapshot.base_href is not None
-        else root_base
-    )
-    document_base_url = (
-        prepared.document_base or recomputed_base
-        if prepared.base_url is not None
-        else recomputed_base
-    )
-    references = [(reference, document_base_url) for reference in snapshot.references]
+    references = [
+        (reference, document_base_url) for reference in prepared.structure.references
+    ]
     for stylesheet in prepared.stylesheets:
         if stylesheet.embedded:
             continue
@@ -139,14 +124,14 @@ def _assert_no_local_resources(
         )
     fallback_base = (
         document_url
-        if prepared.base_url is None
+        if prepared.document_base.preparation_base_url is None
         and document_url is not None
         and urlsplit(document_url).scheme in {"http", "https"}
         else None
     )
     index = PreparedAssetIndex(
         prepared.assets,
-        base_url=prepared.base_url or fallback_base,
+        base_url=prepared.document_base.preparation_base_url or fallback_base,
     )
     for reference, base_url in _prepared_references(
         prepared,
@@ -180,16 +165,41 @@ def _asset_suffix(asset: PreparedAsset) -> str | None:
     return source_suffix or None
 
 
+def _normalize_authorized_url(url: str) -> str:
+    """Canonical identity for matching a published URL against a request.
+
+    Only scheme/host case, the default port and the fragment are normalized;
+    path and query stay part of the identity so a different query or a
+    redirect target does not inherit another resource's authorization.
+    """
+    split = urlsplit(url)
+    scheme = split.scheme.lower()
+    host = (split.hostname or "").lower()
+    default_port = {"http": 80, "https": 443}.get(scheme)
+    port = split.port
+    netloc = host if port is None or port == default_port else f"{host}:{port}"
+    return urlunsplit((scheme, netloc, split.path, split.query, ""))
+
+
 async def _publish_prepared_assets(
     prepared: PreparedHtml,
     *,
     publisher: AssetPublisher,
     lease_id: str,
-) -> dict[str, str]:
-    """Publish an asset graph bottom-up, rewriting CSS children to hosted URLs."""
-    index = PreparedAssetIndex(prepared.assets, base_url=prepared.base_url)
+) -> tuple[dict[str, str], dict[str, Mapping[str, str]]]:
+    """Publish an asset graph bottom-up, rewriting CSS children to hosted URLs.
+
+    Returns the ``source -> hosted URL`` transport map and a
+    ``normalized URL -> request headers`` authorization map covering every
+    publication (including CSS sub-resources).
+    """
+    index = PreparedAssetIndex(
+        prepared.assets,
+        base_url=prepared.document_base.preparation_base_url,
+    )
     published: dict[int, str] = {}
     visiting: set[int] = set()
+    authorization: dict[str, Mapping[str, str]] = {}
 
     async def publish(asset: PreparedAsset) -> str:
         asset_id = id(asset)
@@ -228,19 +238,20 @@ async def _publish_prepared_assets(
                     return f"{child_url}#{fragment}" if fragment else child_url
 
                 payload = rewrite_css_references(css, rewrite_child).encode("utf-8")
-        url = await publisher.publish(
+        result = await publisher.publish(
             payload,
             lease_id=lease_id,
             suffix=_asset_suffix(asset),
         )
-        published[asset_id] = url
+        authorization[_normalize_authorized_url(result.url)] = result.request_headers
+        published[asset_id] = result.url
         visiting.remove(asset_id)
-        return url
+        return result.url
 
     urls: dict[str, str] = {}
     for asset in prepared.assets:
         urls[asset.source] = await publish(asset)
-    return urls
+    return urls, authorization
 
 
 async def _execute_browser_load_plan(
@@ -250,7 +261,7 @@ async def _execute_browser_load_plan(
     render: RenderConfig,
     lease: PlaywrightLease,
     local_resource_policy: LocalLocalResourcePolicy | RemoteLocalResourcePolicy,
-    filehost_headers: Mapping[str, str],
+    filehost_authorization: Mapping[str, Mapping[str, str]],
     page_kwargs: PageContextKwargs,
     telemetry_op: str,
 ) -> bytes:
@@ -265,7 +276,7 @@ async def _execute_browser_load_plan(
         if local_resource_policy == RemoteLocalResourcePolicy.FILEHOST:
             await install_filehost_request_route(
                 page,
-                filehost_headers=dict(filehost_headers),
+                authorization=filehost_authorization,
             )
 
         # Install the narrow route after the catch-all filehost route so it gets
@@ -317,13 +328,14 @@ async def render_prepared_html(
     document_url = _document_url_for_render(render)
     fallback_base_url = (
         document_url
-        if prepared.base_url is None
+        if prepared.document_base.preparation_base_url is None
         and document_url is not None
         and urlsplit(document_url).scheme in {"http", "https"}
         else None
     )
     strict = mode is ResourceResolveMode.STRICT
     asset_urls: dict[str, str] | None = None
+    filehost_authorization: dict[str, Mapping[str, str]] = {}
     owns_lease = False
     try:
         if policy is RemoteLocalResourcePolicy.MEMORY:
@@ -348,7 +360,7 @@ async def render_prepared_html(
                 if filehost_lease_id is None:
                     filehost_lease_id = asset_publisher.create_lease()
                     owns_lease = True
-                asset_urls = await _publish_prepared_assets(
+                asset_urls, filehost_authorization = await _publish_prepared_assets(
                     prepared,
                     publisher=asset_publisher,
                     lease_id=filehost_lease_id,
@@ -379,12 +391,7 @@ async def render_prepared_html(
             render=render,
             lease=lease,
             local_resource_policy=policy,
-            filehost_headers=(
-                asset_publisher.request_headers()
-                if policy == RemoteLocalResourcePolicy.FILEHOST
-                and asset_publisher is not None
-                else {}
-            ),
+            filehost_authorization=filehost_authorization,
             page_kwargs=page_kwargs or EMPTY_PAGE_CONTEXT_KWARGS,
             telemetry_op=telemetry_op,
         )
@@ -421,12 +428,9 @@ async def capture_html_element(
     screenshot_options = screenshot_kwargs or EMPTY_LOCATOR_SCREENSHOT_KWARGS
 
     async with open_page_context(lease=lease, **page_options) as page:
-        page.on(
-            "console",
-            lambda msg: logger.opt(colors=True).debug(
-                f"<cyan>[Browser Console]</cyan> {msg.text}"
-            ),
-        )
+        # Untrusted page content: only stable event fields are logged, never
+        # console text, error messages, URLs or Playwright failure detail.
+        _setup_page_logging(page)
         await page.goto(url, **goto_options)
         await log_page_telemetry(page, op="playwright.html_render.capture_html_element")
         return await page.locator(element).screenshot(**screenshot_options)

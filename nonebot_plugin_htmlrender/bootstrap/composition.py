@@ -18,6 +18,7 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     ConfiguredLocalAccessPolicy,
     ConfiguredRemoteAccessPolicy,
     FilehostAssetPublisher,
+    RemoteTransportExecutor,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.adapters.templates import JinjaTemplateCompiler
@@ -26,7 +27,10 @@ from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 from nonebot_plugin_htmlrender.providers.discovery import resolve_provider
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings, ProviderDependencies
 from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
-from nonebot_plugin_htmlrender.rendering.errors import ProviderUnavailable
+from nonebot_plugin_htmlrender.rendering.errors import (
+    ProviderLifecycleError,
+    ProviderUnavailable,
+)
 from nonebot_plugin_htmlrender.rendering.observers import (
     NoopCacheObserver,
     NoopOperationObserver,
@@ -141,6 +145,15 @@ class _ProviderResourceFacade:
 
 @final
 class _ComposedLifecycle:
+    """Startup transaction with reverse-order rollback and poisoning.
+
+    ``startup`` records each completed step and, on failure, resets only the
+    steps that completed, in reverse order. It stays retryable as long as
+    that rollback fully succeeds; if any rollback step fails the composition
+    is poisoned and further ``startup`` raises. ``aclose`` is best-effort over
+    partial and poisoned state and aggregates every teardown error.
+    """
+
     def __init__(
         self,
         *,
@@ -148,11 +161,14 @@ class _ComposedLifecycle:
         resources: ResourceService,
         templates: JinjaTemplateCompiler,
         publisher: AssetPublisher | None,
+        remote_transport: RemoteTransportExecutor,
     ) -> None:
         self._engine = engine
         self._resources = resources
         self._templates = templates
         self._publisher = publisher
+        self._remote_transport = remote_transport
+        self._poisoned = False
 
     @staticmethod
     async def _cleanup(
@@ -176,22 +192,39 @@ class _ComposedLifecycle:
         raise BaseExceptionGroup(message, errors)
 
     async def startup(self) -> None:
+        if self._poisoned:
+            raise ProviderLifecycleError(
+                "Application composition is poisoned by a failed rollback; "
+                "build a new composition before starting again."
+            )
+        # (do, undo) ordered by dependency; only completed steps are rolled
+        # back, in reverse.  The engine is failure-atomic, so a raising
+        # engine.startup leaves nothing of its own to undo.
+        steps: list[tuple[Callable[[], Awaitable[None]], Callable[[], Awaitable[None]]]]
+        steps = []
+        if self._publisher is not None:
+            steps.append((self._publisher.startup, self._publisher.clear))
+        steps.append((self._engine.startup, self._engine.aclose))
+
+        completed_undo: list[Callable[[], Awaitable[None]]] = []
         try:
-            if self._publisher is not None:
-                await self._publisher.startup()
-            await self._engine.startup()
+            for do, undo in steps:
+                await do()
+                completed_undo.append(undo)
         except BaseException as error:
-            operations: list[Callable[[], Awaitable[None]]] = [
+            rollback_errors = await self._cleanup(
+                *reversed(completed_undo),
                 self._templates.clear,
                 self._resources.clear,
-            ]
-            if self._publisher is not None:
-                operations.append(self._publisher.clear)
-            cleanup_errors = await self._cleanup(*operations)
-            self._raise_errors(
-                "Application startup and rollback both failed.",
-                [error, *cleanup_errors],
             )
+            if rollback_errors:
+                self._poisoned = True
+                self._raise_errors(
+                    "Application startup failed and rollback did not fully "
+                    "succeed; composition is poisoned.",
+                    [error, *rollback_errors],
+                )
+            raise
 
     async def probe(self) -> None:
         await self._engine.probe()
@@ -201,6 +234,7 @@ class _ComposedLifecycle:
             self._engine.aclose,
             self._templates.clear,
             self._resources.clear,
+            self._remote_transport.aclose,
         ]
         if self._publisher is not None:
             operations.extend((self._publisher.clear, self._publisher.aclose))
@@ -293,6 +327,9 @@ def _cache_settings(settings: RenderSettings) -> ResourceCacheSettings:
         template_environment_max_entries=(
             settings.resources.templates.environment_cache_max_entries
         ),
+        template_environment_cache_size=(
+            settings.resources.templates.environment_compiled_cache_size
+        ),
     )
 
 
@@ -303,6 +340,8 @@ def _remote_access_settings(settings: RenderSettings) -> RemoteAccessSettings:
         allow_hosts=tuple(remote.allow_hosts),
         deny_hosts=tuple(remote.deny_hosts),
         max_redirects=remote.max_redirects,
+        request_timeout_seconds=remote.request_timeout_seconds,
+        max_concurrent_fetches=remote.max_concurrent_fetches,
     )
 
 
@@ -318,6 +357,9 @@ def _publisher_settings(settings: RenderSettings) -> AssetPublisherSettings:
         prewarm_paths=tuple(filehost.prewarm_paths),
         prewarm_extensions=tuple(filehost.prewarm_extensions),
         max_resource_bytes=settings.resources.cache.max_resource_bytes,
+        public_base_url=filehost.public_base_url,
+        max_entries=filehost.max_entries,
+        max_bytes=filehost.max_bytes,
     )
 
 
@@ -338,6 +380,18 @@ def prepare_runtime(
     provider = resolve_provider(settings.provider, explicit=explicit_providers)
     provider_settings = provider.parse_settings(settings.provider_config)
     strategy = provider.resource_strategy(provider_settings)
+    if (
+        _uses_publisher(strategy)
+        and settings.resources.filehost.public_base_url is None
+    ):
+        # The hosted asset URL is deployment configuration; failing here is
+        # deliberate so a misconfigured filehost transport never reaches the
+        # first publish.
+        raise ProviderUnavailable(
+            "The selected resource strategy uses the filehost transport; "
+            "set `render.resources.filehost.public_base_url` to the "
+            "externally reachable hosted asset base URL."
+        )
     return ComposedRuntime(
         settings,
         provider,
@@ -359,12 +413,18 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         observer=operation_observer,
         operation_admission=operation_admission,
     )
-    remote_access = ConfiguredRemoteAccessPolicy(_remote_access_settings(settings))
+    remote_settings = _remote_access_settings(settings)
+    remote_access = ConfiguredRemoteAccessPolicy(remote_settings)
+    remote_transport = RemoteTransportExecutor(
+        max_concurrent_fetches=remote_settings.max_concurrent_fetches
+    )
     reader = build_resource_reader(
         cache_settings,
         cache_observer,
         worker,
         remote_access=remote_access,
+        remote_transport=remote_transport,
+        remote_timeout_seconds=remote_settings.request_timeout_seconds,
     )
     local = settings.resources.local_access
     local_access = ConfiguredLocalAccessPolicy(
@@ -394,6 +454,7 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         observer=cache_observer,
         worker=worker,
         local_access=local_access,
+        cache_size=cache_settings.template_environment_cache_size,
     )
     preparer = DefaultHtmlPreparer(
         resources=resources,
@@ -432,6 +493,7 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         resources=resources,
         templates=templates,
         publisher=publisher,
+        remote_transport=remote_transport,
     )
     return build_application(
         engine=replace(engine, lifecycle=lifecycle),

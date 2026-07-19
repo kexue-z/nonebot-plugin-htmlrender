@@ -7,6 +7,7 @@ import pytest
 from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
     build_resource_reader,
 )
 from nonebot_plugin_htmlrender.preparation import prepare_html
@@ -84,7 +85,12 @@ async def test_materialize_enforces_document_root(
     observer = NoopCacheObserver()
     worker = AnyioWorkerExecutor()
     resources = ResourceService(
-        reader=build_resource_reader(ResourceCacheSettings(), observer, worker),
+        reader=build_resource_reader(
+            ResourceCacheSettings(),
+            observer,
+            worker,
+            remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+        ),
         local_access=ConfiguredLocalAccessPolicy(
             allowed_roots=(),
             allow_any=False,

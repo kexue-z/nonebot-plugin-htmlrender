@@ -67,10 +67,14 @@ class JinjaTemplateCompiler:
         observer: CacheObserver,
         worker: WorkerExecutor,
         local_access: LocalAccessPolicy,
+        cache_size: int = 256,
     ) -> None:
         if max_entries < 0:
             raise ValueError("Template cache size must not be negative")
+        if cache_size < 0:
+            raise ValueError("Compiled-template cache size must not be negative")
         self._max_entries = max_entries
+        self._cache_size = cache_size
         self._observer = observer
         self._worker = worker
         self._local_access = local_access
@@ -159,6 +163,10 @@ class JinjaTemplateCompiler:
                 enable_async=True,
                 autoescape=jinja2.select_autoescape(),
                 auto_reload=not immutable,
+                # Explicit per-environment compiled cache: together with the
+                # environment count bound this is a computable hard limit,
+                # and 0 truly disables the cache.
+                cache_size=self._cache_size,
             )
             environment.filters.update(dict(filters or {}))
             entry = _Entry(environment)
