@@ -4,6 +4,8 @@ from concurrent.futures import ThreadPoolExecutor
 import types
 from typing import TYPE_CHECKING
 
+import pytest
+
 from nonebot_plugin_htmlrender.adapters.observability import common, prometheus
 
 if TYPE_CHECKING:
@@ -25,7 +27,14 @@ def _reset_prometheus_state() -> None:
     prometheus._state.cache_resident_bytes = None
 
 
-def _seed_loaded_module(module: types.ModuleType | types.SimpleNamespace) -> None:
+def _module(**attributes: object) -> types.ModuleType:
+    module = types.ModuleType("fake_prometheus")
+    for name, value in attributes.items():
+        setattr(module, name, value)
+    return module
+
+
+def _seed_loaded_module(module: types.ModuleType) -> None:
     prometheus._plugin_loader._checked = True
     prometheus._plugin_loader._loaded = module
 
@@ -118,7 +127,7 @@ def test_load_prometheus_success_and_cache(mocker: MockerFixture) -> None:
     histogram_obj = object()
     counter_cls = mocker.Mock(return_value=counter_obj)
     histogram_cls = mocker.Mock(return_value=histogram_obj)
-    fake_module = types.SimpleNamespace(Counter=counter_cls, Histogram=histogram_cls)
+    fake_module = _module(Counter=counter_cls, Histogram=histogram_cls)
     _seed_loaded_module(fake_module)
 
     loaded = prometheus.load_prometheus()
@@ -137,7 +146,7 @@ def test_load_prometheus_init_exception_returns_none(mocker: MockerFixture) -> N
     def _raise(*_args: object, **_kwargs: object) -> None:
         raise RuntimeError("bad init")
 
-    _seed_loaded_module(types.SimpleNamespace(Counter=_raise, Histogram=_raise))
+    _seed_loaded_module(_module(Counter=_raise, Histogram=_raise))
 
     assert prometheus.load_prometheus() is None
     logger_opt.return_value.warning.assert_called_once()
@@ -296,12 +305,7 @@ def test_cache_metric_collectors_initialize_once_under_concurrency(
     resident_bytes = object()
     counter_cls = mocker.Mock(return_value=events)
     gauge_cls = mocker.Mock(side_effect=[entries, resident_bytes])
-    _seed_loaded_module(
-        types.SimpleNamespace(
-            Counter=counter_cls,
-            Gauge=gauge_cls,
-        )
-    )
+    _seed_loaded_module(_module(Counter=counter_cls, Gauge=gauge_cls))
 
     with ThreadPoolExecutor(max_workers=8) as executor:
         loaded = list(
@@ -311,3 +315,59 @@ def test_cache_metric_collectors_initialize_once_under_concurrency(
     assert loaded == [(events, entries, resident_bytes)] * 8
     assert counter_cls.call_count == 1
     assert gauge_cls.call_count == 2
+
+
+_METRIC_LOADERS: dict[str, str] = {
+    prometheus._PROM_COUNTER_NAME: "render",
+    prometheus._PROM_HISTOGRAM_NAME: "render",
+    prometheus._PROM_FILEHOST_UPLOAD_BYTES_NAME: "filehost",
+    prometheus._PROM_FILEHOST_DEDUP_HITS_NAME: "filehost",
+    prometheus._PROM_FILEHOST_ACTIVE_MAPPINGS_NAME: "filehost",
+    prometheus._PROM_FILEHOST_ACTIVE_LEASES_NAME: "filehost",
+    prometheus._PROM_FILEHOST_CLEANUP_CAPABLE_NAME: "filehost",
+    prometheus._PROM_CACHE_EVENTS_NAME: "cache",
+    prometheus._PROM_CACHE_ENTRIES_NAME: "cache",
+    prometheus._PROM_CACHE_RESIDENT_BYTES_NAME: "cache",
+}
+
+
+@pytest.mark.parametrize("failing_metric", sorted(_METRIC_LOADERS))
+def test_partial_registration_faults_recover_without_duplicates(
+    failing_metric: str,
+) -> None:
+    """One constructor fault per position; the retry must recover.
+
+    The fake registry raises on duplicate names exactly like the
+    prometheus_client default registry, so a loader that either resets or
+    re-creates already-registered instances fails this test.
+    """
+    _reset_prometheus_state()
+    registered: set[str] = set()
+    failed_once: set[str] = set()
+
+    def construct(name: str, *args: object, **kwargs: object) -> object:
+        del args, kwargs
+        if name == failing_metric and name not in failed_once:
+            failed_once.add(name)
+            raise RuntimeError(f"injected constructor failure for {name}")
+        if name in registered:
+            raise ValueError(f"Duplicated timeseries in CollectorRegistry: {name}")
+        registered.add(name)
+        return types.SimpleNamespace(name=name)
+
+    _seed_loaded_module(
+        _module(Counter=construct, Histogram=construct, Gauge=construct)
+    )
+    loaders = {
+        "render": prometheus.load_prometheus,
+        "filehost": prometheus._load_filehost_metrics,
+        "cache": prometheus._load_cache_metrics,
+    }
+    loader = loaders[_METRIC_LOADERS[failing_metric]]
+
+    assert loader() is None
+    recovered = loader()
+    assert recovered is not None
+    assert all(metric is not None for metric in recovered)
+    # The failing position was created exactly once after recovery.
+    assert failing_metric in registered

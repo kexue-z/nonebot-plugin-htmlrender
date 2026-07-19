@@ -59,8 +59,11 @@ def ensure_prometheus_plugin_loaded(*, reason: str) -> bool:
 def _load_prometheus() -> tuple[Counter, Histogram] | None:
     """Return the render counter and duration histogram, creating them once.
 
-    Returns ``None`` when the optional Prometheus plugin is unavailable or
-    metric initialization fails.
+    Metrics are created one by one: a constructor failure keeps every
+    already-registered instance so a retry only creates the missing metric
+    instead of tripping a duplicate name in the default registry. Returns
+    ``None`` when the optional Prometheus plugin is unavailable or a metric
+    is still missing.
     """
     try:
         if _state.counter is not None and _state.histogram is not None:
@@ -74,24 +77,24 @@ def _load_prometheus() -> tuple[Counter, Histogram] | None:
         if counter_cls is None or histogram_cls is None:
             return None
 
-        _state.counter = counter_cls(
-            _PROM_COUNTER_NAME,
-            "Total render operations.",
-            ["op", "backend", "status"],
-        )
-        _state.histogram = histogram_cls(
-            _PROM_HISTOGRAM_NAME,
-            "Render operation duration in seconds.",
-            ["op", "backend", "status"],
-        )
+        if _state.counter is None:
+            _state.counter = counter_cls(
+                _PROM_COUNTER_NAME,
+                "Total render operations.",
+                ["op", "backend", "status"],
+            )
+        if _state.histogram is None:
+            _state.histogram = histogram_cls(
+                _PROM_HISTOGRAM_NAME,
+                "Render operation duration in seconds.",
+                ["op", "backend", "status"],
+            )
     except Exception as error:
         logger.opt(colors=True).warning(
             "<d>[htmlrender.telemetry]</d> Prometheus provider initialization "
             "failed: <r>{error}</r>.",
             error=error,
         )
-        _state.counter = None
-        _state.histogram = None
         return None
 
     if _state.counter is None or _state.histogram is None:
@@ -175,41 +178,48 @@ def _load_filehost_metrics_unlocked() -> (
         gauge_cls = getattr(prometheus, "Gauge", None)
         if not callable(counter_cls) or not callable(gauge_cls):
             return None
-        _state.filehost_upload_bytes = cast(
-            "Counter",
-            counter_cls(
-                _PROM_FILEHOST_UPLOAD_BYTES_NAME,
-                "Bytes uploaded through the explicit htmlrender filehost adapter.",
-            ),
-        )
-        _state.filehost_dedup_hits = cast(
-            "Counter",
-            counter_cls(
-                _PROM_FILEHOST_DEDUP_HITS_NAME,
-                "Filehost uploads avoided by content-addressed URL mappings.",
-            ),
-        )
-        _state.filehost_active_mappings = cast(
-            "Gauge",
-            gauge_cls(
-                _PROM_FILEHOST_ACTIVE_MAPPINGS_NAME,
-                "Active process-local filehost URL mappings.",
-            ),
-        )
-        _state.filehost_active_leases = cast(
-            "Gauge",
-            gauge_cls(
-                _PROM_FILEHOST_ACTIVE_LEASES_NAME,
-                "Active process-local filehost leases.",
-            ),
-        )
-        _state.filehost_cleanup_capable = cast(
-            "Gauge",
-            gauge_cls(
-                _PROM_FILEHOST_CLEANUP_CAPABLE_NAME,
-                "Whether per-file physical cleanup is supported by the adapter.",
-            ),
-        )
+        # Get-or-create per metric: partially registered instances survive a
+        # later constructor failure so the retry never re-registers them.
+        if _state.filehost_upload_bytes is None:
+            _state.filehost_upload_bytes = cast(
+                "Counter",
+                counter_cls(
+                    _PROM_FILEHOST_UPLOAD_BYTES_NAME,
+                    "Bytes uploaded through the explicit htmlrender filehost adapter.",
+                ),
+            )
+        if _state.filehost_dedup_hits is None:
+            _state.filehost_dedup_hits = cast(
+                "Counter",
+                counter_cls(
+                    _PROM_FILEHOST_DEDUP_HITS_NAME,
+                    "Filehost uploads avoided by content-addressed URL mappings.",
+                ),
+            )
+        if _state.filehost_active_mappings is None:
+            _state.filehost_active_mappings = cast(
+                "Gauge",
+                gauge_cls(
+                    _PROM_FILEHOST_ACTIVE_MAPPINGS_NAME,
+                    "Active process-local filehost URL mappings.",
+                ),
+            )
+        if _state.filehost_active_leases is None:
+            _state.filehost_active_leases = cast(
+                "Gauge",
+                gauge_cls(
+                    _PROM_FILEHOST_ACTIVE_LEASES_NAME,
+                    "Active process-local filehost leases.",
+                ),
+            )
+        if _state.filehost_cleanup_capable is None:
+            _state.filehost_cleanup_capable = cast(
+                "Gauge",
+                gauge_cls(
+                    _PROM_FILEHOST_CLEANUP_CAPABLE_NAME,
+                    "Whether per-file physical cleanup is supported by the adapter.",
+                ),
+            )
     except Exception as error:
         logger.opt(colors=True).warning(
             "<d>[htmlrender.telemetry]</d> Prometheus filehost metric "
@@ -280,30 +290,35 @@ def _load_cache_metrics_unlocked() -> tuple[Counter, Gauge, Gauge] | None:
         gauge_cls = getattr(prometheus, "Gauge", None)
         if not callable(counter_cls) or not callable(gauge_cls):
             return None
-        _state.cache_events = cast(
-            "Counter",
-            counter_cls(
-                _PROM_CACHE_EVENTS_NAME,
-                "Cache events by bounded cache and event type.",
-                ["cache", "event"],
-            ),
-        )
-        _state.cache_entries = cast(
-            "Gauge",
-            gauge_cls(
-                _PROM_CACHE_ENTRIES_NAME,
-                "Current resident entries by bounded cache.",
-                ["cache"],
-            ),
-        )
-        _state.cache_resident_bytes = cast(
-            "Gauge",
-            gauge_cls(
-                _PROM_CACHE_RESIDENT_BYTES_NAME,
-                "Current resident bytes by byte-weighted cache.",
-                ["cache"],
-            ),
-        )
+        # Get-or-create per metric: partially registered instances survive a
+        # later constructor failure so the retry never re-registers them.
+        if _state.cache_events is None:
+            _state.cache_events = cast(
+                "Counter",
+                counter_cls(
+                    _PROM_CACHE_EVENTS_NAME,
+                    "Cache events by bounded cache and event type.",
+                    ["cache", "event"],
+                ),
+            )
+        if _state.cache_entries is None:
+            _state.cache_entries = cast(
+                "Gauge",
+                gauge_cls(
+                    _PROM_CACHE_ENTRIES_NAME,
+                    "Current resident entries by bounded cache.",
+                    ["cache"],
+                ),
+            )
+        if _state.cache_resident_bytes is None:
+            _state.cache_resident_bytes = cast(
+                "Gauge",
+                gauge_cls(
+                    _PROM_CACHE_RESIDENT_BYTES_NAME,
+                    "Current resident bytes by byte-weighted cache.",
+                    ["cache"],
+                ),
+            )
     except Exception as error:
         logger.opt(colors=True).warning(
             "<d>[htmlrender.telemetry]</d> Prometheus cache metric "
