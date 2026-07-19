@@ -15,6 +15,7 @@ from nonebot_plugin_htmlrender.adapters.resources.reader import (
     AnyioWorkerExecutor,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
 )
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
@@ -39,7 +40,10 @@ def _asset_url(payload: bytes) -> str:
 
 def _resources() -> ResourceService:
     return ResourceService(
-        reader=CompositeResourceReader(AnyioWorkerExecutor()),
+        reader=CompositeResourceReader(
+            AnyioWorkerExecutor(),
+            remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+        ),
         local_access=ConfiguredLocalAccessPolicy(allowed_roots=(), allow_any=True),
         strategy=ResourceStrategy(),
     )
@@ -146,7 +150,7 @@ def test_browser_load_plan_uses_http_document_as_relative_resource_fallback() ->
         document_url="https://render.example/cards/card.html",
     )
 
-    assert prepared.base_url is None
+    assert prepared.document_base.preparation_base_url is None
     assert plan.document_url == "https://render.example/cards/card.html"
     assert plan.base_href == "https://render.example/cards/card.html"
     assert '<base href="https://render.example/cards/card.html">' in plan.html

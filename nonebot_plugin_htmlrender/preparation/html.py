@@ -7,8 +7,9 @@ from urllib.parse import urljoin, urlsplit
 
 from nonebot_plugin_htmlrender.errors import PreparationError
 
-from .assets import resolve_document_reference
 from .models import (
+    DocumentBase,
+    DocumentStructureSnapshot,
     PreparedAsset,
     PreparedHtml,
     PreparedStylesheet,
@@ -59,13 +60,13 @@ def _prepare_html(
     if base_url is not None:
         urlsplit(base_url)
     inspected = inspect_html_references(html, base_url=base_url)
-    # The single place that derives the document base; materialization and
-    # adapters read ``PreparedHtml.document_base`` instead of re-deriving it.
-    document_base = (
-        resolve_document_reference(base_url, inspected.base_href)
-        if inspected.base_href
-        else base_url
+    # The single place that parses the markup; materialization and adapters
+    # read ``PreparedHtml.document_base``/``structure`` instead of re-parsing.
+    document_base_value = DocumentBase(
+        declared_href=inspected.base_href,
+        preparation_base_url=base_url,
     )
+    document_base = document_base_value.resolve()
     external_stylesheets = tuple(
         _normalize_stylesheet(stylesheet, base_url=base_url)
         for stylesheet in stylesheets
@@ -100,10 +101,17 @@ def _prepare_html(
     return PreparedHtml(
         html=html,
         stylesheets=stylesheet_snapshot,
-        base_url=base_url,
         assets=tuple(assets),
         requirements=frozenset(requirements),
-        document_base=document_base,
+        document_base=document_base_value,
+        structure=DocumentStructureSnapshot(
+            references=tuple(inspected.references),
+            linked_stylesheets=tuple(inspected.linked_stylesheets),
+            has_script=inspected.has_script,
+            base_tag=inspected.base_tag,
+            head_open_end=inspected.head_open_end,
+            doctype_end=inspected.doctype_end,
+        ),
     )
 
 

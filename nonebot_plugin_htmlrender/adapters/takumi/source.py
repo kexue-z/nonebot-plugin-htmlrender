@@ -3,7 +3,6 @@ from __future__ import annotations
 from dataclasses import dataclass, replace
 from html import unescape
 from typing import TYPE_CHECKING, cast
-from urllib.parse import urljoin
 
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
@@ -19,7 +18,6 @@ from nonebot_plugin_htmlrender.preparation.materialize import (
 from nonebot_plugin_htmlrender.preparation.references import (
     css_at_rules,
     css_resource_references,
-    inspect_html_references,
 )
 from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
@@ -35,7 +33,7 @@ _MISSING = object()
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nonebot_plugin_htmlrender.preparation.references import HtmlReferenceSnapshot
+    from nonebot_plugin_htmlrender.preparation.models import DocumentStructureSnapshot
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
 
@@ -200,19 +198,12 @@ def image_resource_keys(images: Sequence[object] | None) -> frozenset[str]:
 
 def _inspect_document(
     prepared: PreparedHtml,
-) -> tuple[HtmlReferenceSnapshot, str | None]:
+) -> tuple[DocumentStructureSnapshot, str | None]:
     ensure_utf8(prepared.html, field="prepared.html")
     if not prepared.html.strip():
         raise ValueError("HTML content cannot be empty")
-    snapshot = inspect_html_references(
-        prepared.html,
-        base_url=prepared.base_url,
-    )
-    document_base = (
-        urljoin(prepared.base_url, snapshot.base_href)
-        if prepared.base_url and snapshot.base_href
-        else snapshot.base_href or prepared.base_url
-    )
+    snapshot = prepared.structure
+    document_base = prepared.document_base.resolve()
     if snapshot.has_script or RenderRequirement.JAVASCRIPT in prepared.requirements:
         raise TakumiUnsupportedError(
             "Takumi does not execute JavaScript; remove <script> elements or use "
@@ -308,7 +299,7 @@ def prepare_takumi_document(
 def _build_takumi_document(
     prepared: PreparedHtml,
     *,
-    snapshot: HtmlReferenceSnapshot,
+    snapshot: DocumentStructureSnapshot,
     document_base: str | None,
     stylesheets: Sequence[str] = (),
     images: Sequence[object] | None = None,

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 import math
 from typing import TYPE_CHECKING, cast
 
@@ -40,6 +41,60 @@ def test_prepare_html_detects_script_and_local_resources() -> None:
     assert prepared.requirements == frozenset(
         {RenderRequirement.JAVASCRIPT, RenderRequirement.LOCAL_RESOURCE}
     )
+
+
+def test_prepare_html_captures_declared_base_href_semantics() -> None:
+    prepared = prepare_html(
+        '<base href="assets/"><img src="a.png">',
+        base_url="https://cdn.example/cards/card.html",
+    )
+    # declared_href is captured verbatim; resolution against the preparation
+    # base happens lazily.
+    assert prepared.document_base.declared_href == "assets/"
+    assert prepared.document_base.resolve() == "https://cdn.example/cards/assets/"
+
+
+def test_document_base_relative_href_resolves_against_execution_fallback() -> None:
+    # No preparation base URL, but a relative <base href> and an
+    # execution-time fallback document URL: resolve() combines them.
+    prepared = prepare_html('<base href="assets/"><img src="a.png">')
+    assert prepared.document_base.preparation_base_url is None
+    resolved = prepared.document_base.resolve(
+        fallback_base_url="https://render.example/cards/card.html"
+    )
+    assert resolved == "https://render.example/cards/assets/"
+
+
+def test_first_base_with_href_attribute_wins_even_when_empty() -> None:
+    # An explicit empty href="" is a declared base distinct from an
+    # undeclared one; it resolves to the document URL and a later <base>
+    # must not override it.
+    prepared = prepare_html(
+        '<base href=""><base href="late/"><img src="a.png">',
+        base_url="https://example.test/cards/card.html",
+    )
+    assert prepared.document_base.declared_href == ""
+    assert prepared.document_base.resolve() == "https://example.test/cards/card.html"
+
+    undeclared = prepare_html(
+        '<img src="a.png">',
+        base_url="https://example.test/cards/card.html",
+    )
+    assert undeclared.document_base.declared_href is None
+
+
+def test_structure_snapshot_survives_dataclasses_replace() -> None:
+    # Execution-time asset staging uses dataclasses.replace and must keep the
+    # preparation-time parse results without re-parsing the markup.
+    prepared = prepare_html(
+        '<base href="assets/"><img src="a.png">',
+        base_url="https://cdn.example/cards/card.html",
+    )
+    staged = replace(prepared, assets=())
+    assert staged.structure is prepared.structure
+    assert staged.document_base is prepared.document_base
+    assert staged.structure.references == ("a.png",)
+    assert staged.structure.base_tag is not None
 
 
 @pytest.mark.parametrize(
@@ -162,4 +217,6 @@ async def test_prepare_template_keeps_directory_base_and_filters(
         filters={"caps": str.upper},
     )
     assert prepared.html == "<strong>TAKUMI</strong>"
-    assert prepared.base_url == f"{tmp_path.resolve().as_uri()}/"  # noqa: ASYNC240
+    assert (
+        prepared.document_base.preparation_base_url == f"{tmp_path.resolve().as_uri()}/"  # noqa: ASYNC240
+    )

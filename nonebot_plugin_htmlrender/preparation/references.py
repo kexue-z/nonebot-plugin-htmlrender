@@ -413,6 +413,9 @@ class HtmlReferenceSnapshot:
     linked_stylesheets: list[str] = field(default_factory=list)
     base_href: str | None = None
     has_script: bool = False
+    base_tag: tuple[int, int, str] | None = None
+    head_open_end: int | None = None
+    doctype_end: int | None = None
 
 
 class _ReferenceParser(HTMLParser):
@@ -422,6 +425,25 @@ class _ReferenceParser(HTMLParser):
         self.snapshot = HtmlReferenceSnapshot()
         self._style_chunks: list[str] | None = None
         self._style_media: str | None = None
+        self._base_href_seen = False
+        self._line_offsets: list[int] = [0]
+        self._fed_length = 0
+
+    def feed(self, data: str) -> None:
+        base = self._fed_length
+        self._line_offsets.extend(
+            base + offset + 1 for offset, char in enumerate(data) if char == "\n"
+        )
+        self._fed_length += len(data)
+        super().feed(data)
+
+    def _offset(self) -> int:
+        line, column = self.getpos()
+        return self._line_offsets[line - 1] + column
+
+    def handle_decl(self, decl: str) -> None:
+        if self.snapshot.doctype_end is None and decl.lower().startswith("doctype"):
+            self.snapshot.doctype_end = self._offset() + len(decl) + 3
 
     def _handle_tag(
         self,
@@ -434,8 +456,23 @@ class _ReferenceParser(HTMLParser):
         normalized = {name.lower(): value or "" for name, value in attrs}
         if lowered_tag == "script":
             self.snapshot.has_script = True
-        if lowered_tag == "base" and self.snapshot.base_href is None:
-            self.snapshot.base_href = normalized.get("href") or None
+        if lowered_tag == "head" and self.snapshot.head_open_end is None:
+            raw = self.get_starttag_text()
+            if raw is not None:
+                self.snapshot.head_open_end = self._offset() + len(raw)
+        if lowered_tag == "base" and not self._base_href_seen:
+            # Per the HTML spec the first <base> element carrying an href
+            # attribute sets the base, even when that href is empty; later
+            # <base> elements are ignored. An explicit empty href resolves to
+            # the document URL and stays distinct from an undeclared base.
+            declared = normalized.get("href")
+            if declared is not None:
+                self._base_href_seen = True
+                self.snapshot.base_href = declared
+                raw = self.get_starttag_text()
+                if raw is not None:
+                    start = self._offset()
+                    self.snapshot.base_tag = (start, start + len(raw), raw)
         if lowered_tag == "style" and collect_style:
             self._style_chunks = []
             self._style_media = normalized.get("media") or None

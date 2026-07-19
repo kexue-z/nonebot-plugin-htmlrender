@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from hashlib import sha256
-from html import escape, unescape
-from html.parser import HTMLParser
+from html import unescape
 import re
 from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urlsplit
@@ -14,9 +13,9 @@ from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
     resolve_document_reference,
 )
+from nonebot_plugin_htmlrender.preparation.document import resolve_document
 from nonebot_plugin_htmlrender.preparation.media import guess_asset_media_type
 from nonebot_plugin_htmlrender.preparation.references import (
-    inspect_html_references,
     rewrite_css_references,
     rewrite_html_references,
 )
@@ -27,6 +26,7 @@ if TYPE_CHECKING:
     from playwright.async_api import Page, Route
 
     from nonebot_plugin_htmlrender.preparation import PreparedAsset, PreparedHtml
+    from nonebot_plugin_htmlrender.preparation.models import PreparedStylesheet
 
 _MEMORY_ASSET_ORIGIN = "https://htmlrender.invalid"
 _MEMORY_ASSET_PREFIX = f"{_MEMORY_ASSET_ORIGIN}/.htmlrender/assets/"
@@ -45,8 +45,9 @@ class BrowserAssetRoute:
 class BrowserLoadPlan:
     """A browser document and the resources required to load it.
 
-    ``document_url`` controls navigation. It is intentionally independent from
-    ``PreparedHtml.base_url``, which only controls relative resource resolution.
+    ``document_url`` controls navigation. It is intentionally independent
+    from the prepared document base, which only controls relative resource
+    resolution.
     """
 
     html: str
@@ -149,185 +150,6 @@ def _replace_css_asset_references(
     )
 
 
-class _DocumentStructureParser(HTMLParser):
-    def __init__(self, markup: str) -> None:
-        super().__init__(convert_charrefs=False)
-        self.head_open_end: int | None = None
-        self.doctype_end: int | None = None
-        self.document_base_tag: tuple[int, int, str] | None = None
-        self._line_offsets = [0]
-        self._line_offsets.extend(
-            index + 1 for index, char in enumerate(markup) if char == "\n"
-        )
-
-    def _offset(self) -> int:
-        line, column = self.getpos()
-        return self._line_offsets[line - 1] + column
-
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        self._record_document_base(tag, attrs)
-        if tag.lower() == "head" and self.head_open_end is None:
-            raw = self.get_starttag_text()
-            if raw is not None:
-                self.head_open_end = self._offset() + len(raw)
-
-    def handle_startendtag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        self._record_document_base(tag, attrs)
-
-    def _record_document_base(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        if (
-            self.document_base_tag is not None
-            or tag.lower() != "base"
-            or not any(name.lower() == "href" and bool(value) for name, value in attrs)
-        ):
-            return
-        raw = self.get_starttag_text()
-        if raw is None:
-            return
-        start = self._offset()
-        self.document_base_tag = (start, start + len(raw), raw)
-
-    def handle_decl(self, decl: str) -> None:
-        if self.doctype_end is None and decl.lower().startswith("doctype"):
-            self.doctype_end = self._offset() + len(decl) + 3
-
-
-def _document_structure(markup: str) -> _DocumentStructureParser:
-    parser = _DocumentStructureParser(markup)
-    parser.feed(markup)
-    parser.close()
-    return parser
-
-
-def _inject_head_content(markup: str, content: str) -> str:
-    if not content:
-        return markup
-    structure = _document_structure(markup)
-    if structure.head_open_end is not None:
-        insertion = structure.head_open_end
-        return f"{markup[:insertion]}{content}{markup[insertion:]}"
-    if structure.doctype_end is None:
-        return f"<head>{content}</head>{markup}"
-    insertion = structure.doctype_end
-    return f"{markup[:insertion]}<head>{content}</head>{markup[insertion:]}"
-
-
-def _replace_tag_attribute_value(raw: str, name: str, value: str) -> str:
-    """Replace one real tag attribute value without rebuilding the tag."""
-    cursor = 1
-    length = len(raw)
-    while cursor < length and not raw[cursor].isspace() and raw[cursor] not in ">/":
-        cursor += 1
-
-    replacements: list[tuple[int, int, str]] = []
-    while cursor < length:
-        while cursor < length and raw[cursor].isspace():
-            cursor += 1
-        if cursor >= length or raw[cursor] in ">/":
-            break
-        attribute_start = cursor
-        while (
-            cursor < length and not raw[cursor].isspace() and raw[cursor] not in "=/>"
-        ):
-            cursor += 1
-        attribute_name = raw[attribute_start:cursor].lower()
-        while cursor < length and raw[cursor].isspace():
-            cursor += 1
-        if cursor >= length or raw[cursor] != "=":
-            continue
-        cursor += 1
-        while cursor < length and raw[cursor].isspace():
-            cursor += 1
-        if cursor >= length:
-            break
-        if raw[cursor] in {'"', "'"}:
-            quote = raw[cursor]
-            value_start = cursor + 1
-            cursor = value_start
-            while cursor < length and raw[cursor] != quote:
-                cursor += 1
-            value_end = cursor
-            cursor += cursor < length
-        else:
-            value_start = cursor
-            while cursor < length and not raw[cursor].isspace() and raw[cursor] != ">":
-                cursor += 1
-            value_end = cursor
-        if attribute_name == name:
-            replacements.append((value_start, value_end, escape(value, quote=True)))
-
-    for start, end, replacement in reversed(replacements):
-        raw = f"{raw[:start]}{replacement}{raw[end:]}"
-    return raw
-
-
-def _canonicalize_document_base(markup: str, base_href: str) -> str:
-    """Canonicalize the first real document base while preserving source order."""
-    structure = _document_structure(markup)
-    if structure.document_base_tag is None:
-        return markup
-    start, end, raw = structure.document_base_tag
-    rewritten = _replace_tag_attribute_value(raw, "href", base_href)
-    if rewritten == raw:
-        return markup
-    return f"{markup[:start]}{rewritten}{markup[end:]}"
-
-
-def _inject_stylesheets(
-    markup: str,
-    prepared: PreparedHtml,
-    *,
-    index: PreparedAssetIndex,
-    route_urls: dict[int, str],
-    document_base_url: str | None,
-) -> str:
-    blocks: list[str] = []
-    for stylesheet in prepared.stylesheets:
-        # Embedded styles already occur in the original document. Re-injecting
-        # them would change cascade order and drop attributes such as media/type.
-        if stylesheet.embedded:
-            continue
-        css = _replace_css_asset_references(
-            stylesheet.css,
-            base_url=stylesheet.base_url or document_base_url,
-            index=index,
-            route_urls=route_urls,
-        )
-        media = (
-            f' media="{escape(stylesheet.media, quote=True)}"'
-            if stylesheet.media
-            else ""
-        )
-        blocks.append(f"<style{media}>{css}</style>")
-    return _inject_head_content(markup, "".join(blocks))
-
-
-def _inject_resource_base(
-    markup: str,
-    base_url: str | None,
-    *,
-    has_document_base: bool,
-) -> str:
-    if not base_url or base_url == "about:blank" or has_document_base:
-        return markup
-    return _inject_head_content(
-        markup,
-        f'<base href="{escape(base_url, quote=True)}">',
-    )
-
-
 def _build_asset_transport(
     prepared: PreparedHtml,
     *,
@@ -402,61 +224,47 @@ def build_browser_load_plan(
     allow_file_base_href: bool = False,
 ) -> BrowserLoadPlan:
     """Translate a prepared document into a route-backed browser load plan."""
-    resource_root = prepared.base_url
-    if (
-        resource_root is None
-        and document_url is not None
+    fallback = (
+        document_url
+        if document_url is not None
         and urlsplit(document_url).scheme in {"http", "https"}
-    ):
-        resource_root = document_url
-    snapshot = inspect_html_references(prepared.html, base_url=resource_root)
-    document_base_url = (
-        resolve_document_reference(resource_root, snapshot.base_href)
-        if snapshot.base_href is not None
-        else resource_root
+        else None
     )
+    document_base_url = prepared.document_base.resolve(fallback_base_url=fallback)
     index, route_urls, asset_routes = _build_asset_transport(
         prepared,
         asset_urls=asset_urls,
         document_base_url=document_base_url,
     )
 
-    # Rewrite the original document in place so embedded <style> elements retain
-    # their attributes and exact position. External stylesheets are injected once.
+    def routed_css(stylesheet: PreparedStylesheet) -> str:
+        return _replace_css_asset_references(
+            stylesheet.css,
+            base_url=stylesheet.base_url or document_base_url,
+            index=index,
+            route_urls=route_urls,
+        )
+
+    # The shared materializer canonicalizes/injects <base> and injects the
+    # external stylesheets by snapshot-offset splicing; embedded <style>
+    # elements keep their attributes and exact position.
+    resolved = resolve_document(
+        prepared,
+        fallback_base_url=fallback,
+        allow_file_base_href=allow_file_base_href,
+        inject_base=True,
+        stylesheet_css=routed_css,
+    )
     document = _replace_html_asset_references(
-        prepared.html,
+        resolved.markup,
         base_url=document_base_url,
         index=index,
         route_urls=route_urls,
     )
-    document = _inject_stylesheets(
-        document,
-        prepared,
-        index=index,
-        route_urls=route_urls,
-        document_base_url=document_base_url,
-    )
-    base_href = (
-        document_base_url
-        if document_base_url
-        and (
-            snapshot.base_href is not None
-            or document_base_url.startswith(("http://", "https://"))
-            or (allow_file_base_href and document_base_url.startswith("file://"))
-        )
-        else None
-    )
-    if snapshot.base_href is not None and base_href is not None:
-        document = _canonicalize_document_base(document, base_href)
-    document = _inject_resource_base(
-        document,
-        base_href,
-        has_document_base=snapshot.base_href is not None,
-    )
     return BrowserLoadPlan(
         html=document,
         document_url=document_url,
-        base_href=base_href,
+        base_href=resolved.base_href,
         asset_routes=asset_routes,
     )
 

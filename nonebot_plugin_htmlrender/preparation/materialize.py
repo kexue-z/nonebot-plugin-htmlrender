@@ -16,7 +16,7 @@ from nonebot_plugin_htmlrender.resources.errors import ResourceResolutionError
 
 from .assets import PreparedAssetIndex, resolve_document_reference
 from .models import PreparedAsset, PreparedHtml
-from .references import css_resource_references, inspect_html_references
+from .references import css_resource_references
 
 if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
@@ -51,7 +51,6 @@ def _queue_stylesheet_children(
     *,
     canonical: str,
     payload: bytes,
-    reference: str,
 ) -> None:
     """Queue url() children of one stylesheet payload exactly once."""
     if canonical in expanded_stylesheets:
@@ -60,7 +59,7 @@ def _queue_stylesheet_children(
     try:
         css = payload.decode("utf-8-sig")
     except UnicodeDecodeError:
-        logger.warning(f"Could not inspect non-UTF-8 stylesheet asset {reference!r}")
+        logger.warning("Could not inspect a non-UTF-8 stylesheet asset.")
         return
     pending.extend((child, canonical) for child in css_resource_references(css))
 
@@ -75,27 +74,10 @@ async def materialize_local_assets(
     """Read referenced file URLs into ``PreparedAsset`` values for this render."""
 
     assets = list(prepared.assets)
-    root_base = prepared.base_url or fallback_base_url
-    inspected = inspect_html_references(
-        prepared.html,
-        base_url=root_base,
-    )
-    # ``prepare_html`` fixes the document base, but it is only authoritative
-    # when the payload carried its own base URL: with an executor-supplied
-    # fallback base a relative ``<base href>`` must resolve against it.
-    recomputed_base = (
-        resolve_document_reference(root_base, inspected.base_href)
-        if inspected.base_href
-        else root_base
-    )
-    document_base = (
-        prepared.document_base or recomputed_base
-        if prepared.base_url is not None
-        else recomputed_base
-    )
+    document_base = prepared.document_base.resolve(fallback_base_url=fallback_base_url)
     index = PreparedAssetIndex(assets, base_url=document_base)
     references: list[tuple[str, str | None]] = [
-        (reference, document_base) for reference in inspected.references
+        (reference, document_base) for reference in prepared.structure.references
     ]
     for stylesheet in prepared.stylesheets:
         if stylesheet.embedded:
@@ -122,7 +104,6 @@ async def materialize_local_assets(
                     expanded_stylesheets,
                     canonical=canonical,
                     payload=existing.data,
-                    reference=reference,
                 )
             continue
         parsed = urlsplit(canonical)
@@ -136,7 +117,10 @@ async def materialize_local_assets(
             )
             if strict:
                 raise AssetMaterializationError(message)
-            logger.warning(message)
+            logger.warning(
+                "Skipped a local asset without a usable filesystem base "
+                "(non-strict resource policy)."
+            )
             continue
 
         try:
@@ -150,7 +134,8 @@ async def materialize_local_assets(
             if strict:
                 raise AssetMaterializationError(str(error)) from error
             logger.warning(
-                "Failed to materialize local asset {!r}: {}", reference, error
+                "Failed to materialize a local asset (non-strict resource policy): {}",
+                type(error).__name__,
             )
             continue
 
@@ -170,7 +155,6 @@ async def materialize_local_assets(
                 expanded_stylesheets,
                 canonical=canonical,
                 payload=payload,
-                reference=reference,
             )
 
     return replace(prepared, assets=tuple(assets))

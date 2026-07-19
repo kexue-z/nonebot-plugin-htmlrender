@@ -11,8 +11,9 @@ from nonebot_plugin_htmlrender.adapters.resources import (
     AnyioWorkerExecutor,
     CompositeResourceReader,
     ConfiguredLocalAccessPolicy,
+    RemoteTransportExecutor,
 )
-from nonebot_plugin_htmlrender.preparation import PreparedAsset, PreparedHtml
+from nonebot_plugin_htmlrender.preparation import PreparedAsset, prepare_html
 from nonebot_plugin_htmlrender.resources import (
     ResourceNotFound,
     ResourceResolutionError,
@@ -37,7 +38,10 @@ def _resources(
     root: Path,
 ) -> ResourceService:
     worker = AnyioWorkerExecutor()
-    reader = CompositeResourceReader(worker)
+    reader = CompositeResourceReader(
+        worker,
+        remote_transport=RemoteTransportExecutor(max_concurrent_fetches=2),
+    )
     return ResourceService(
         reader=reader,
         local_access=ConfiguredLocalAccessPolicy(
@@ -52,8 +56,8 @@ async def test_local_resources_are_authorized_and_materialized(tmp_path: Path) -
     image = tmp_path / "image.png"
     image.write_bytes(b"local-image")
     resources = _resources(tmp_path)
-    prepared = PreparedHtml(
-        html='<img src="image.png">',
+    prepared = prepare_html(
+        '<img src="image.png">',
         base_url=f"{tmp_path.as_uri()}/",
     )
 
@@ -73,8 +77,8 @@ async def test_strict_local_access_failure_is_not_hidden(tmp_path: Path) -> None
     outside = tmp_path / "outside.png"
     outside.write_bytes(b"forbidden")
     resources = _resources(allowed)
-    prepared = PreparedHtml(
-        html=f'<img src="{outside.as_uri()}">',
+    prepared = prepare_html(
+        f'<img src="{outside.as_uri()}">',
         base_url=f"{allowed.as_uri()}/",
     )
 
@@ -90,8 +94,8 @@ async def test_prepared_assets_work_without_a_second_io_channel(
     tmp_path: Path,
 ) -> None:
     resources = _resources(tmp_path)
-    prepared = PreparedHtml(
-        html='<img src="memory:image">',
+    prepared = prepare_html(
+        '<img src="memory:image">',
         assets=(
             PreparedAsset(
                 source="memory:image",
@@ -120,6 +124,14 @@ class _FailingRemoteReader:
     ) -> ResourceContent:
         del reference, refresh
         raise ResourceNotFound("remote asset missing")
+
+    async def read_conditional(
+        self,
+        reference: ResourceRef,
+        revision: ResourceRevision,
+    ) -> ResourceContent:
+        del revision
+        return await self.read(reference)
 
     async def revision(self, reference: ResourceRef) -> ResourceRevision | None:
         del reference
@@ -154,7 +166,7 @@ async def test_callback_failures_follow_resource_strictness(
         strategy=ResourceStrategy(resolve_mode=mode),
     )
     document = await build_htmlkit_document(
-        PreparedHtml(html='<img src="https://example.test/missing.png">'),
+        prepare_html('<img src="https://example.test/missing.png">'),
         resources=resources,
         resolve_mode=mode,
     )

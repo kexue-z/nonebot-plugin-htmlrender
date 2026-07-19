@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from functools import partial
-from html import escape
-from html.parser import HTMLParser
 from typing import TYPE_CHECKING, final
 from urllib.parse import urldefrag, urlsplit
 
@@ -15,11 +13,11 @@ from nonebot_plugin_htmlrender.preparation.assets import (
     PreparedAssetIndex,
     resolve_document_reference,
 )
+from nonebot_plugin_htmlrender.preparation.document import resolve_document
 from nonebot_plugin_htmlrender.preparation.materialize import (
     materialize_local_assets,
 )
 from nonebot_plugin_htmlrender.preparation.references import (
-    inspect_html_references,
     rewrite_css_references,
 )
 from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
@@ -27,74 +25,11 @@ from nonebot_plugin_htmlrender.resources.errors import ResourceResolutionError
 from nonebot_plugin_htmlrender.resources.models import RemoteResourceRef
 
 if TYPE_CHECKING:
-    from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
+    from nonebot_plugin_htmlrender.preparation.models import (
+        PreparedHtml,
+        PreparedStylesheet,
+    )
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
-
-
-class _HeadParser(HTMLParser):
-    def __init__(self, markup: str) -> None:
-        super().__init__(convert_charrefs=False)
-        self.head_open_end: int | None = None
-        self.doctype_end: int | None = None
-        self._line_offsets = [0]
-        self._line_offsets.extend(
-            index + 1 for index, char in enumerate(markup) if char == "\n"
-        )
-
-    def _offset(self) -> int:
-        line, column = self.getpos()
-        return self._line_offsets[line - 1] + column
-
-    def handle_starttag(
-        self,
-        tag: str,
-        attrs: list[tuple[str, str | None]],
-    ) -> None:
-        del attrs
-        if tag.lower() != "head" or self.head_open_end is not None:
-            return
-        raw = self.get_starttag_text()
-        if raw is not None:
-            self.head_open_end = self._offset() + len(raw)
-
-    def handle_decl(self, decl: str) -> None:
-        if self.doctype_end is None and decl.lower().startswith("doctype"):
-            self.doctype_end = self._offset() + len(decl) + 3
-
-
-def _inject_head_content(markup: str, content: str) -> str:
-    if not content:
-        return markup
-    parser = _HeadParser(markup)
-    parser.feed(markup)
-    parser.close()
-    if parser.head_open_end is not None:
-        insertion = parser.head_open_end
-        return f"{markup[:insertion]}{content}{markup[insertion:]}"
-    if parser.doctype_end is None:
-        return f"<head>{content}</head>{markup}"
-    insertion = parser.doctype_end
-    return f"{markup[:insertion]}<head>{content}</head>{markup[insertion:]}"
-
-
-def _external_stylesheets(prepared: PreparedHtml, document_base: str | None) -> str:
-    blocks: list[str] = []
-    for stylesheet in prepared.stylesheets:
-        if stylesheet.embedded:
-            continue
-        base_url = stylesheet.base_url or document_base
-
-        css = rewrite_css_references(
-            stylesheet.css,
-            partial(_resolve_stylesheet_reference, base_url=base_url),
-        )
-        media = (
-            f' media="{escape(stylesheet.media, quote=True)}"'
-            if stylesheet.media
-            else ""
-        )
-        blocks.append(f"<style{media}>{css}</style>")
-    return "".join(blocks)
 
 
 def _resolve_stylesheet_reference(
@@ -138,7 +73,10 @@ class HtmlkitResourceBridge:
         if self._strict:
             self._errors.append(translated)
         else:
-            logger.warning("Could not fetch HTMLKit resource {!r}: {}", url, error)
+            logger.warning(
+                "Could not fetch an HTMLKit resource (non-strict): {}",
+                type(error).__name__,
+            )
 
     async def _bytes(self, url: str) -> bytes | None:
         asset = self._assets.match(url, base_url=self._document_base)
@@ -205,16 +143,18 @@ async def build_htmlkit_document(
             strict=resolve_mode is ResourceResolveMode.STRICT,
         )
 
-    inspected = inspect_html_references(
-        materialized.html,
-        base_url=materialized.base_url,
-    )
-    document_base = (
-        resolve_document_reference(materialized.base_url, inspected.base_href)
-        if inspected.base_href
-        else materialized.base_url
-    )
-    stylesheets = _external_stylesheets(materialized, document_base)
+    document_base = materialized.document_base.resolve()
+
+    def resolved_css(stylesheet: PreparedStylesheet) -> str:
+        return rewrite_css_references(
+            stylesheet.css,
+            partial(
+                _resolve_stylesheet_reference,
+                base_url=stylesheet.base_url or document_base,
+            ),
+        )
+
+    resolved = resolve_document(materialized, stylesheet_css=resolved_css)
     bridge = HtmlkitResourceBridge(
         materialized,
         document_base=document_base,
@@ -222,8 +162,8 @@ async def build_htmlkit_document(
         strict=resolve_mode is ResourceResolveMode.STRICT,
     )
     return HtmlkitDocument(
-        html=_inject_head_content(materialized.html, stylesheets),
-        base_url=materialized.base_url or "",
+        html=resolved.markup,
+        base_url=materialized.document_base.preparation_base_url or "",
         resources=bridge,
     )
 
