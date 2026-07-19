@@ -71,6 +71,18 @@ def test_registration_diagnoses_non_runtime_protocol() -> None:
         CapabilityCatalog().with_capability(key, cast("Any", _Other()))
 
 
+def test_get_rejects_same_name_key_with_incompatible_interface() -> None:
+    # A different key can share the registered name but demand another
+    # interface; the lookup must not hand back the wrong-typed value.
+    conflicting_key = CapabilityKey("test.echo", _Other)
+    catalog = CapabilityCatalog().with_capability(ECHO_KEY, _Echo())
+
+    with pytest.raises(CapabilityUnavailable, match="not _Other"):
+        catalog.get(conflicting_key)
+    with pytest.raises(CapabilityUnavailable, match="not _Other"):
+        catalog.require(conflicting_key)
+
+
 def test_contains_rejects_non_key_objects() -> None:
     catalog = CapabilityCatalog().with_capability(ECHO_KEY, _Echo())
 

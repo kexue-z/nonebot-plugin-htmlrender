@@ -11,12 +11,29 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum
 import math
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nonebot_plugin_htmlrender.preparation.models import RasterOptions
 from nonebot_plugin_htmlrender.resources.config import ResourceResolveMode
 
 from .errors import InvalidRenderRequest
+
+
+def _frozen_template_inputs(
+    variables: Mapping[str, object],
+    filters: Mapping[str, FilterCallable] | None,
+) -> tuple[Mapping[str, object], Mapping[str, FilterCallable] | None]:
+    """Snapshot template mappings so a request cannot be mutated in flight.
+
+    The top-level containers are copied into read-only views, so a concurrent
+    caller can no longer add, remove or replace keys while the request is
+    executing. Value objects are not deep-copied.
+    """
+    frozen_variables = MappingProxyType(dict(variables))
+    frozen_filters = None if filters is None else MappingProxyType(dict(filters))
+    return frozen_variables, frozen_filters
+
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -139,6 +156,10 @@ class RenderTemplateRequest:
         if not self.template_name:
             raise InvalidRenderRequest("template_name must not be empty.")
         _validate_timeout(self.timeout_seconds)
+        variables, filters = _frozen_template_inputs(self.variables, self.filters)
+        object.__setattr__(self, "variables", variables)
+        object.__setattr__(self, "filters", filters)
+        object.__setattr__(self, "extensions", tuple(self.extensions))
 
 
 @dataclass(frozen=True, slots=True)
@@ -154,6 +175,10 @@ class RenderTemplateHtmlRequest:
     def __post_init__(self) -> None:
         if not self.template_name:
             raise InvalidRenderRequest("template_name must not be empty.")
+        variables, filters = _frozen_template_inputs(self.variables, self.filters)
+        object.__setattr__(self, "variables", variables)
+        object.__setattr__(self, "filters", filters)
+        object.__setattr__(self, "extensions", tuple(self.extensions))
 
 
 @dataclass(frozen=True, slots=True)

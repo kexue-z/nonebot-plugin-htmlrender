@@ -181,6 +181,27 @@ def test_template_request_requires_template_name() -> None:
         RenderTemplateRequest(template_path="templates", template_name="")
 
 
+def test_template_request_snapshots_mutable_inputs() -> None:
+    from types import MappingProxyType  # noqa: PLC0415
+
+    live_variables: dict[str, object] = {"name": "a"}
+    request = RenderTemplateRequest(
+        template_path="templates",
+        template_name="card.html",
+        variables=live_variables,
+        extensions=[],
+    )
+
+    # Mutating the caller's original dict must not affect the request.
+    live_variables["name"] = "b"
+    live_variables["injected"] = True
+    assert dict(request.variables) == {"name": "a"}
+
+    # The request owns a read-only snapshot, not the caller's live container.
+    assert isinstance(request.variables, MappingProxyType)
+    assert isinstance(request.extensions, tuple)
+
+
 @pytest.mark.parametrize("timeout", [0.0, -1.0, math.nan, math.inf, -math.inf])
 def test_timeout_must_be_finite_and_positive(timeout: float) -> None:
     with pytest.raises(InvalidRenderRequest, match="timeout_seconds"):
