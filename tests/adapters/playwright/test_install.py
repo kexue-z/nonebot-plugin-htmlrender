@@ -1,13 +1,17 @@
-from contextlib import asynccontextmanager
+from __future__ import annotations
+
 import os
 import sys
+from typing import TYPE_CHECKING
 
 import pytest
-from pytest_mock import MockerFixture
+
+if TYPE_CHECKING:
+    from pytest_mock import MockerFixture
 
 
 @pytest.mark.anyio
-async def test_backend_download_context_sets_proxy_and_restores_host(
+async def test_install_env_sets_mirror_proxy_without_mutating_parent(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
@@ -15,34 +19,53 @@ async def test_backend_download_context_sets_proxy_and_restores_host(
     )
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         MirrorSource,
-        download_context,
+        _install_env,
     )
 
-    os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = "https://old-host"
+    mocker.patch.dict(os.environ, {}, clear=False)
+    os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
+    os.environ.pop("HTTP_PROXY", None)
+    parent_before = dict(os.environ)
+
     config = PlaywrightConfig(
         install_proxy="http://127.0.0.1:7890",
         install_mirror="https://mirror.example",
     )
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
-        new=mocker.AsyncMock(
-            return_value=MirrorSource("Best", "https://mirror.example", 0)
-        ),
-    )
+    mirror = MirrorSource("Best", "https://mirror.example", 0)
 
-    async with download_context(config):
-        assert os.environ["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"] == "300000"
-        assert os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://mirror.example"
-        assert os.environ["HTTP_PROXY"] == "http://127.0.0.1:7890"
+    selected = _install_env(config, mirror)
+    official = _install_env(config, None)
 
-    assert os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://old-host"
-    assert "HTTP_PROXY" not in os.environ
-
-    del os.environ["PLAYWRIGHT_DOWNLOAD_HOST"]
+    assert selected["PLAYWRIGHT_DOWNLOAD_CONNECTION_TIMEOUT"] == "300000"
+    assert selected["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://mirror.example"
+    assert selected["HTTP_PROXY"] == "http://127.0.0.1:7890"
+    assert "PLAYWRIGHT_DOWNLOAD_HOST" not in official
+    assert official["HTTP_PROXY"] == "http://127.0.0.1:7890"
+    # Parent process environment must remain byte-for-byte unchanged.
+    assert dict(os.environ) == parent_before
 
 
 @pytest.mark.anyio
-async def test_execute_playwright_install_uses_direct_stdio(
+async def test_install_env_preserves_existing_parent_proxy(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
+        PlaywrightConfig,
+    )
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
+        _install_env,
+    )
+
+    mocker.patch.dict(os.environ, {"HTTP_PROXY": "http://parent-proxy"}, clear=False)
+    config = PlaywrightConfig(install_proxy="http://127.0.0.1:7890")
+
+    env = _install_env(config, None)
+
+    assert env["HTTP_PROXY"] == "http://parent-proxy"
+
+
+@pytest.mark.anyio
+async def test_execute_playwright_install_forwards_env_and_command(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
@@ -58,7 +81,8 @@ async def test_execute_playwright_install_uses_direct_stdio(
         new=mocker.AsyncMock(return_value=(True, "ok")),
     )
     config = PlaywrightConfig(engine=BrowserEngine.FIREFOX)
-    result = await execute_install_command(config, 9)
+    env = {"PLAYWRIGHT_DOWNLOAD_HOST": "https://mirror.example"}
+    result = await execute_install_command(config, 9, env=env)
 
     assert result == (True, "ok")
     assert execute_mock.await_args is not None
@@ -71,46 +95,41 @@ async def test_execute_playwright_install_uses_direct_stdio(
         BrowserEngine.FIREFOX,
     )
     assert execute_mock.await_args.kwargs["timeout_seconds"] == 9
-    assert "stdout_callback" not in execute_mock.await_args.kwargs
-    assert "stderr_callback" not in execute_mock.await_args.kwargs
+    assert execute_mock.await_args.kwargs["env"] is env
 
 
 @pytest.mark.anyio
-async def test_install_browser_retries_without_mirror_host(
+async def test_install_browser_retries_with_official_env(
     mocker: MockerFixture,
 ) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
         PlaywrightConfig,
     )
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
+        MirrorSource,
         install_browser,
     )
 
+    mocker.patch(
+        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
+        new=mocker.AsyncMock(
+            return_value=MirrorSource("Best", "https://mirror.example", 0)
+        ),
+    )
     seen_hosts: list[str | None] = []
     responses = iter([(False, "mirror failed"), (True, "ok")])
-
-    @asynccontextmanager
-    async def fake_download_context(config: PlaywrightConfig):
-        del config
-        os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] = "https://mirror.example"
-        try:
-            yield
-        finally:
-            os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
 
     async def fake_execute(
         config: PlaywrightConfig,
         timeout_seconds: int,
+        *,
+        env: dict[str, str],
     ) -> tuple[bool, str]:
         del config
         assert timeout_seconds == 7
-        seen_hosts.append(os.environ.get("PLAYWRIGHT_DOWNLOAD_HOST"))
+        seen_hosts.append(env.get("PLAYWRIGHT_DOWNLOAD_HOST"))
         return next(responses)
 
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.install.download_context",
-        fake_download_context,
-    )
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
         new=mocker.AsyncMock(side_effect=fake_execute),
@@ -133,14 +152,9 @@ async def test_install_browser_returns_false_after_two_failures(
         install_browser,
     )
 
-    @asynccontextmanager
-    async def fake_download_context(config: PlaywrightConfig):
-        del config
-        yield
-
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.install.download_context",
-        fake_download_context,
+        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
+        new=mocker.AsyncMock(return_value=None),
     )
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
@@ -161,16 +175,11 @@ async def test_install_browser_raises_on_interrupt_without_retry(
         install_browser,
     )
 
-    @asynccontextmanager
-    async def fake_download_context(config: PlaywrightConfig):
-        del config
-        yield
-
-    execute = mocker.AsyncMock(side_effect=[(False, "Interrupted by signal SIGINT")])
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.install.download_context",
-        fake_download_context,
+        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
+        new=mocker.AsyncMock(return_value=None),
     )
+    execute = mocker.AsyncMock(side_effect=[(False, "Interrupted by signal SIGINT")])
     mocker.patch(
         "nonebot_plugin_htmlrender.adapters.playwright.install.execute_install_command",
         new=execute,

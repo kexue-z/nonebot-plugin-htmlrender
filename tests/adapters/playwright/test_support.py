@@ -21,6 +21,7 @@ from nonebot_plugin_htmlrender.adapters.playwright._support.install import (
 from nonebot_plugin_htmlrender.adapters.playwright._support.process import (
     create_process,
     create_process_shell,
+    open_process_supervisor,
     terminate_process,
 )
 from nonebot_plugin_htmlrender.adapters.playwright._support.signal import (
@@ -303,11 +304,14 @@ async def test_create_process_and_shell_forward_to_anyio(mocker: MockerFixture) 
     proc_handle = SimpleNamespace(wait=mocker.AsyncMock(), returncode=0, pid=1)
     open_process.return_value = proc_handle
 
-    proc = await create_process("python", "-V", cwd=Path.cwd())
-    assert proc is not None
-    open_process.assert_awaited()
-    assert open_process.await_args_list[0].kwargs["start_new_session"] is True
+    async with open_process_supervisor() as supervisor:
+        proc = await create_process(
+            "python", "-V", supervisor=supervisor, cwd=Path.cwd()
+        )
+        assert proc is not None
+        open_process.assert_awaited()
+        assert open_process.await_args_list[0].kwargs["start_new_session"] is True
 
-    proc2 = await create_process_shell("echo 1")
-    assert proc2 is not None
+        proc2 = await create_process_shell("echo 1", supervisor=supervisor)
+        assert proc2 is not None
     assert open_process.await_count == 2

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
@@ -18,7 +19,11 @@ import playwright
 from .config import BrowserEngine
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
     from .config import PlaywrightConfig
+
+_BROWSERS_PATH_VAR = "PLAYWRIGHT_BROWSERS_PATH"
 
 
 class _BrowserEntry(TypedDict, total=False):
@@ -393,19 +398,32 @@ def has_installed_browser(
     return False
 
 
-def prepare_playwright_env_vars(config: PlaywrightConfig) -> None:
-    """设置 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
-    if not config.executable_path:
-        storage_path = os.path.abspath(str(get_playwright_storage_path(config)))
-        os.environ["PLAYWRIGHT_BROWSERS_PATH"] = storage_path
-        logger.debug(f'Setting PLAYWRIGHT_BROWSERS_PATH="{storage_path}"')
+@contextmanager
+def browsers_path_scope(config: PlaywrightConfig) -> Iterator[None]:
+    """Temporarily point ``PLAYWRIGHT_BROWSERS_PATH`` at the configured store.
 
+    The Python Playwright driver has no per-start env argument, so the value
+    is set only for the duration of ``async_playwright().start()`` and then
+    restored to its exact prior state (value or absence). ``executable_path``
+    mode never touches the variable. The caller serializes concurrent driver
+    spawns so overlapping scopes cannot corrupt each other's snapshot.
+    """
+    if config.executable_path:
+        yield
+        return
 
-def clear_playwright_env_vars(config: PlaywrightConfig) -> None:
-    """清除 PLAYWRIGHT_BROWSERS_PATH 环境变量。"""
-    if not config.executable_path and "PLAYWRIGHT_BROWSERS_PATH" in os.environ:
-        playwright_path = os.environ.pop("PLAYWRIGHT_BROWSERS_PATH")
-        logger.debug(f'PLAYWRIGHT_BROWSERS_PATH="{playwright_path}" removed')
+    had_original = _BROWSERS_PATH_VAR in os.environ
+    original_value = os.environ.get(_BROWSERS_PATH_VAR)
+    storage_path = os.path.abspath(str(get_playwright_storage_path(config)))
+    os.environ[_BROWSERS_PATH_VAR] = storage_path
+    logger.debug(f'Setting {_BROWSERS_PATH_VAR}="{storage_path}" for driver start')
+    try:
+        yield
+    finally:
+        if had_original and original_value is not None:
+            os.environ[_BROWSERS_PATH_VAR] = original_value
+        else:
+            os.environ.pop(_BROWSERS_PATH_VAR, None)
 
 
 def _normalize_cache_path(path: Path) -> Path:

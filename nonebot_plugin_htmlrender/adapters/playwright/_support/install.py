@@ -1,5 +1,8 @@
+from __future__ import annotations
+
 from dataclasses import dataclass
 import signal
+from typing import TYPE_CHECKING
 from urllib.parse import urlparse
 
 import anyio
@@ -8,9 +11,13 @@ from nonebot.log import logger
 from .process import (
     INTERRUPT_SIGNAL_ATTR,
     create_process,
+    open_process_supervisor,
     terminate_process,
 )
 from .signal import HANDLED_SIGNALS
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,52 +130,49 @@ async def execute_install_command(
     command: tuple[str, ...],
     *,
     timeout_seconds: int,
+    env: Mapping[str, str] | None = None,
 ) -> tuple[bool, str]:
-    """执行安装命令并返回结果。
+    """Run one install command in a subprocess and report its result.
 
-    创建子进程执行指定的安装命令，处理超时、信号中断和异常退出等情况。
-
-    Args:
-        command: 要执行的命令及其参数。
-        timeout_seconds: 命令执行的超时时间（秒）。
-
-    Returns:
-        元组 (是否成功, 结果描述消息)。
+    Handles timeout, signal interruption and abnormal exit. ``env`` is the
+    subprocess's complete environment; the parent environment is untouched.
     """
     try:
         logger.debug("Starting install process...")
-
-        process = await create_process(
-            *command,
-            start_new_session=False,
-        )
-
-        try:
-            with anyio.fail_after(timeout_seconds):
-                await process.wait()
-        except TimeoutError:
-            logger.error(f"Timed out ({timeout_seconds}s)")
-            await terminate_process(process)
-            return False, f"Timed out ({timeout_seconds}s)"
-
-        signal_received = getattr(process, INTERRUPT_SIGNAL_ATTR, None)
-        if isinstance(signal_received, int) and signal_received in HANDLED_SIGNALS:
-            return (
-                False,
-                f"Interrupted by signal {_format_signal_name(signal_received)}",
+        async with open_process_supervisor() as supervisor:
+            process = await create_process(
+                *command,
+                supervisor=supervisor,
+                env=env,
+                start_new_session=False,
             )
 
-        if process.returncode is None:
-            return False, "Exited with unknown status"
+            try:
+                with anyio.fail_after(timeout_seconds):
+                    await process.wait()
+            except TimeoutError:
+                logger.error(f"Timed out ({timeout_seconds}s)")
+                await terminate_process(process)
+                return False, f"Timed out ({timeout_seconds}s)"
 
-        interrupted_message = _interrupt_message_from_returncode(process.returncode)
-        if interrupted_message is not None:
-            return False, interrupted_message
+            signal_received = getattr(process, INTERRUPT_SIGNAL_ATTR, None)
+            if isinstance(signal_received, int) and signal_received in HANDLED_SIGNALS:
+                return (
+                    False,
+                    f"Interrupted by signal {_format_signal_name(signal_received)}",
+                )
 
-        if process.returncode != 0:
-            return False, f"Exited with code {process.returncode}"
+            if process.returncode is None:
+                return False, "Exited with unknown status"
 
-        return True, "Installation completed"
+            interrupted_message = _interrupt_message_from_returncode(process.returncode)
+            if interrupted_message is not None:
+                return False, interrupted_message
+
+            if process.returncode != 0:
+                return False, f"Exited with code {process.returncode}"
+
+            return True, "Installation completed"
     except Exception as e:
         logger.error(f"An error occurred during installation: {e!s}")
         return False, f"An error occurred during installation: {e!s}"

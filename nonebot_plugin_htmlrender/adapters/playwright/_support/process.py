@@ -1,17 +1,14 @@
-from collections.abc import Awaitable, Coroutine
-from contextlib import nullcontext
-from functools import wraps
+from __future__ import annotations
+
+from contextlib import asynccontextmanager, nullcontext
 import inspect
 import os
-from pathlib import Path
 import signal
 import subprocess
-from types import FrameType
-from typing import IO, Any, Callable, Union
-from typing_extensions import ParamSpec
+from typing import TYPE_CHECKING, final
 
 import anyio
-from anyio.abc import Process, TaskGroup
+from exceptiongroup import BaseExceptionGroup
 
 from .signal import (
     WINDOWS,
@@ -20,79 +17,37 @@ from .signal import (
     shield_signals,
 )
 
-P = ParamSpec("P")
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Mapping
+    from pathlib import Path
+    from types import FrameType
+    from typing import IO
+
+    from anyio.abc import Process, TaskGroup
 
 INTERRUPT_SIGNAL_ATTR = "_htmlrender_received_signal"
 
 
-class _BackgroundTaskGroupState:
-    """保存进程级共享后台任务组的可变状态。"""
+@final
+class ProcessSupervisor:
+    """Own subprocess watchers for one explicit structured-concurrency scope."""
 
-    def __init__(self) -> None:
-        self.task_group: TaskGroup | None = None
+    def __init__(self, task_group: TaskGroup) -> None:
+        self._task_group = task_group
+        self._processes: dict[int, Process] = {}
+        self._closed = False
 
+    async def manage(self, process: Process) -> Process:
+        """Register signal and completion watchers for one spawned process."""
+        if self._closed:
+            await terminate_process(process)
+            raise RuntimeError("Process supervisor is already closed.")
 
-_background_state = _BackgroundTaskGroupState()
-_background_task_group_lock = anyio.Lock()
-
-
-async def _ensure_background_task_group() -> TaskGroup:
-    """确保后台任务组已初始化并返回。
-
-    使用锁保证线程安全地创建单例任务组。若任务组尚未创建，
-    则创建并进入其上下文。
-
-    Returns:
-        已初始化的后台任务组。
-    """
-    async with _background_task_group_lock:
-        task_group = _background_state.task_group
-        if task_group is None:
-            task_group = anyio.create_task_group()
-            await task_group.__aenter__()
-            _background_state.task_group = task_group
-
-    return task_group
-
-
-async def _start_background_task(
-    task_fn: Callable[..., Awaitable[None]],
-    *task_args: Any,
-) -> None:
-    """在后台任务组中启动异步任务。
-
-    Args:
-        task_fn: 要执行的异步函数。
-        task_args: 传递给异步函数的位置参数。
-    """
-    task_group = await _ensure_background_task_group()
-    task_group.start_soon(task_fn, *task_args)
-
-
-def ensure_process_terminated(
-    process_factory: Callable[P, Coroutine[Any, Any, Process]],
-) -> Callable[P, Coroutine[Any, Any, Process]]:
-    """装饰器，确保子进程在信号中断时被正确终止。
-
-    包装进程创建函数，注册信号处理器以在收到中断信号时自动终止
-    由该工厂创建的子进程，并在进程正常结束后清理处理器。
-
-    Args:
-        process_factory: 创建子进程的异步工厂函数。
-
-    Returns:
-        包装后的工厂函数，创建的子进程具有信号中断保护。
-    """
-
-    @wraps(process_factory)
-    async def wrapper(*call_args: P.args, **call_kwargs: P.kwargs) -> Process:
         should_exit = anyio.Event()
-        managed_process: Process | None = None
         handler_removed = False
 
         def shutdown(signum: int, _frame: FrameType | None) -> None:
-            if managed_process is not None:
-                setattr(managed_process, INTERRUPT_SIGNAL_ATTR, signum)
+            setattr(process, INTERRUPT_SIGNAL_ATTR, signum)
             should_exit.set()
 
         def remove_shutdown_handler() -> None:
@@ -102,82 +57,102 @@ def ensure_process_terminated(
             handler_removed = True
             remove_signal_handler(shutdown)
 
-        register_signal_handler(shutdown)
-
         async def wait_for_exit() -> None:
             try:
                 await should_exit.wait()
-                if managed_process is not None:
-                    await terminate_process(managed_process)
+                await terminate_process(process)
             finally:
                 remove_shutdown_handler()
+                self._processes.pop(id(process), None)
 
         async def wait_for_finish() -> None:
             try:
-                if managed_process is None:
-                    return
-                await managed_process.wait()
+                await process.wait()
                 should_exit.set()
             finally:
                 remove_shutdown_handler()
+                self._processes.pop(id(process), None)
 
+        setattr(process, INTERRUPT_SIGNAL_ATTR, None)
+        self._processes[id(process)] = process
+        register_signal_handler(shutdown)
         try:
-            managed_process = await process_factory(*call_args, **call_kwargs)
-            setattr(managed_process, INTERRUPT_SIGNAL_ATTR, None)
-        except Exception:
+            self._task_group.start_soon(wait_for_exit)
+            self._task_group.start_soon(wait_for_finish)
+        except BaseException:
+            self._processes.pop(id(process), None)
             remove_shutdown_handler()
+            await terminate_process(process)
             raise
+        return process
 
-        await _start_background_task(wait_for_exit)
-        await _start_background_task(wait_for_finish)
-        return managed_process
+    async def aclose(self) -> None:
+        """Terminate every process still owned by this supervisor."""
+        if self._closed:
+            return
+        self._closed = True
+        errors: list[BaseException] = []
+        for process in tuple(self._processes.values()):
+            try:
+                await terminate_process(process)
+            except BaseException as error:  # noqa: PERF203 -- best-effort teardown
+                errors.append(error)
+        if errors:
+            raise BaseExceptionGroup("Failed to close supervised subprocesses.", errors)
 
-    return wrapper
+
+@asynccontextmanager
+async def open_process_supervisor() -> AsyncIterator[ProcessSupervisor]:
+    """Create an explicitly owned subprocess watcher scope."""
+    async with anyio.create_task_group() as task_group:
+        supervisor = ProcessSupervisor(task_group)
+        try:
+            yield supervisor
+        finally:
+            try:
+                with anyio.CancelScope(shield=True):
+                    await supervisor.aclose()
+            finally:
+                task_group.cancel_scope.cancel()
 
 
-@ensure_process_terminated
 async def create_process(
-    *args: Union[str, bytes, "os.PathLike[str]", "os.PathLike[bytes]"],
+    *args: str | bytes | os.PathLike[str] | os.PathLike[bytes],
+    supervisor: ProcessSupervisor,
     cwd: Path | None = None,
+    env: Mapping[str, str] | None = None,
     stdin: IO[bytes] | int | None = None,
     stdout: IO[bytes] | int | None = None,
     stderr: IO[bytes] | int | None = None,
     start_new_session: bool | None = None,
 ) -> Process:
-    """创建子进程并注册终止保护。
+    """Spawn a subprocess with signal-driven termination protection.
 
-    在 Windows 上使用 CREATE_NEW_PROCESS_GROUP 标志，在 Unix 上默认
-    创建新会话。进程创建后自动注册信号中断终止保护。
-
-    Args:
-        args: 要执行的命令及其参数。
-        cwd: 子进程的工作目录。
-        stdin: 标准输入流。
-        stdout: 标准输出流。
-        stderr: 标准错误流。
-        start_new_session: 是否创建新会话（仅 Unix），默认为 True。
-
-    Returns:
-        创建的子进程对象。
+    Uses CREATE_NEW_PROCESS_GROUP on Windows and a new session on Unix. When
+    ``env`` is provided it becomes the child's complete environment; the
+    parent process environment is never mutated.
     """
     creation_flags = subprocess.CREATE_NEW_PROCESS_GROUP if WINDOWS else 0
     session = (
         False if WINDOWS else (True if start_new_session is None else start_new_session)
     )
-    return await anyio.open_process(
+    process = await anyio.open_process(
         args,
         cwd=cwd,
+        env=None if env is None else dict(env),
         stdin=stdin,
         stdout=stdout,
         stderr=stderr,
         creationflags=creation_flags,
         start_new_session=session,
     )
+    return await supervisor.manage(process)
 
 
-@ensure_process_terminated
 async def create_process_shell(
     command: str | bytes,
+    *,
+    supervisor: ProcessSupervisor,
     cwd: Path | None = None,
     stdin: IO[bytes] | int | None = None,
     stdout: IO[bytes] | int | None = None,
@@ -209,7 +184,7 @@ async def create_process_shell(
         shell_command = [os.environ.get("SHELL", "/bin/sh"), "-c", command_text]
         creation_flags = 0
 
-    return await anyio.open_process(
+    process = await anyio.open_process(
         shell_command,
         cwd=cwd,
         stdin=stdin,
@@ -217,6 +192,7 @@ async def create_process_shell(
         stderr=stderr,
         creationflags=creation_flags,
     )
+    return await supervisor.manage(process)
 
 
 def _terminate_process_group(process_handle: object, sig: int) -> bool:
@@ -288,8 +264,9 @@ async def terminate_process(process_handle: object) -> None:
 
 __all__ = [
     "INTERRUPT_SIGNAL_ATTR",
+    "ProcessSupervisor",
     "create_process",
     "create_process_shell",
-    "ensure_process_terminated",
+    "open_process_supervisor",
     "terminate_process",
 ]

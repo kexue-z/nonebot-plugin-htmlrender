@@ -28,20 +28,18 @@ async def test_check_mirror_connectivity(mocker: MockerFixture):
 
 
 @pytest.mark.anyio
-async def test_download_context(mocker: MockerFixture):
+async def test_install_env_is_isolated_from_parent(mocker: MockerFixture):
     from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
         MirrorSource,
-        download_context,
+        _install_env,
     )
 
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.install.check_mirror_connectivity",
-        return_value=MirrorSource("test", "http://test.com", 1),
-    )
+    mocker.patch.dict(os.environ, {}, clear=False)
+    os.environ.pop("PLAYWRIGHT_DOWNLOAD_HOST", None)
 
-    async with download_context(PlaywrightConfig()):
-        assert "PLAYWRIGHT_DOWNLOAD_HOST" in os.environ
+    env = _install_env(PlaywrightConfig(), MirrorSource("test", "http://test.com", 1))
 
+    assert env["PLAYWRIGHT_DOWNLOAD_HOST"] == "http://test.com"
     assert "PLAYWRIGHT_DOWNLOAD_HOST" not in os.environ
 
 

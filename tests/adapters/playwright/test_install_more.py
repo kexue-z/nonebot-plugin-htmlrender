@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import pytest
@@ -34,33 +33,35 @@ async def test_install_check_mirror_connectivity_appends_custom_mirror(
 
 
 @pytest.mark.anyio
-async def test_download_context_proxy_and_host_restore(mocker: MockerFixture) -> None:
+async def test_install_env_selects_mirror_and_forwards_proxy(
+    mocker: MockerFixture,
+) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     config = PlaywrightConfig(install_proxy="http://u:p@proxy.local:8080")
-    mocker.patch.object(
-        install,
-        "check_mirror_connectivity",
-        new=mocker.AsyncMock(
-            return_value=MirrorSource("best", "https://best.mirror", 1)
-        ),
-    )
     mocker.patch.dict(
         "os.environ",
-        {"PLAYWRIGHT_DOWNLOAD_HOST": "https://origin.mirror"},
+        {"PLAYWRIGHT_DOWNLOAD_HOST": "https://origin.mirror", "HTTP_PROXY": ""},
         clear=False,
     )
+    del install.os.environ["HTTP_PROXY"]
+    parent_before = dict(install.os.environ)
 
-    async with install.download_context(config):
-        assert install.os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://best.mirror"
-        assert install.os.environ["HTTP_PROXY"] == "http://u:p@proxy.local:8080"
+    selected = install._install_env(
+        config, MirrorSource("best", "https://best.mirror", 1)
+    )
 
+    assert selected["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://best.mirror"
+    assert selected["HTTP_PROXY"] == "http://u:p@proxy.local:8080"
+    # Parent environment (including its pre-existing DOWNLOAD_HOST) is untouched.
+    assert dict(install.os.environ) == parent_before
     assert install.os.environ["PLAYWRIGHT_DOWNLOAD_HOST"] == "https://origin.mirror"
-    assert "HTTP_PROXY" not in install.os.environ
 
 
 @pytest.mark.anyio
-async def test_execute_install_command_uses_direct_stdio(mocker: MockerFixture) -> None:
+async def test_execute_install_command_forwards_env_kwarg(
+    mocker: MockerFixture,
+) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     helper = mocker.patch.object(
@@ -70,13 +71,12 @@ async def test_execute_install_command_uses_direct_stdio(mocker: MockerFixture) 
     )
 
     config = PlaywrightConfig()
-    ok, _ = await install.execute_install_command(config, timeout_seconds=5)
+    env = {"PLAYWRIGHT_DOWNLOAD_HOST": "https://best.mirror"}
+    ok, _ = await install.execute_install_command(config, timeout_seconds=5, env=env)
     assert ok is True
 
     assert helper.await_args is not None
-    kwargs = helper.await_args.kwargs
-    assert "stdout_callback" not in kwargs
-    assert "stderr_callback" not in kwargs
+    assert helper.await_args.kwargs["env"] is env
 
 
 @pytest.mark.anyio
@@ -84,12 +84,11 @@ async def test_install_browser_retry_paths(mocker: MockerFixture) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
 
     config = PlaywrightConfig()
-
-    @asynccontextmanager
-    async def _ctx(_config: PlaywrightConfig):
-        yield
-
-    mocker.patch.object(install, "download_context", _ctx)
+    mocker.patch.object(
+        install,
+        "check_mirror_connectivity",
+        new=mocker.AsyncMock(return_value=None),
+    )
 
     first_try = mocker.patch.object(
         install,
@@ -97,7 +96,7 @@ async def test_install_browser_retry_paths(mocker: MockerFixture) -> None:
         new=mocker.AsyncMock(side_effect=[(True, "ok")]),
     )
     assert await install.install_browser(config, timeout_seconds=3) is True
-    first_try.assert_awaited_once_with(config, 3)
+    assert first_try.await_count == 1
 
     second_try = mocker.patch.object(
         install,
