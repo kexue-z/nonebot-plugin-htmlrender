@@ -169,8 +169,15 @@ def _load_filehost_metrics_unlocked() -> (
             _state.filehost_active_leases,
             _state.filehost_cleanup_capable,
         )
-        if all(metric is not None for metric in cached):
-            return cast("tuple[Counter, Counter, Gauge, Gauge, Gauge]", cached)
+        upload_bytes, dedup_hits, mappings, leases, cleanup = cached
+        if (
+            upload_bytes is not None
+            and dedup_hits is not None
+            and mappings is not None
+            and leases is not None
+            and cleanup is not None
+        ):
+            return upload_bytes, dedup_hits, mappings, leases, cleanup
         prometheus = _plugin_loader.load(reason="filehost_metrics")
         if prometheus is None:
             return None
@@ -281,8 +288,9 @@ def _load_cache_metrics_unlocked() -> tuple[Counter, Gauge, Gauge] | None:
             _state.cache_entries,
             _state.cache_resident_bytes,
         )
-        if all(metric is not None for metric in cached):
-            return cast("tuple[Counter, Gauge, Gauge]", cached)
+        events, entries, resident_bytes = cached
+        if events is not None and entries is not None and resident_bytes is not None:
+            return events, entries, resident_bytes
         prometheus = _plugin_loader.load(reason="cache_metrics")
         if prometheus is None:
             return None

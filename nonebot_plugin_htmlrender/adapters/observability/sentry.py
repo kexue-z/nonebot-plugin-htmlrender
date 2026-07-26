@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from contextlib import AbstractContextManager
+from typing import TYPE_CHECKING
 
 from nonebot.log import logger
 
@@ -8,7 +9,6 @@ from .common import OptionalPluginLoader, call_metric, set_span_attribute
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
-    from contextlib import AbstractContextManager
     from typing import Any
 
 _SENTRY_METRIC_DURATION = "nonebot.htmlrender.duration"
@@ -154,9 +154,11 @@ def start_trace(
         trace_obj = start_callable(**kwargs)
         if trace_obj is None:
             return None
+        if not isinstance(trace_obj, AbstractContextManager):
+            raise TypeError("Sentry start callable did not return a context manager.")
         for key, value in (attrs or {}).items():
             set_span_attribute(trace_obj, key, value)
-        return cast("AbstractContextManager[Any]", trace_obj)
+        return trace_obj
     except Exception as error:
         logger.opt(colors=True).warning(
             "<d>[htmlrender.telemetry]</d> Sentry trace creation failed: "

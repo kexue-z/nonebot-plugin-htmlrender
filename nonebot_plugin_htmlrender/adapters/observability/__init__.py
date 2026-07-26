@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 
 from nonebot.log import logger
 
+from nonebot_plugin_htmlrender.errors import RenderingError
+
 from .common import get_trace_id, normalize_backend, set_span_attribute, set_span_status
 from .prometheus import (
     record_cache_metrics as record_prometheus_cache_metrics,
@@ -187,6 +189,21 @@ def record_cache_metrics(
         _record_metrics_safely("Prometheus", record_prometheus_cache_metrics, *args)
 
 
+def _record_error(span: object, error: BaseException) -> None:
+    """Attach bounded failure metadata without exporting raw native objects."""
+    set_span_attribute(span, "error.type", type(error).__name__)
+    if not isinstance(error, RenderingError):
+        return
+    set_span_attribute(span, "error.message", error.message)
+    set_span_attribute(span, "error.message_truncated", error.message_truncated)
+    set_span_attribute(
+        span,
+        "error.cause_types",
+        ",".join(cause.exception_type for cause in error.causes),
+    )
+    set_span_attribute(span, "error.causes_truncated", error.causes_truncated)
+
+
 @contextmanager
 def _operation_context(
     op: str,
@@ -228,9 +245,10 @@ def _operation_context(
         with _entered_trace(trace_context) as span:
             try:
                 yield
-            except BaseException:
+            except BaseException as error:
                 status = "error"
                 if span is not None:
+                    _record_error(span, error)
                     set_span_status(span, status)
                 raise
             finally:

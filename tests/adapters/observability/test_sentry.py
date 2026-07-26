@@ -225,8 +225,10 @@ def test_start_trace_returns_none_for_unavailable_paths(mocker: MockerFixture) -
 def test_start_trace_selects_root_transaction_or_child_span(
     mocker: MockerFixture,
 ) -> None:
-    start_transaction = mocker.Mock(return_value="transaction")
-    start_span = mocker.Mock(return_value="span")
+    transaction = mocker.MagicMock()
+    span = mocker.MagicMock()
+    start_transaction = mocker.Mock(return_value=transaction)
+    start_span = mocker.Mock(return_value=span)
     current_span = mocker.Mock(return_value=None)
     sdk = types.SimpleNamespace(
         get_current_span=current_span,
@@ -236,23 +238,23 @@ def test_start_trace_selects_root_transaction_or_child_span(
     mocker.patch.object(sentry, "load_sentry", return_value=sdk)
     set_attribute = mocker.patch.object(sentry, "set_span_attribute")
     result = sentry.start_trace("render", "render.name", {"k": "v"})
-    assert result == "transaction"
+    assert result is transaction
     start_transaction.assert_called_once_with(
         op="render",
         name="render.name",
         source="task",
     )
-    set_attribute.assert_called_once_with("transaction", "k", "v")
+    set_attribute.assert_called_once_with(transaction, "k", "v")
     start_span.assert_not_called()
 
     current_span.return_value = object()
     result2 = sentry.start_trace("render2", "render.desc", {"x": "y"})
-    assert result2 == "span"
+    assert result2 is span
     start_span.assert_called_once_with(
         op="render2",
         name="render.desc",
     )
-    set_attribute.assert_called_with("span", "x", "y")
+    set_attribute.assert_called_with(span, "x", "y")
 
 
 def test_start_trace_uses_real_sentry_2_context_manager(

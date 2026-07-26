@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+from contextlib import nullcontext
 from typing import TYPE_CHECKING
 
 import pytest
 
 from nonebot_plugin_htmlrender.adapters import observability as telemetry
 from nonebot_plugin_htmlrender.providers.sdk import HTMLKIT_PROVIDER_ID
+from nonebot_plugin_htmlrender.rendering import ProviderExecutionError
 
 if TYPE_CHECKING:
     from pytest_mock import MockerFixture
@@ -79,6 +81,7 @@ async def test_track_render_with_span_records_attrs_and_error_status(
             raise ValueError("boom")
 
     set_span_status.assert_any_call(span, "error")
+    set_span_attr.assert_any_call(span, "error.type", "ValueError")
     set_span_attr.assert_any_call(span, "render.backend", "playwright")
     set_span_attr.assert_any_call(span, "x", "1")
     set_span_attr.assert_any_call(span, "render.status", "error")
@@ -97,6 +100,33 @@ async def test_track_render_with_span_records_attrs_and_error_status(
     assert record_prom.call_args.args[:3] == ("render.template", "playwright", "error")
     assert record_prom.call_args.args[3] == pytest.approx(0.4)
     assert record_prom.call_args.args[4] == "trace-id"
+
+
+@pytest.mark.anyio
+async def test_track_render_records_bounded_rendering_error_metadata(
+    mocker: MockerFixture,
+) -> None:
+    span = mocker.Mock()
+    mocker.patch.object(telemetry, "start_trace", return_value=nullcontext(span))
+    mocker.patch.object(telemetry, "perf_counter", side_effect=[1.0, 2.0])
+    set_span_attr = mocker.patch.object(telemetry, "set_span_attribute")
+    mocker.patch.object(telemetry, "set_span_status")
+    mocker.patch.object(telemetry, "get_trace_id", return_value=None)
+    mocker.patch.object(telemetry, "record_sentry_metrics")
+
+    with pytest.raises(ProviderExecutionError):
+        async with telemetry.track_render("render.error", sentry=True):
+            raise ProviderExecutionError(
+                "Render failed.",
+                source=RuntimeError("native failure"),
+            )
+
+    set_span_attr.assert_any_call(span, "error.type", "ProviderExecutionError")
+    set_span_attr.assert_any_call(span, "error.message", "Render failed.")
+    set_span_attr.assert_any_call(span, "error.cause_types", "RuntimeError")
+    recorded = {entry.args[1]: entry.args[2] for entry in set_span_attr.call_args_list}
+    assert recorded["error.message_truncated"] is False
+    assert recorded["error.causes_truncated"] is False
 
 
 @pytest.mark.anyio
