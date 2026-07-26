@@ -27,6 +27,7 @@ from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 from nonebot_plugin_htmlrender.providers.discovery import resolve_provider
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings, ProviderDependencies
 from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
+from nonebot_plugin_htmlrender.rendering.budget import HtmlRenderBudget
 from nonebot_plugin_htmlrender.rendering.errors import (
     ProviderLifecycleError,
     ProviderUnavailable,
@@ -501,6 +502,14 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         resources=resources,
         operation_admission=operation_admission,
         extensions=graphics_capabilities,
+        html_render_budget=HtmlRenderBudget(
+            max_source_bytes=settings.html.max_source_bytes,
+            max_pixels=settings.html.max_pixels,
+            max_output_bytes=settings.html.max_output_bytes,
+            max_device_pixel_ratio=settings.html.max_device_pixel_ratio,
+            max_auto_height=settings.html.max_auto_height,
+            max_concurrency=settings.html.max_concurrency,
+        ),
     )
 
 

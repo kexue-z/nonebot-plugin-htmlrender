@@ -21,6 +21,12 @@ def test_render_settings_defaults() -> None:
     assert settings.provider is None
     assert settings.startup is RenderStartupMode.OFF
     assert settings.provider_config == {}
+    assert settings.html.max_source_bytes == 64 * 1024 * 1024
+    assert settings.html.max_pixels == 16 * 1024 * 1024
+    assert settings.html.max_output_bytes == 64 * 1024 * 1024
+    assert settings.html.max_device_pixel_ratio == 4.0
+    assert settings.html.max_auto_height == 16_384
+    assert settings.html.max_concurrency == 2
     assert settings.graphics.backends == ()
     assert settings.graphics.max_pixels == 16 * 1024 * 1024
     assert settings.graphics.max_concurrency == 2
@@ -46,6 +52,14 @@ def test_render_settings_nested_parse() -> None:
                 "provider": "takumi",
                 "startup": "probe",
                 "provider_config": {"max_concurrency": 2},
+                "html": {
+                    "max_source_bytes": 1024,
+                    "max_pixels": 4096,
+                    "max_output_bytes": 2048,
+                    "max_device_pixel_ratio": 2,
+                    "max_auto_height": 512,
+                    "max_concurrency": 1,
+                },
                 "graphics": {
                     "backends": ["pillow", "skia"],
                     "max_pixels": 1_000_000,
@@ -68,6 +82,12 @@ def test_render_settings_nested_parse() -> None:
     assert settings.provider == "takumi"
     assert settings.startup is RenderStartupMode.PROBE
     assert settings.provider_config == {"max_concurrency": 2}
+    assert settings.html.max_source_bytes == 1024
+    assert settings.html.max_pixels == 4096
+    assert settings.html.max_output_bytes == 2048
+    assert settings.html.max_device_pixel_ratio == 2
+    assert settings.html.max_auto_height == 512
+    assert settings.html.max_concurrency == 1
     assert settings.graphics.backends == ("pillow", "skia")
     assert settings.graphics.max_pixels == 1_000_000
     assert settings.graphics.max_concurrency == 1

@@ -5,6 +5,10 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nonebot_plugin_htmlrender.rendering.admission import OperationAdmissionGate
+from nonebot_plugin_htmlrender.rendering.budget import (
+    BudgetedPreparedHtmlExecutor,
+    HtmlRenderBudget,
+)
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityCatalog
 
 from .app import Application
@@ -30,6 +34,7 @@ def build_renderer_bindings(
     *,
     executor: PreparedHtmlExecutor | None,
     preparer: HtmlPreparer,
+    html_render_budget: HtmlRenderBudget | None = None,
 ) -> RendererBindings:
     """Derive use-case bindings from what the engine actually provides.
 
@@ -39,13 +44,17 @@ def build_renderer_bindings(
     template_html = RenderTemplateHtml(preparer=preparer)
     if executor is None:
         return RendererBindings(render_template_html=template_html)
+    budgeted_executor = BudgetedPreparedHtmlExecutor(
+        executor,
+        html_render_budget or HtmlRenderBudget(),
+    )
     return RendererBindings(
-        render_html=RenderHtml(preparer=preparer, executor=executor),
-        render_text=RenderText(preparer=preparer, executor=executor),
-        render_markdown=RenderMarkdown(preparer=preparer, executor=executor),
-        render_template=RenderTemplate(preparer=preparer, executor=executor),
+        render_html=RenderHtml(preparer=preparer, executor=budgeted_executor),
+        render_text=RenderText(preparer=preparer, executor=budgeted_executor),
+        render_markdown=RenderMarkdown(preparer=preparer, executor=budgeted_executor),
+        render_template=RenderTemplate(preparer=preparer, executor=budgeted_executor),
         render_template_html=template_html,
-        rasterize_html=RasterizeHtml(executor=executor),
+        rasterize_html=RasterizeHtml(executor=budgeted_executor),
     )
 
 
@@ -56,6 +65,7 @@ def build_application(
     resources: ResourceService,
     operation_admission: OperationAdmissionGate | None = None,
     extensions: CapabilityCatalog | None = None,
+    html_render_budget: HtmlRenderBudget | None = None,
 ) -> Application:
     """Assemble an Application around one composed engine."""
     admission = (
@@ -69,6 +79,7 @@ def build_application(
     bindings = build_renderer_bindings(
         executor=engine.prepared_html_executor,
         preparer=preparer,
+        html_render_budget=html_render_budget,
     )
     application_extensions = (
         engine.provider_capabilities

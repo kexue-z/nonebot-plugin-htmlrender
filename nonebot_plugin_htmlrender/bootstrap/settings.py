@@ -130,6 +130,17 @@ class GraphicsSettings(_StrictRenderModel):
         return value
 
 
+class HtmlRenderSettings(_StrictRenderModel):
+    """Shared limits for provider-neutral HTML raster operations."""
+
+    max_source_bytes: int = Field(default=64 * 1024 * 1024, gt=0)
+    max_pixels: int = Field(default=16 * 1024 * 1024, gt=0)
+    max_output_bytes: int = Field(default=64 * 1024 * 1024, gt=0)
+    max_device_pixel_ratio: float = Field(default=4.0, gt=0)
+    max_auto_height: int = Field(default=16_384, gt=0)
+    max_concurrency: int = Field(default=2, gt=0)
+
+
 class ResourceSettings(_StrictRenderModel):
     """Core-validated resource, cache, and security configuration."""
 
@@ -146,6 +157,7 @@ class RenderSettings(_StrictRenderModel):
     provider: str | None = Field(default=None)
     startup: RenderStartupMode = Field(default=RenderStartupMode.OFF)
     provider_config: dict[str, object] = Field(default_factory=dict)
+    html: HtmlRenderSettings = Field(default_factory=HtmlRenderSettings)
     graphics: GraphicsSettings = Field(default_factory=GraphicsSettings)
     resources: ResourceSettings = Field(default_factory=ResourceSettings)
     observability: ObservabilitySettings = Field(default_factory=ObservabilitySettings)
@@ -210,6 +222,7 @@ __all__ = [
     "CacheSettings",
     "FilehostSettings",
     "GraphicsSettings",
+    "HtmlRenderSettings",
     "LocalAccessSettings",
     "ObservabilitySettings",
     "RemoteAccessSettings",
