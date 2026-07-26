@@ -63,7 +63,11 @@ def build_graphics_capabilities(
                     PillowRasterSceneRenderer,
                 )
             except ImportError as error:
-                raise RasterBackendUnavailable("pillow", str(error)) from error
+                raise RasterBackendUnavailable(
+                    "pillow",
+                    "adapter import failed",
+                    source=error,
+                ) from error
             catalog = catalog.with_capability(
                 PILLOW_RASTER_SCENE_RENDERER,
                 PillowRasterSceneRenderer(
@@ -80,7 +84,11 @@ def build_graphics_capabilities(
                     SkiaRasterSceneRenderer,
                 )
             except ImportError as error:
-                raise RasterBackendUnavailable("skia", str(error)) from error
+                raise RasterBackendUnavailable(
+                    "skia",
+                    "adapter import failed",
+                    source=error,
+                ) from error
             catalog = catalog.with_capability(
                 SKIA_RASTER_SCENE_RENDERER,
                 SkiaRasterSceneRenderer(

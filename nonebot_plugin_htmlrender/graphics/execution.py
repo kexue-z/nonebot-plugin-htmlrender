@@ -41,7 +41,8 @@ class RasterWorkBudget:
             raise ValueError("max_commands must be positive")
         self._max_pixels = max_pixels
         self._max_commands = max_commands
-        self._limiter = anyio.CapacityLimiter(max_concurrency)
+        self._max_concurrency = max_concurrency
+        self._slots = anyio.Semaphore(max_concurrency)
 
     @property
     def max_pixels(self) -> int:
@@ -53,7 +54,7 @@ class RasterWorkBudget:
 
     @property
     def max_concurrency(self) -> int:
-        return int(self._limiter.total_tokens)
+        return self._max_concurrency
 
     @asynccontextmanager
     async def reserve(self, scene: RasterScene) -> AsyncIterator[None]:
@@ -70,7 +71,7 @@ class RasterWorkBudget:
                 f"Raster scene contains {command_count} draw commands, exceeding "
                 f"the configured limit of {self._max_commands}."
             )
-        async with self._limiter:
+        async with self._slots:
             yield
 
 
@@ -100,8 +101,11 @@ async def run_raster_backend(
             try:
                 return await worker.run_sync(render_sync, request)
             except Exception as error:
-                detail = str(error) or type(error).__name__
-                raise RasterBackendExecutionError(backend, detail) from error
+                raise RasterBackendExecutionError(
+                    backend,
+                    "native render operation failed",
+                    source=error,
+                ) from error
 
 
 __all__ = ["RasterWorkBudget", "run_raster_backend"]

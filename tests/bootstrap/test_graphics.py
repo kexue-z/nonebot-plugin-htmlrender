@@ -7,8 +7,6 @@ import pytest
 from nonebot_plugin_htmlrender.bootstrap.composition import prepare_runtime
 from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
 from nonebot_plugin_htmlrender.graphics import (
-    PILLOW_RASTER_SCENE_RENDERER,
-    SKIA_RASTER_SCENE_RENDERER,
     FillRect,
     GraphicsBackendName,
     PixelRect,
@@ -48,8 +46,8 @@ def _request() -> RenderRasterSceneRequest:
 
 async def test_both_graphics_backends_compose_without_an_html_provider() -> None:
     application = prepare_runtime(_settings("pillow", "skia")).build_application()
-    pillow = application.extensions.require(PILLOW_RASTER_SCENE_RENDERER)
-    skia = application.extensions.require(SKIA_RASTER_SCENE_RENDERER)
+    pillow = application.extensions.pillow
+    skia = application.extensions.skia
 
     try:
         pillow_image = await pillow.render(_request())
@@ -74,8 +72,8 @@ async def test_both_graphics_backends_compose_without_an_html_provider() -> None
 
 async def test_retained_graphics_capabilities_share_application_admission() -> None:
     application = prepare_runtime(_settings("pillow", "skia")).build_application()
-    pillow = application.extensions.require(PILLOW_RASTER_SCENE_RENDERER)
-    skia = application.extensions.require(SKIA_RASTER_SCENE_RENDERER)
+    pillow = application.extensions.pillow
+    skia = application.extensions.skia
 
     await application.aclose()
 
