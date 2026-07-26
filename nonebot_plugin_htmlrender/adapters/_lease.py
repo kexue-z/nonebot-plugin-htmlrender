@@ -106,7 +106,8 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
         if self._state is _LeaseProviderState.CLOSE_FAILED:
             raise ProviderLifecycleError(
                 "Execution lease provider close failed; the runtime is "
-                "retained and only a retried aclose() may release it."
+                "retained and only a retried aclose() may release it.",
+                source=self._close_error,
             ) from self._close_error
         if self._state is not _LeaseProviderState.OPEN:
             raise ProviderLifecycleError(
@@ -212,7 +213,8 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
                 if self._state is _LeaseProviderState.CLOSED:
                     return
                 raise ProviderLifecycleError(
-                    "The shared close attempt failed; retry aclose()."
+                    "The shared close attempt failed; retry aclose().",
+                    source=self._close_error,
                 ) from self._close_error
 
             self._state = _LeaseProviderState.CLOSING
@@ -268,13 +270,15 @@ class ExecutionLeaseProvider(Generic[LeaseT]):
                 raise ProviderLifecycleError(
                     "Closing the render runtime exceeded the bounded wait of "
                     f"{_TEARDOWN_TIMEOUT_SECONDS}s; the lease is retained for "
-                    "a retried close."
+                    "a retried close.",
+                    source=error,
                 ) from error
             except ProviderLifecycleError:
                 raise
             except Exception as error:
                 raise ProviderLifecycleError(
-                    f"Closing the render runtime failed: {error}"
+                    "Closing the render runtime failed.",
+                    source=error,
                 ) from error
 
 
@@ -314,7 +318,8 @@ class PreparedHtmlLeaseExecutor(Generic[LeaseT]):
                 return await self._execute(prepared, options, resource_policy)
         except TimeoutError as error:
             raise ProviderExecutionError(
-                f"Render operation timed out after {timeout_seconds} seconds."
+                f"Render operation timed out after {timeout_seconds} seconds.",
+                source=error,
             ) from error
 
     async def _execute(

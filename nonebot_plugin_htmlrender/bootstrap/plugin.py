@@ -62,7 +62,8 @@ def _require_optional_plugin(
     except Exception as error:
         if required:
             raise ProviderUnavailable(
-                f"Required NoneBot plugin `{plugin_name}` could not be loaded: {error}"
+                f"Required NoneBot plugin `{plugin_name}` could not be loaded.",
+                source=error,
             ) from error
         logger.opt(colors=True).warning(
             "Failed to bootstrap optional plugin <c>{plugin_name}</c> on import: "

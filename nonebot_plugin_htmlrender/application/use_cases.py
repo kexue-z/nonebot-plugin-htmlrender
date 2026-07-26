@@ -52,7 +52,8 @@ def _operation_timeout(timeout_seconds: float | None) -> Iterator[None]:
             yield
     except TimeoutError as error:
         raise ProviderExecutionError(
-            f"Render operation timed out after {timeout_seconds} seconds."
+            f"Render operation timed out after {timeout_seconds} seconds.",
+            source=error,
         ) from error
 
 
