@@ -9,7 +9,6 @@ from nonebot_plugin_htmlrender import (
     get_default_application,
     render_markdown,
 )
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_PAGE
 
 status = on_alconna(Alconna("render_status"))
 
@@ -27,7 +26,7 @@ remote_screenshot = on_alconna(Alconna("rshot", Args["url?", str]))
 
 @remote_screenshot.handle()
 async def _(url: str = "https://github.com") -> None:
-    playwright = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
+    playwright = get_default_application().extensions.playwright
     async with playwright.page(
         viewport={"width": 1280, "height": 800},
     ) as page:

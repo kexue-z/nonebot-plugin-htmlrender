@@ -1,10 +1,8 @@
 # 本地模板渲染示例
 
-展示如何通过引擎中立的 `render_template` 与 `render_text` API，将本地 HTML/CSS
-模板渲染为图片。示例显式使用 `height=None` 与 `device_pixel_ratio=1.0`，因此可以
-在 Playwright、Takumi 和 HTMLKit 三个静态 HTML Provider 之间切换。
+展示如何通过引擎中立的 `render_template` 与 `render_text` API，将本地 HTML/CSS模板渲染为图片。示例显式使用 `height=None` 与 `device_pixel_ratio=1.0`，因此可以在 Playwright、Takumi 和 HTMLKit 三个静态 HTML Provider 之间切换。
 
-## Commands
+## 命令
 
 | 命令 | 说明 |
 |---|---|
@@ -47,8 +45,7 @@ uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
 RENDER={"provider":"htmlkit","startup":"probe","resources":{"local_access":{"allowed_paths":["plugins/template_render/templates"]}},"provider_config":{"resource_resolve_mode":"strict"}}
 ```
 
-HTMLKit 不是浏览器的等价替代，只适合其支持范围内的静态 HTML/CSS；需要脚本、网页
-导航、selector 或精确浏览器布局语义时仍应使用 Playwright。
+HTMLKit 不是浏览器的等价替代，只适合其支持范围内的静态 HTML/CSS；需要脚本、网页导航、selector 或精确浏览器布局语义时仍应使用 Playwright。
 
 ## 模板结构
 
@@ -60,5 +57,4 @@ plugins/template_render/
     style.css       # Template stylesheet
 ```
 
-模板变量通过 `render_template(..., variables=...)` 传入。返回值是
-`RenderedImage`；交给消息 adapter 前使用 `bytes(artifact)` 显式取得编码后的图片。
+模板变量通过 `render_template(..., variables=...)` 传入。返回值是`RenderedImage`；交给消息 adapter 前使用 `bytes(artifact)` 显式取得编码后的图片。

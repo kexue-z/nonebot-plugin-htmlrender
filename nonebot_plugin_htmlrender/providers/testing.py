@@ -1,9 +1,9 @@
-"""Installable SDK conformance harness for third-party engine providers.
+"""NoneBot-hosted conformance harness for third-party engine providers.
 
-Ships with the production package so provider authors can run the same
-lifecycle contract checks from an installed wheel. The harness depends only
-on the standard library — callers wrap the coroutines in pytest, unittest,
-or any other runner they prefer. Violations raise
+The harness ships with the production package so provider authors can run the
+same lifecycle checks from an installed wheel after initializing NoneBot and
+loading ``nonebot_plugin_htmlrender``. It has no test-runner dependency:
+callers wrap the coroutines in pytest, unittest, or another runner. Violations raise
 :class:`ProviderConformanceError`.
 """
 

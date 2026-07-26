@@ -1,8 +1,6 @@
 # Pillow/Skia RasterScene 示例
 
-展示如何显式获取 Pillow 或 Skia 的 `RasterSceneRenderer` typed Capability，并渲染
-同一个后端中立、物理像素级场景。Pillow/Skia 不是 HTML Provider，也不会消费
-`render.provider_config`。
+展示如何显式获取 Pillow 或 Skia 的 `RasterSceneRenderer` typed Capability，并渲染同一个后端中立、物理像素级场景。Pillow/Skia 不是 HTML Provider，也不会消费`render.provider_config`。
 
 ## 命令
 

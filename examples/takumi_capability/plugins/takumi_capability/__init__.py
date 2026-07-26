@@ -8,7 +8,6 @@ from arclet.alconna import Alconna, Args
 from nonebot_plugin_alconna import Image, UniMessage, on_alconna
 
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
 
 CARD_STYLE = """
 body {
@@ -40,7 +39,7 @@ takumi_card = on_alconna(Alconna("takumi_card", Args["title?", str]))
 
 @takumi_card.handle()
 async def _(title: str = "Takumi Capability") -> None:
-    capability = get_default_application().extensions.require(TAKUMI_CAPABILITIES)
+    takumi = get_default_application().extensions.takumi
     html = (
         '<div class="card">'
         f'<div class="title">{escape(title)}</div>'
@@ -48,8 +47,8 @@ async def _(title: str = "Takumi Capability") -> None:
         "</div>"
     )
 
-    async with capability.extension() as extension:
-        image = await extension.render_html(
+    async with takumi.api() as api:
+        image = await api.render_html(
             html,
             stylesheets=(CARD_STYLE,),
             width=640,

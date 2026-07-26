@@ -112,7 +112,8 @@ class _EchoExecutor:
             )
         except ValueError as error:
             raise ProviderExecutionError(
-                f"Echo rasterization failed: {error}"
+                "Echo rasterization failed.",
+                source=error,
             ) from error
 
 

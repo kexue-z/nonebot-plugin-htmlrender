@@ -6,14 +6,13 @@ from arclet.alconna import Alconna, Args
 from nonebot_plugin_alconna import Image, UniMessage, on_alconna
 
 from nonebot_plugin_htmlrender import get_default_application
-from nonebot_plugin_htmlrender.capabilities import PLAYWRIGHT_CAPTURE, PLAYWRIGHT_PAGE
 
 screenshot = on_alconna(Alconna("screenshot", Args["url?", str]))
 
 
 @screenshot.handle()
 async def _(url: str = "https://github.com") -> None:
-    playwright = get_default_application().extensions.require(PLAYWRIGHT_PAGE)
+    playwright = get_default_application().extensions.playwright
     async with playwright.page(
         viewport={"width": 1280, "height": 800},
     ) as page:
@@ -28,12 +27,11 @@ capture = on_alconna(Alconna("capture", Args["selector", str]))
 
 @capture.handle()
 async def _(selector: str = "div.application-main") -> None:
-    playwright = get_default_application().extensions.require(PLAYWRIGHT_CAPTURE)
-    img = await playwright.capture_element(
-        "https://github.com",
-        selector,
-        page_kwargs={"viewport": {"width": 1280, "height": 800}},
-        goto_kwargs={"wait_until": "networkidle", "timeout": 30000},
-        screenshot_kwargs={"type": "png"},
-    )
+    playwright = get_default_application().extensions.playwright
+    async with playwright.page(
+        viewport={"width": 1280, "height": 800},
+    ) as page:
+        await page.goto("https://github.com", wait_until="networkidle", timeout=30000)
+        img = await page.locator(selector).screenshot(type="png")
+
     await capture.finish(UniMessage(Image(raw=img)))

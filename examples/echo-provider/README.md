@@ -1,16 +1,14 @@
-# Echo Provider Example
+# Echo Provider 示例
 
-This directory is a minimal third-party Provider distribution. It validates
-the final 0.8 SDK without a browser or native renderer: every raster request
-returns a 1×1 PNG in the configured color.
+本目录是最小第三方 Provider distribution，不依赖浏览器或 native renderer，用于验证最终的 0.8 SDK：每个 raster request 都返回指定颜色的 1×1 PNG。
 
-## Install
+## 安装
 
 ```bash
 uv add --editable ./examples/echo-provider
 ```
 
-## Configure
+## 配置
 
 ```yaml
 render:
@@ -20,12 +18,7 @@ render:
     color: "#663399"
 ```
 
-The distribution registers `PROVIDER` through the
-`nonebot_plugin_htmlrender.providers` entry-point group. The implementation
-shows typed settings, side-effect-free availability, lifecycle/executor
-bindings, `ResourceStrategy`, and the narrow composition-provided
-`ProviderResources` boundary.
+distribution 通过 `nonebot_plugin_htmlrender.providers` entry-point group 注册`PROVIDER`。实现展示类型化 settings、无副作用 availability、lifecycle/executor
+bindings、`ResourceStrategy`，以及 composition 注入的收窄 `ProviderResources`边界。
 
-It intentionally exposes no provider-specific Capability. Extend it only when
-demonstrating a real typed boundary; do not add engine-specific parameters to
-the neutral executor.
+示例刻意不暴露 Provider 专属 Capability。只有需要展示真实 typed boundary 时才扩展它；不要向中立 executor 增加引擎专属参数。

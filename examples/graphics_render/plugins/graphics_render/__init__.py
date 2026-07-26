@@ -7,8 +7,6 @@ from nonebot_plugin_alconna import Image, UniMessage, on_alconna
 
 from nonebot_plugin_htmlrender import get_default_application
 from nonebot_plugin_htmlrender.graphics import (
-    PILLOW_RASTER_SCENE_RENDERER,
-    SKIA_RASTER_SCENE_RENDERER,
     FillRect,
     PixelRect,
     RasterScene,
@@ -21,14 +19,14 @@ graphics_scene = on_alconna(Alconna("graphics_scene", Args["backend?", str]))
 
 @graphics_scene.handle()
 async def _(backend: str = "pillow") -> None:
+    extensions = get_default_application().extensions
     if backend == "pillow":
-        key = PILLOW_RASTER_SCENE_RENDERER
+        renderer = extensions.pillow
     elif backend == "skia":
-        key = SKIA_RASTER_SCENE_RENDERER
+        renderer = extensions.skia
     else:
         await graphics_scene.finish("backend must be pillow or skia")
 
-    renderer = get_default_application().extensions.require(key)
     image = await renderer.render(
         RenderRasterSceneRequest(
             RasterScene(
