@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from .facades import ApplicationResources
     from .renderer import Renderer
 
+from .extensions import ApplicationExtensions
 from .facades import AdmittedHtmlPreparer, AdmittedResourceService
 
 
@@ -53,7 +54,8 @@ class Application:
         self._preparation = AdmittedHtmlPreparer(preparation, self._operation_admission)
         self._resources = AdmittedResourceService(resources, self._operation_admission)
         self._lifecycle = lifecycle
-        self._extensions = extensions if extensions is not None else CapabilityCatalog()
+        catalog = extensions if extensions is not None else CapabilityCatalog()
+        self._extensions = ApplicationExtensions(catalog)
         self._state = _AppState.NEW
         self._lock = anyio.Lock()
 
@@ -70,7 +72,7 @@ class Application:
         return self._resources
 
     @property
-    def extensions(self) -> CapabilityCatalog:
+    def extensions(self) -> ApplicationExtensions:
         return self._extensions
 
     async def _run_lifecycle(
@@ -84,7 +86,8 @@ class Application:
             raise
         except Exception as error:
             raise ProviderLifecycleError(
-                f"Application lifecycle {operation} failed: {error}"
+                f"Application lifecycle {operation} failed.",
+                source=error,
             ) from error
 
     async def startup(self) -> None:

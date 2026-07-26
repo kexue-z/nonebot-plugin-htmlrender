@@ -1,26 +1,19 @@
 """Stable provider-specific capability contracts and lookup keys."""
 
 from .playwright import (
-    PLAYWRIGHT_CAPTURE,
-    PLAYWRIGHT_PAGE,
-    CaptureElementKwargs,
-    GotoKwargs,
-    LocatorScreenshotKwargs,
-    PageContextKwargs,
-    PlaywrightCaptureCapability,
-    PlaywrightPageCapability,
+    PLAYWRIGHT,
+    PlaywrightAccess,
 )
-from .takumi import TAKUMI_CAPABILITIES, TakumiCapability
+from .takumi import (
+    TAKUMI,
+    TakumiAccess,
+    TakumiAPI,
+)
 
 __all__ = [
-    "PLAYWRIGHT_CAPTURE",
-    "PLAYWRIGHT_PAGE",
-    "TAKUMI_CAPABILITIES",
-    "CaptureElementKwargs",
-    "GotoKwargs",
-    "LocatorScreenshotKwargs",
-    "PageContextKwargs",
-    "PlaywrightCaptureCapability",
-    "PlaywrightPageCapability",
-    "TakumiCapability",
+    "PLAYWRIGHT",
+    "TAKUMI",
+    "PlaywrightAccess",
+    "TakumiAPI",
+    "TakumiAccess",
 ]

@@ -2,7 +2,7 @@
 
 These are the stable top-level render commands. They accept only
 cross-engine semantics; provider-specific knobs live in the typed
-capability objects resolved from ``Application.capabilities``.
+capability objects resolved from ``Application.extensions``.
 """
 
 from __future__ import annotations
