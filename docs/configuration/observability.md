@@ -90,6 +90,8 @@ Prometheus collector 在首次使用时按进程惰性创建并复用，避免�
 
 当前 `cache` 值由 composition 固定为 `resource`、`template_environment`、`filehost`或 `takumi_compiled`；`event` 使用 `hit`、`miss`、`load`、`wait` 与 `eviction` 中适用于该缓存的子集。仅 byte-weighted cache 会更新 `resident_bytes`。
 
+指标表示的具体缓存层并不相同：`template_environment` entries 是 Environment 数量，不包含内层 compiled templates；`filehost` entries 是 publisher mapping；`takumi_compiled` 的 resident bytes 是输入 source weight，不是 native heap 精确值。按现象选择指标和调优动作见[缓存组件、失效与调优](../guides/cache-lifecycle.md#tune-with-metrics)。
+
 操作指标只使用稳定的 operation、provider identity 与 status 维度。当前导出schema 中 provider identity 的 label 名保留为 `backend`；它是兼容性字段，不是公共架构概念。路径、URL、HTML、模板变量、字体名、digest、资源内容、错误消息和 cause
 type 都不会进入指标标签。
 

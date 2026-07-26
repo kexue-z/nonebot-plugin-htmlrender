@@ -113,7 +113,7 @@ render:
 
 按配置域查阅：
 
-- 核心配置：[`.env` 配置](dotenv.md)、[启动与生命周期](lifecycle.md)、[HTML 渲染预算](html-rendering.md)、[资源与访问策略](resources.md)、[可选依赖与可观测性](observability.md)
+- 核心配置：[`.env` 配置](dotenv.md)、[启动与生命周期](lifecycle.md)、[HTML 渲染预算](html-rendering.md)、[资源与访问策略](resources.md)、[可选依赖与可观测性](observability.md)；缓存的操作方法见[缓存组件、失效与调优](../guides/cache-lifecycle.md)
 - [HTML 后端](providers/index.md)：[Playwright](providers/playwright.md)、[HTMLKit](providers/htmlkit.md)、[Takumi](providers/takumi.md)
 - [Graphics 后端](graphics/index.md)：[Pillow](graphics/pillow.md)、[Skia](graphics/skia.md)
 

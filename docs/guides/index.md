@@ -24,6 +24,7 @@ icon: lucide/list-checks
 | 绘制后端中立的像素场景 | [绘制 RasterScene](raster-scenes.md) |
 | 约束生命周期、超时和错误处理 | [最佳实践](best-practices.md) |
 | 连接远程浏览器 | [远程 Playwright](../configuration/remote-playwright.md) |
+| 刷新资源、理解缓存或调优容量 | [缓存组件、失效与调优](cache-lifecycle.md) |
 | 处理生产安全与故障 | [安全须知](../configuration/security.md) · [故障排查](../configuration/troubleshooting.md) |
 | 从旧版本升级 | [升级与迁移](migration/index.md) |
 

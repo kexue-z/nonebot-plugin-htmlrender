@@ -71,7 +71,7 @@ async with takumi.api() as api:
 | <!-- takumi:animation --> Animation | `render_animation`、`render_sequence_at_time`、`encode_frames` | 返回 WebP/APNG/GIF 或单帧静态图片的 `bytes` |
 | <!-- takumi:font --> Font | `register_font`、`register_fonts`、`register_font_file` | 在当前 runtime 注册字体并返回新增字体族 |
 
-`registered_font_families` 与 `compiled_cache_stats` 是只读 runtime 快照。所有异步方法都有 `takumi.api.*` 形式的稳定 telemetry operation 名称；`render_sequence_at_time` 使用 `takumi.api.render_sequence`。这里是 Takumi 专属能力，不经过 neutral HTML executor，也不受 `render.html` 预算约束。
+`registered_font_families` 与 `compiled_cache_stats` 是只读 runtime 快照。所有异步方法都有 `takumi.api.*` 形式的稳定 telemetry operation 名称；`render_sequence_at_time` 使用 `takumi.api.render_sequence`。这里是 Takumi 专属能力，不经过 neutral HTML executor，也不受 `render.html` 预算约束。统计字段的读取示例和 compiled cache 清理边界见[缓存组件、失效与调优](../guides/cache-lifecycle.md#takumi-compiled-font-and-image-caches)。
 
 ### 原生 Renderer { #native-renderer }
 

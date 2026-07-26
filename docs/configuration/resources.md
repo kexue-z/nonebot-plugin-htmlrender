@@ -24,6 +24,8 @@ icon: lucide/database
 
 缓存按 composition 隔离。filesystem 按 stat revision 复查，package/inline 使用稳定revision；remote ref 没有 revision 时会在窗口到期后重新读取。
 
+公共 Resource Service 支持用 `read_bytes(..., refresh=True)` / `read_text(..., refresh=True)` 强制刷新单个 key，以及用 `await app.resources.clear()` 清空当前 Application 的 Resource Reader。后者不会清理 Jinja、filehost、Takumi 或 Playwright browser storage；完整操作示例和清理矩阵见[缓存组件、失效与调优](../guides/cache-lifecycle.md)。
+
 模板变量会先经过有界、迭代式结构规划，再由固定数量 worker 解析其中的资源叶节点。循环引用、超深或超宽变量树会在执行资源 I/O 前以 `ResourceResolutionError` 拒绝；扩大限制时应同时评估模板输入可信度与 publisher 容量。
 
 ## 本地访问
@@ -44,4 +46,4 @@ filehost transport 使用 `render.resources.filehost` 配置公开基址、容�
 
 默认请求头守卫必须保持开启。CORS 只允许浏览器加载已授权资源，不承担认证职责。容量由 `max_entries` 与 `max_bytes` 约束；在途 lease 会钉住内容，全部条目被占用且超限时抛稳定 capacity error。
 
-完整字段和值见[配置总览](../index.md)，远程浏览器 transport 选择见[远程 Playwright 部署](../remote-playwright/)。
+完整字段和值见[配置总览](../index.md)，远程浏览器 transport 选择见[远程 Playwright 部署](../remote-playwright/)，TTL、lease、预热和容量调优见[缓存组件、失效与调优](../guides/cache-lifecycle.md#filehost-publisher-and-hosted-store)。

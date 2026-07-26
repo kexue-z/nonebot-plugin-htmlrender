@@ -505,6 +505,81 @@ def test_first_party_extension_properties_are_documented() -> None:
     )
 
 
+def test_backend_runtime_dependency_boundaries_are_documented() -> None:
+    playwright_text = (
+        ROOT / "docs" / "configuration" / "providers" / "playwright.md"
+    ).read_text("utf-8")
+    skia_text = (ROOT / "docs" / "configuration" / "graphics" / "skia.md").read_text(
+        "utf-8"
+    )
+    provider_matrix = (ROOT / "docs" / "start" / "choosing-provider.md").read_text(
+        "utf-8"
+    )
+    troubleshooting_text = (
+        ROOT / "docs" / "configuration" / "troubleshooting.md"
+    ).read_text("utf-8")
+    remote_playwright_text = (
+        ROOT / "docs" / "configuration" / "remote-playwright.md"
+    ).read_text("utf-8")
+
+    assert "uv run playwright install --with-deps chromium" in playwright_text
+    assert "只安装 Playwright Python client" in playwright_text
+    assert "首选：Docker 远程 Playwright" in playwright_text
+    assert "第二选项：Bot 宿主机本地 Playwright" in playwright_text
+    assert "client 与 browser revision 强一致" in playwright_text
+    assert "不得让不同项目虚拟环境共享该目录" in playwright_text
+    assert "PLAYWRIGHT_BROWSERS_PATH" in playwright_text
+    assert "精确匹配的 browser revision" in troubleshooting_text
+    assert "WS 版本门禁与启动探测" in remote_playwright_text
+    assert "版本门禁 fail-open" in remote_playwright_text
+    assert "CDP 模式不执行 Playwright client/server 版本门禁" in remote_playwright_text
+    assert "软门禁不能证明任意版本组合兼容" in remote_playwright_text
+    for dependency in (
+        "libEGL.so.1",
+        "libGL.so.1",
+        "libexpat.so.1",
+        "libegl1",
+        "libgl1",
+        "libexpat1",
+    ):
+        assert f"`{dependency}`" in skia_text
+    assert 'uv run python3 -c "import skia"' in skia_text
+    for engine in ("Playwright", "HTMLKit", "Takumi", "Pillow", "Skia"):
+        assert re.search(rf"^\| {engine} \|", provider_matrix, flags=re.MULTILINE)
+
+
+def test_cache_components_and_public_invalidation_boundaries_are_documented() -> None:
+    cache_guide_path = ROOT / "docs" / "guides" / "cache-lifecycle.md"
+    cache_guide = cache_guide_path.read_text("utf-8")
+    navigation = (ROOT / "mkdocs.yml").read_text("utf-8")
+    resource_reference = (ROOT / "docs" / "configuration" / "resources.md").read_text(
+        "utf-8"
+    )
+    template_guide = (
+        ROOT / "docs" / "guides" / "templates-and-resources.md"
+    ).read_text("utf-8")
+    takumi_reference = (
+        ROOT / "docs" / "configuration" / "providers" / "takumi.md"
+    ).read_text("utf-8")
+
+    assert "guides/cache-lifecycle.md" in navigation
+    for cache_name in (
+        "`resource`",
+        "`template_environment`",
+        "`filehost`",
+        "`takumi_compiled`",
+    ):
+        assert cache_name in cache_guide
+    assert "`app.resources.clear()` 只清理当前 Application" in cache_guide
+    assert "不会清理 Jinja Environment" in cache_guide
+    assert "filter 的名称和 callable 身份" in cache_guide
+    assert "无法通过单纯增加内存解决" in cache_guide
+    assert "api.compiled_cache_stats" in cache_guide
+    assert "refresh=True" in resource_reference
+    assert "自定义 Jinja filter" in template_guide
+    assert "compiled_cache_stats" in takumi_reference
+
+
 def test_documented_top_level_imports_exist() -> None:
     exports = _top_level_exports()
     parsed, _ = _parse_python_sources()

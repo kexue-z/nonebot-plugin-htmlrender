@@ -25,6 +25,30 @@ image = await render_template(
 
 可运行项目见 `examples/template_render`。如果只需要 HTML，使用`render_template_html`，无需配置位图 Provider。
 
+## 自定义 Jinja filter
+
+通过 `filters` 为单次模板调用注入受信任的同步或异步 callable。filter 会在模板编译前进入对应 Jinja Environment；应复用模块级函数，使相同模板和 filter 组合能够命中 Environment cache：
+
+```python
+from nonebot_plugin_htmlrender import render_template
+
+
+def format_percent(value: float) -> str:
+    return f"{value:.1%}"
+
+
+image = await render_template(
+    "templates",
+    "progress.html",
+    {"progress": 0.625},
+    filters={"percent": format_percent},
+)
+```
+
+不要在循环中创建 lambda、`partial` 或临时 bound method；不同 callable 身份会生成不同 Environment key。同步 filter 在事件循环线程执行，不应包含阻塞 I/O。模板源码、filters 与 extensions 都是可执行的受信任代码，不能直接来自用户输入。
+
+`render_template` 会先把变量中的 `Path`/bytes 准备成资源 URL，再调用 filter；`render_template_html` 不物化资源，filter 会看到原始变量。缓存 key、异步 filter 和失效边界见[缓存组件、失效与调优](cache-lifecycle.md#jinja-environment-and-custom-filters)。
+
 ## 预先解析变量
 
 需要在模板外观察最终 URL 或 filehost 请求头时，使用`resolve_template_vars` 或 `to_resource_url`。它们返回 `ResourceResolution`；请求头只授权结果中对应的精确 URL，不得扩展到同 host、路径前缀或重定向目标。

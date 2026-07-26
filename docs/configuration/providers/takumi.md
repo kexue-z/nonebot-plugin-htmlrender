@@ -72,6 +72,22 @@ render:
 
 只有随镜像不可变的字体才应使用 `immutable`。运行中的 native renderer不会热替换已注册字体；文件变化后需重建 composition。字体路径同样受`render.resources.local_access.allowed_paths` 约束。
 
+## 缓存使用与诊断
+
+Takumi runtime 对重复的 HTML/CSS native 编译使用有界 singleflight LRU。`compiled_cache_max_source_bytes` 的单位是输入 source 的 UTF-8 bytes，不是 native heap；调优时必须同时观察条目上限。
+
+```python
+from nonebot_plugin_htmlrender import get_default_application
+
+takumi = get_default_application().extensions.takumi
+async with takumi.api() as api:
+    await api.render_svg_html("<strong>cached</strong>", width=320)
+    stats = api.compiled_cache_stats
+    print(stats.hits, stats.misses, stats.evictions)
+```
+
+统计是当前 runtime 的只读快照。公共 API 不提供 compiled cache clear；需要释放 native compiled object 或替换已注册字体时，关闭并重建 Application。字体 revalidate、native image cache 与完整调优流程见[缓存组件、失效与调优](../../guides/cache-lifecycle.md#takumi-compiled-font-and-image-caches)。
+
 ## 能力边界
 
 Takumi 支持静态 HTML、文本、模板和大多数 Markdown；下列需求会明确失败：

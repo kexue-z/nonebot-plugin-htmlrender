@@ -22,6 +22,7 @@ icon: lucide/book-open
 | 本地 Jinja 模板和图片 | [模板与资源](../guides/templates-and-resources.md) |
 | 浏览器导航或元素截图 | [操作浏览器页面](../guides/browser-automation.md) |
 | 远程浏览器 | [远程 Playwright 部署](../configuration/remote-playwright.md) |
+| 资源刷新与缓存调优 | [缓存组件、失效与调优](../guides/cache-lifecycle.md) |
 | 无 HTML 的像素绘制 | [绘制 RasterScene](../guides/raster-scenes.md) |
 | 启动或资源失败 | [故障排查](../configuration/troubleshooting.md) |
 | 从 0.7 升级 | [v0.8 迁移指南](../guides/migration/v0.8.md) |

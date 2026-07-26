@@ -76,6 +76,17 @@ PLAYWRIGHT_BROWSERS_PATH=/var/lib/htmlrender/playwright-project \
 
     检查浏览器的 `requestfailed` 事件和开发者工具 CORS 诊断。代理可能已经让资源请求成功到达 Bot，却在响应返回浏览器前移除了 `Access-Control-Allow-Origin`。HTTP 200 只说明传输成功，不表示浏览器已经允许页面使用该跨源资源。
 
+## 缓存内容未更新或频繁驱逐
+
+先识别发生问题的层，不要直接重启或清理所有状态：
+
+1. 单个文件或 HTTP resource 未更新：用 `app.resources.read_bytes(..., refresh=True)` / `read_text(..., refresh=True)` 刷新同一个 key；批量任务需要干净的 Resource Reader 时才调用 `await app.resources.clear()`。
+2. Jinja 模板未更新：用户模板默认 auto-reload；若 Environment miss 持续增长，检查是否在每次调用创建了新的 filter callable 或 extensions 组合。
+3. filehost capacity error：检查是否有大量活跃 render lease 钉住资源、预热目录是否过宽，以及 `max_entries` / `max_bytes` 是否覆盖真实工作集。缩短 TTL 不能释放仍在 lease 中的 asset。
+4. Takumi 重复编译或字体变化：读取 `api.compiled_cache_stats`；调整 compiled cache 上限，或关闭并重建 runtime 以替换字体/native 状态。
+
+`app.resources.clear()` 不会清理 Jinja、filehost、Takumi 或 Playwright browser storage。完整清理矩阵与指标解释见[缓存组件、失效与调优](../guides/cache-lifecycle.md)。
+
 ## Takumi 拒绝文档
 
 查看 `PreparedHtml.requirements`。JavaScript、网络、浏览器导航、无法物化的图片/字体或条件 stylesheet 不会被静默忽略。修改内容，或改用 Playwright。

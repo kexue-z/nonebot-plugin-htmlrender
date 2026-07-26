@@ -52,4 +52,6 @@ logo_headers = logo_result.request_headers_by_url.get(logo_url, {})
 
 非 filehost transport 的授权映射为空；调用方不得把一条 URL 的 header 扩大到同 host、同路径前缀或重定向目标。`template_base` 不扩张本地访问白名单。`strict=None` 继承组合策略，`False` 采用宽松解析，`True` 在任一资源失败时终止。
 
+需要直接读取并立即刷新单个资源时，使用`get_default_application().resources.read_bytes(..., refresh=True)` 或 `.read_text(..., refresh=True)`；这与递归解析模板变量是不同操作。缓存驻留与 clear 边界见[缓存组件、失效与调优](../guides/cache-lifecycle.md#resource-reader)。
+
 资源策略和部署配置见[资源、缓存与访问策略](../configuration/resources.md)。
