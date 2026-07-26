@@ -17,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 PACKAGE = "nonebot_plugin_htmlrender"
 PACKAGE_ROOT = ROOT / PACKAGE
 SETTINGS_PATH = PACKAGE_ROOT / "bootstrap" / "settings.py"
+APPLICATION_EXTENSIONS_PATH = PACKAGE_ROOT / "application" / "extensions.py"
 MERMAID_RUNTIME_PATH = (
     ROOT / "docs" / "assets" / "javascripts" / "mermaid-11.16.0.min.js"
 )
@@ -25,19 +26,27 @@ MERMAID_RUNTIME_SHA256 = (
     "74d7c46dabca328c2294733910a8aa1ed0c37451776e8d5295da38a2b758fb9b"
 )
 
+DOCUMENTATION_ROOTS: Mapping[str, Path] = {
+    "architecture": ROOT / "docs" / "extensions",
+    "configuration": ROOT / "docs" / "configuration",
+    "migration": ROOT / "docs" / "guides" / "migration",
+}
+
 MIGRATION_CONTRACT_ALLOWLIST: Mapping[Path, str] = {
-    Path("docs/users/migration-v080.md"): "0.7 to 0.8 contract mapping",
-    Path("docs/users/migration-v072.md"): "historical 0.7.2 migration record",
-    Path("docs/users/migration.md"): "historical pre-0.8 migration record",
+    Path("docs/guides/migration/index.md"): "migration index and removed-key lookup",
+    Path("docs/guides/migration/v0.8.md"): "0.7 to 0.8 contract mapping",
+    Path("docs/guides/migration/v0.7.2.md"): "historical 0.7.2 migration record",
 }
 
 EXPECTED_PUBLIC_EXPORTS = frozenset(
     {
         "Application",
+        "ErrorCause",
         "RasterOptions",
         "RenderedHtml",
         "RenderedImage",
         "Renderer",
+        "RenderingError",
         "ResourcePolicy",
         "ResourceResolution",
         "get_default_application",
@@ -61,6 +70,12 @@ EXPECTED_CONFIG_PATHS = frozenset(
     {
         "render.observability.prometheus",
         "render.observability.sentry",
+        "render.html.max_auto_height",
+        "render.html.max_concurrency",
+        "render.html.max_device_pixel_ratio",
+        "render.html.max_output_bytes",
+        "render.html.max_pixels",
+        "render.html.max_source_bytes",
         "render.provider",
         "render.provider_config",
         "render.resources.cache.max_bytes",
@@ -71,6 +86,9 @@ EXPECTED_CONFIG_PATHS = frozenset(
         "render.resources.local_access.allowed_paths",
         "render.resources.templates.environment_cache_max_entries",
         "render.resources.templates.environment_compiled_cache_size",
+        "render.resources.traversal.max_concurrency",
+        "render.resources.traversal.max_depth",
+        "render.resources.traversal.max_nodes",
         "render.startup",
     }
 )
@@ -94,6 +112,16 @@ EXPECTED_ARCHITECTURE_TERMS = frozenset(
 )
 
 _REMOVED_API_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "removed first-party extension contract",
+        re.compile(
+            r"\b(?:"
+            r"PLAYWRIGHT_CAPTURE|PLAYWRIGHT_PAGE|TAKUMI_RENDERER|"
+            r"HtmlkitApi|PlaywrightCapabilityAdapter|TakumiCapabilityAdapter|"
+            r"TakumiApi|TakumiExtension"
+            r")\b|\.extensions\.graphics\b|\.extension\(\)"
+        ),
+    ),
     (
         "removed Backend/Render type",
         re.compile(
@@ -144,6 +172,21 @@ _REMOVED_API_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _PYTHON_FENCE = re.compile(
     r"(?ms)^(?P<indent>[ \t]*)```(?:python|py)(?:[^\n]*)\n"
     r"(?P<body>.*?)(?P=indent)```[ \t]*$"
+)
+_MARKDOWN_FENCE = re.compile(r"^[ \t]*(?P<marker>`{3,}|~{3,})")
+_MARKDOWN_LEFT_BLOCK_BOUNDARY = re.compile(
+    r"^[ \t]*(?:#{1,6}(?:\s|$)|(?:!!!|\?\?\?)\s+|>|\||<|\{[^}]*\}\s*$)"
+)
+_MARKDOWN_RIGHT_BLOCK_BOUNDARY = re.compile(
+    r"^[ \t]*(?:"
+    r"#{1,6}(?:\s|$)|[-+*]\s+|\d+[.)]\s+|(?:!!!|\?\?\?)\s+|>|\||"
+    r":\s+|\[\^[^]]+\]:|\[[^]]+\]:|<|\{[^}]*\}\s*$"
+    r")"
+)
+_MARKDOWN_THEMATIC_BREAK = re.compile(r"^[ \t]*(?:-{3,}|\*{3,}|_{3,})\s*$")
+_CJK_CHARACTER = re.compile(
+    r"[\u2e80-\u2eff\u3000-\u303f\u3040-\u30ff\u31c0-\u31ef"
+    r"\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff\uff00-\uffef]"
 )
 
 
@@ -215,6 +258,57 @@ def _line_number(text: str, offset: int) -> int:
     return text.count("\n", 0, offset) + 1
 
 
+def _cjk_soft_break_occurrences(path: Path) -> list[str]:
+    lines = path.read_text("utf-8").splitlines()
+    occurrences: list[str] = []
+    in_front_matter = bool(lines and lines[0].strip() == "---")
+    fence_marker: str | None = None
+    previous: str | None = None
+
+    for lineno, line in enumerate(lines, start=1):
+        if lineno == 1 and in_front_matter:
+            continue
+        if in_front_matter:
+            if line.strip() == "---":
+                in_front_matter = False
+            continue
+
+        fence = _MARKDOWN_FENCE.match(line)
+        if fence_marker is not None:
+            if (
+                fence is not None
+                and fence.group("marker").startswith(fence_marker[0])
+                and len(fence.group("marker")) >= len(fence_marker)
+            ):
+                fence_marker = None
+            previous = None
+            continue
+        if fence is not None:
+            fence_marker = fence.group("marker")
+            previous = None
+            continue
+
+        if previous is not None:
+            left = previous.rstrip()
+            right = line.lstrip()
+            is_soft_break = bool(
+                left
+                and right
+                and not previous.endswith(("  ", "\\"))
+                and _MARKDOWN_LEFT_BLOCK_BOUNDARY.match(previous) is None
+                and _MARKDOWN_RIGHT_BLOCK_BOUNDARY.match(line) is None
+                and _MARKDOWN_THEMATIC_BREAK.match(previous) is None
+                and _MARKDOWN_THEMATIC_BREAK.match(line) is None
+            )
+            if is_soft_break and (
+                _CJK_CHARACTER.match(left[-1]) or _CJK_CHARACTER.match(right[0])
+            ):
+                occurrences.append(f"{_relative(path)}:{lineno - 1}")
+        previous = line if line.strip() else None
+
+    return occurrences
+
+
 def _stale_contract_occurrences() -> list[str]:
     patterns = list(_REMOVED_API_PATTERNS)
     patterns.extend(
@@ -247,11 +341,43 @@ def test_historical_contract_allowlist_is_explicit_and_not_stale() -> None:
     assert not missing, "Stale migration allowlist entries:\n  " + "\n  ".join(missing)
 
 
+def test_canonical_documentation_layout_matches_navigation() -> None:
+    navigation = (ROOT / "mkdocs.yml").read_text("utf-8")
+    missing_roots = [
+        name for name, path in DOCUMENTATION_ROOTS.items() if not path.is_dir()
+    ]
+    missing_navigation = [
+        str(path)
+        for path in MIGRATION_CONTRACT_ALLOWLIST
+        if path.relative_to("docs").as_posix() not in navigation
+    ]
+    assert not missing_roots, "Canonical documentation roots are missing: " + ", ".join(
+        missing_roots
+    )
+    assert not missing_navigation, (
+        "Migration documents must remain in the MkDocs navigation: "
+        + ", ".join(missing_navigation)
+    )
+
+
 def test_current_documentation_and_examples_do_not_teach_removed_contracts() -> None:
     occurrences = _stale_contract_occurrences()
     assert not occurrences, (
         "Removed 0.7/alpha contracts may only appear in explicitly allowlisted "
         "migration documents:\n  " + "\n  ".join(occurrences)
+    )
+
+
+def test_documentation_has_no_cjk_prose_soft_breaks() -> None:
+    occurrences = [
+        occurrence
+        for path in _documentation_files()
+        if path.suffix == ".md"
+        for occurrence in _cjk_soft_break_occurrences(path)
+    ]
+    assert not occurrences, (
+        "CJK prose must not use Markdown soft line breaks because browsers render "
+        "them as visible spaces:\n  " + "\n  ".join(occurrences)
     )
 
 
@@ -328,15 +454,53 @@ def test_required_public_surface_is_exported_and_documented() -> None:
     )
     missing_docs = sorted(
         symbol
-        for symbol in EXPECTED_PUBLIC_EXPORTS
+        for symbol in exports
         if re.search(rf"\b{re.escape(symbol)}\b", current_text) is None
     )
     assert not missing_exports, (
         "Required top-level public exports are missing: " + ", ".join(missing_exports)
     )
     assert not missing_docs, (
-        "Current documentation does not cover public symbols: "
+        "Current documentation does not cover top-level public symbols: "
         + ", ".join(missing_docs)
+    )
+
+
+def _application_extension_properties() -> frozenset[str]:
+    tree = ast.parse(
+        APPLICATION_EXTENSIONS_PATH.read_text("utf-8"),
+        filename=str(APPLICATION_EXTENSIONS_PATH),
+    )
+    extension_class = next(
+        node
+        for node in tree.body
+        if isinstance(node, ast.ClassDef) and node.name == "ApplicationExtensions"
+    )
+    return frozenset(
+        node.name
+        for node in extension_class.body
+        if isinstance(node, ast.FunctionDef)
+        and any(
+            isinstance(decorator, ast.Name) and decorator.id == "property"
+            for decorator in node.decorator_list
+        )
+    )
+
+
+def test_first_party_extension_properties_are_documented() -> None:
+    properties = _application_extension_properties()
+    assert properties == {"playwright", "takumi", "pillow", "skia"}
+    current_text = "\n".join(
+        path.read_text("utf-8") for path in _current_contract_files()
+    )
+    missing = sorted(
+        name
+        for name in properties
+        if re.search(rf"\bextensions\.{re.escape(name)}\b", current_text) is None
+    )
+    assert not missing, (
+        "First-party Application.extensions properties are undocumented: "
+        + ", ".join(missing)
     )
 
 
@@ -361,9 +525,7 @@ def test_documented_top_level_imports_exist() -> None:
 def test_maintainer_docs_cover_the_final_architecture_vocabulary() -> None:
     architecture_text = "\n".join(
         path.read_text("utf-8")
-        for path in sorted(
-            (ROOT / "docs" / "maintainers" / "architecture").rglob("*.md")
-        )
+        for path in sorted(DOCUMENTATION_ROOTS["architecture"].rglob("*.md"))
     )
     missing = sorted(
         term
@@ -445,7 +607,7 @@ def test_unified_config_schema_and_documentation_stay_in_sync() -> None:
     missing_schema = sorted(EXPECTED_CONFIG_PATHS - schema_paths)
     config_text = "\n".join(
         path.read_text("utf-8")
-        for path in sorted((ROOT / "docs" / "users" / "config").rglob("*.md"))
+        for path in sorted(DOCUMENTATION_ROOTS["configuration"].rglob("*.md"))
     )
     missing_docs = sorted(path for path in schema_paths if path not in config_text)
     assert not missing_schema, (

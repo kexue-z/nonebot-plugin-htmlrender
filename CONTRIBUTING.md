@@ -4,11 +4,11 @@
 
 感谢你参与改进项目。完整协作契约见：
 
-- [贡献指南](docs/maintainers/contributing/contributing.md)
-- [Pull Request 生命周期](docs/maintainers/contributing/pull-requests.md)
-- [编码规范](docs/maintainers/contributing/coding-standards.md)
-- [测试矩阵](docs/maintainers/quality/testing-matrix.md)
-- [CI Actions](docs/maintainers/quality/ci-actions.md)
+- [贡献指南](docs/project/contributing.md)
+- [Pull Request 生命周期](docs/project/pull-requests.md)
+- [编码规范](docs/project/coding-standards.md)
+- [测试矩阵](docs/project/testing.md)
+- [CI Actions](docs/project/ci.md)
 
 ## 准备环境
 
@@ -54,12 +54,12 @@ CI 还会在 Python 3.10–3.14 上运行 pytest/coverage 与 `noneload` 插件�
 
 1. 从最新 `master` 创建一个聚焦单一主题的短生命周期分支。
 2. 同步提交实现、测试以及受到影响的用户或维护者文档。
-3. 使用 [Angular 风格提交消息](docs/maintainers/contributing/commit-message.md)，并让 PR 标题可直接作为 squash commit subject。
+3. 使用 [Angular 风格提交消息](docs/project/commit-messages.md)，并让 PR 标题可直接作为 squash commit subject。
 4. 在 PR 描述中写明动机、方案、兼容性、风险和实际验证结果。
 5. 处理 review，更新到最新 `master`，等待所有适用 checks 重新通过。
 6. 默认使用 **Squash and merge**，合并后删除功能分支。
 
-当前 `master` 未由 GitHub Ruleset 强制执行全部上述约定，维护者必须在合并前人工核对 checks 和 review 状态。详见 [Pull Request 生命周期](docs/maintainers/contributing/pull-requests.md)。
+当前 `master` 未由 GitHub Ruleset 强制执行全部上述约定，维护者必须在合并前人工核对 checks 和 review 状态。详见 [Pull Request 生命周期](docs/project/pull-requests.md)。
 
 ## 文档预览与 TestPyPI
 
