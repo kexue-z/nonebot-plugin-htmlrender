@@ -221,7 +221,10 @@ class JinjaTemplateCompiler:
         except RenderingError:
             raise
         except Exception as error:
-            raise PreparationError(f"Template rendering failed: {error}") from error
+            raise PreparationError(
+                "Template rendering failed.",
+                source=error,
+            ) from error
 
     async def clear(self) -> None:
         with self._lock:

@@ -133,7 +133,10 @@ def prepare_html(
     except PreparationError:
         raise
     except ValueError as error:
-        raise PreparationError(f"Invalid HTML preparation input: {error}") from error
+        raise PreparationError(
+            "Invalid HTML preparation input.",
+            source=error,
+        ) from error
 
 
 __all__ = ("prepare_html",)

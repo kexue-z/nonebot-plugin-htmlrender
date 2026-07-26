@@ -132,7 +132,10 @@ async def materialize_local_assets(
             payload = await resources.read_bytes(path)
         except Exception as error:
             if strict:
-                raise AssetMaterializationError(str(error)) from error
+                raise AssetMaterializationError(
+                    "Could not materialize a local document resource.",
+                    source=error,
+                ) from error
             logger.warning(
                 "Failed to materialize a local asset (non-strict resource policy): {}",
                 type(error).__name__,
