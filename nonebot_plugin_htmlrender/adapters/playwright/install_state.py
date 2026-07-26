@@ -10,7 +10,7 @@ from pathlib import Path
 import platform
 import shutil
 import sys
-from typing import TYPE_CHECKING, TypedDict, cast
+from typing import TYPE_CHECKING, TypedDict
 
 from nonebot.log import logger
 import nonebot_plugin_localstore as store
@@ -96,7 +96,28 @@ def _load_playwright_browsers_json() -> _BrowsersJson:
         value = json.load(fp)
     if not isinstance(value, dict):
         return {}
-    return cast("_BrowsersJson", value)
+    raw_browsers = value.get("browsers")
+    if not isinstance(raw_browsers, list):
+        return {}
+
+    browsers: list[_BrowserEntry] = []
+    for raw_entry in raw_browsers:
+        if not isinstance(raw_entry, dict):
+            continue
+        entry: _BrowserEntry = {}
+        for name in ("name", "revision", "browserVersion"):
+            field_value = raw_entry.get(name)
+            if isinstance(field_value, str):
+                entry[name] = field_value
+        raw_overrides = raw_entry.get("revisionOverrides")
+        if isinstance(raw_overrides, dict):
+            entry["revisionOverrides"] = {
+                key: override
+                for key, override in raw_overrides.items()
+                if isinstance(key, str) and isinstance(override, str)
+            }
+        browsers.append(entry)
+    return {"browsers": browsers}
 
 
 def _browser_metadata_by_name(data: _BrowsersJson) -> dict[str, dict[str, str]]:
@@ -279,7 +300,16 @@ def _load_runtime_state_history() -> _RuntimeSnapshotHistory:
         return {}
     if not isinstance(value, dict):
         return {}
-    return cast("_RuntimeSnapshotHistory", value)
+    history: _RuntimeSnapshotHistory = {}
+    for key, raw_snapshot in value.items():
+        if not isinstance(key, str) or not isinstance(raw_snapshot, dict):
+            continue
+        history[key] = {
+            field: field_value
+            for field, field_value in raw_snapshot.items()
+            if isinstance(field, str)
+        }
+    return history
 
 
 def _latest_snapshot_from_history(
@@ -300,7 +330,16 @@ def _engine_states_from(
     engines = snapshot.get("engines")
     if not isinstance(engines, dict):
         return {}
-    return cast("dict[str, dict[str, object]]", engines)
+    states: dict[str, dict[str, object]] = {}
+    for name, raw_state in engines.items():
+        if not isinstance(name, str) or not isinstance(raw_state, dict):
+            continue
+        states[name] = {
+            field: field_value
+            for field, field_value in raw_state.items()
+            if isinstance(field, str)
+        }
+    return states
 
 
 def _warn_runtime_snapshot_mismatch(

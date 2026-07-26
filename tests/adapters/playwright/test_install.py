@@ -65,6 +65,32 @@ async def test_install_env_preserves_existing_parent_proxy(
 
 
 @pytest.mark.anyio
+async def test_check_mirror_connectivity_includes_custom_mirror(
+    mocker: MockerFixture,
+) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright import install  # noqa: PLC0415
+    from nonebot_plugin_htmlrender.adapters.playwright.config import (  # noqa: PLC0415
+        PlaywrightConfig,
+    )
+
+    checker = mocker.patch.object(
+        install,
+        "_check_mirror_connectivity",
+        new=mocker.AsyncMock(return_value=None),
+    )
+
+    await install.check_mirror_connectivity(
+        PlaywrightConfig(install_mirror="https://custom.mirror"),
+        timeout_seconds=2,
+    )
+
+    assert checker.await_args is not None
+    mirrors = checker.await_args.args[0]
+    assert any(mirror.url == "https://custom.mirror" for mirror in mirrors)
+    assert checker.await_args.kwargs["timeout_seconds"] == 2
+
+
+@pytest.mark.anyio
 async def test_execute_playwright_install_forwards_env_and_command(
     mocker: MockerFixture,
 ) -> None:
@@ -188,3 +214,24 @@ async def test_install_browser_raises_on_interrupt_without_retry(
     with pytest.raises(KeyboardInterrupt):
         await install_browser(PlaywrightConfig(), timeout_seconds=3)
     assert execute.await_count == 1
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "https://user:pass@example.com:8443/path?q=1#x",
+            "https://example.com:8443/path",
+        ),
+        (
+            "http://token:secret@127.0.0.1:8080/install?abc=1",
+            "http://127.0.0.1:8080/install",
+        ),
+    ],
+)
+def test_redact_url_removes_sensitive_components(value: str, expected: str) -> None:
+    from nonebot_plugin_htmlrender.adapters.playwright.install import (  # noqa: PLC0415
+        _redact_url,
+    )
+
+    assert _redact_url(value) == expected

@@ -1,7 +1,7 @@
 from collections.abc import Mapping
 from enum import Enum
 from pathlib import Path
-from typing import Any, ClassVar, cast
+from typing import Any, ClassVar
 
 from nonebot.compat import field_validator, model_validator
 from pydantic import BaseModel, ConfigDict, Field
@@ -55,7 +55,7 @@ def _get(obj: object, name: str, default: object = None) -> object:
         属性值，若不存在则返回 default。
     """
     if isinstance(obj, Mapping):
-        return cast("Mapping[str, object]", obj).get(name, default)
+        return obj.get(name, default)
     return getattr(obj, name, default)
 
 
