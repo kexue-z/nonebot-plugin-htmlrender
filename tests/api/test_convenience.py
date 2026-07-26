@@ -20,13 +20,16 @@ from nonebot_plugin_htmlrender.api._default import (
     set_default_application_factory,
 )
 from nonebot_plugin_htmlrender.application import build_application
+from nonebot_plugin_htmlrender.bootstrap.composition import prepare_runtime
+from nonebot_plugin_htmlrender.bootstrap.settings import RenderSettings
 from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 from nonebot_plugin_htmlrender.providers.sdk import EngineBindings
 from nonebot_plugin_htmlrender.rendering import (
+    ApplicationNotInitialized,
+    CapabilityUnavailable,
     InvalidRenderRequest,
-    ProviderNotConfigured,
     RenderedImage,
     ResourcePolicy,
 )
@@ -139,11 +142,55 @@ def test_default_accessors_require_initialization() -> None:
     previous_application = set_default_application(None)
     previous_factory = set_default_application_factory(None)
     try:
-        with pytest.raises(ProviderNotConfigured, match="not initialized"):
+        with pytest.raises(ApplicationNotInitialized, match="not initialized"):
             api.get_default_application()
-        with pytest.raises(ProviderNotConfigured, match="not initialized"):
+        with pytest.raises(ApplicationNotInitialized, match="not initialized"):
             api.get_default_renderer()
     finally:
+        set_default_application(previous_application)
+        set_default_application_factory(previous_factory)
+
+
+async def test_default_factory_builds_provider_free_application(
+    tmp_path: Path,
+) -> None:
+    settings = RenderSettings.model_validate(
+        {
+            "resources": {
+                "local_access": {
+                    "allowed_paths": [tmp_path],
+                }
+            }
+        }
+    )
+    runtime = prepare_runtime(settings)
+    previous_application = set_default_application(None)
+    previous_factory = set_default_application_factory(runtime.build_application)
+    application = None
+    try:
+        application = api.get_default_application()
+
+        assert application is api.get_default_application()
+        assert application.renderer.supported_commands == frozenset(
+            {"render_template_html"}
+        )
+
+        (tmp_path / "page.html").write_text(
+            "<h1>{{ title }}</h1>",
+            encoding="utf-8",
+        )
+        rendered = await api.render_template_html(
+            tmp_path,
+            "page.html",
+            {"title": "Provider-free"},
+        )
+
+        assert "<h1>Provider-free</h1>" in str(rendered)
+        with pytest.raises(CapabilityUnavailable, match="render_html"):
+            await api.render_html("<p>requires a provider</p>")
+    finally:
+        if application is not None:
+            await application.aclose()
         set_default_application(previous_application)
         set_default_application_factory(previous_factory)
 
