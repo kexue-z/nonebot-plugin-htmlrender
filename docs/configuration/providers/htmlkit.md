@@ -88,4 +88,6 @@ rc5 只支持 asyncio；在 Trio 下启动、探测或执行会得到 `ProviderU
 
 ## 平台与许可
 
-rc5 提供 Windows x86-64、macOS ARM64，以及 manylinux/musllinux x86-64 与AArch64 wheel；其他平台可能回退到需要 Xmake 和 native toolchain 的源码构建。Python wrapper 使用 MIT，native core 使用 LGPL-3.0-or-later。若重新分发或捆绑其二进制，请单独核对 LGPL 义务；本页不构成法律意见。
+rc5 提供 Windows x86-64、macOS ARM64，以及 manylinux/musllinux x86-64 与AArch64 wheel。当前 Linux wheel 已将 litehtml、Cairo 与 Fontconfig 实现包含在 native core 中，不需要宿主另外提供 Cairo 或 Fontconfig `.so`；字体文件、Fontconfig 配置与 locale 仍属于部署资源。其他平台可能回退到需要 Xmake 和 native toolchain 的源码构建。
+
+Python wrapper 使用 MIT，native core 使用 LGPL-3.0-or-later。若重新分发或捆绑其二进制，请单独核对 LGPL 义务；本页不构成法律意见。

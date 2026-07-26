@@ -10,7 +10,7 @@ icon: lucide/wrench
 
 | 错误 | 首要检查 |
 | --- | --- |
-| `ProviderNotConfigured` | 插件是否加载，或是否调用了 `set_default_application()` |
+| `ApplicationNotInitialized` | NoneBot 插件是否加载，或独立宿主是否调用了 `set_default_application()` |
 | `ProviderNotFound` | Provider ID、安装 distribution、entry point |
 | `ProviderUnavailable` | extra、浏览器/native 库、endpoint |
 | `ProviderLifecycleError` | startup/probe/shutdown 日志 |
@@ -19,6 +19,8 @@ icon: lucide/wrench
 | `UnsupportedRenderOption` | 所选 Provider 是否能表达 DPR、显式高度等通用选项 |
 | `ResourceResolutionError` | 路径、白名单、transport 与资源存在性 |
 | `ProviderExecutionError` | Provider 运行时与输入最小复现 |
+
+`ApplicationNotInitialized` 表示进程默认 Application 尚未由宿主安装，不表示`render.provider` 为空。未选择 Provider 是合法配置：Preparation、Resource Service、`render_template_html` 和显式启用的 Graphics Capability 仍可使用；此时调用需要 HTML Provider 的位图渲染 API 会抛出 `CapabilityUnavailable`。
 
 ## Provider 无法发现
 
@@ -29,19 +31,30 @@ icon: lucide/wrench
 
 ## Playwright 本地启动失败
 
+先确认诊断命令运行在 Bot 项目的同一个虚拟环境内：
+
 ```bash
-uv run playwright install chromium
+uv run python3 -c "import importlib.metadata; print(importlib.metadata.version('playwright'))"
 ```
 
-检查 `render.provider_config.engine`、`executable_path`、channel 与系统依赖。设置 `skip_browser_install: true` 会禁止自动安装，不会让缺失浏览器变为可用。未设置 `storage_path` 时还需确认插件数据目录可写。
+Playwright Python client 要求精确匹配的 browser revision。若曾手工修改浏览器文件，或有其他虚拟环境对共享目录执行过安装、升级、卸载或缓存清理，不要继续复用该目录；给当前项目换用独占目录，并从当前虚拟环境重新安装：
+
+```bash
+PLAYWRIGHT_BROWSERS_PATH=/var/lib/htmlrender/playwright-project \
+  uv run playwright install --with-deps chromium
+```
+
+将同一路径写入 `render.provider_config.storage_path`，然后用 `startup: probe` 重启验证。macOS/Windows 可去掉 `--with-deps`；Linux 上该参数还会补齐系统包。检查目录权限、`engine`、`executable_path`、channel 与系统依赖。设置 `skip_browser_install: true` 会禁止自动安装，不会让缺失或 revision 不匹配的浏览器变为可用。未设置 `storage_path` 时还需确认插件数据目录可写。
 
 ## WS/CDP 连接失败
 
 - WS 使用 Playwright server endpoint；CDP 使用 Chromium endpoint。
 - 两个 endpoint 不可同时设置。
 - CDP 只支持 Chromium。
-- 检查容器 DNS、端口、TLS、认证、版本兼容和代理。
-- 使用 `startup: probe` 或 `await app.probe()` 获取真实连接错误。
+- WS 连接前会执行软版本门禁；major 不同或 minor 相差至少 2 会阻断，其余风险可能只记录警告。无法识别服务端版本时门禁会 fail-open。
+- CDP 不执行 Playwright 版本门禁；检查 Chromium/CDP 自身兼容性。
+- 检查容器 DNS、端口、TLS、认证、精确版本锁定和代理，不要把门禁通过视为兼容性证明。
+- 使用 `startup: probe` 或 `await app.probe()` 完成真实连接并创建 Page，获取底层错误。
 
 ## typed Capability 缺失
 

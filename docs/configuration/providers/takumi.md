@@ -83,6 +83,12 @@ Takumi 支持静态 HTML、文本、模板和大多数 Markdown；下列需求�
 
 `PreparedAsset` 直接把 bytes 交给 native renderer，不创建临时文件。
 
+## 平台约束
+
+项目当前锁定的 `takumi-py==0.2.0` 提供 macOS 11+ ARM64、manylinux 2.17+ x86-64/AArch64 和 Windows x86-64 wheel。Linux wheel 只链接 glibc、`libgcc` 等 manylinux 基线运行库，不需要 EGL、OpenGL、Cairo 或 Fontconfig 动态库；Alpine/musl、macOS x86-64、Windows ARM64 等没有匹配 wheel 的平台会尝试源码构建，需要 Rust、maturin 与相应 native toolchain。上游仍将 API 和 wheel target 标记为 testing stage，升级锁定版本时应重新核对[发布文件](https://pypi.org/project/takumi-py/)。
+
+Takumi 自带的 Latin fallback 不能覆盖业务所需字符集。需要中文或其他脚本时，应通过 `render.provider_config.fonts` 把字体随部署交付；这属于内容资源，不是系统动态库依赖。
+
 ## typed Capability
 
 node、measure、SVG、动画和动态字体是 Takumi 专属能力：

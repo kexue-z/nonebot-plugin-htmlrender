@@ -29,7 +29,7 @@ startup 前只加载其对应插件，以注册上游 Fontconfig 初始化 hook�
 extra 只提供 `py-machineid` 作为默认守卫值的机器标识来源；未安装时会使用内置回退，也可以显式配置 `request_header_value`。
 
 Pillow/Skia 只在 `render.graphics.backends` 显式配置后加载，并形成独立 typed
-Capability，不进入 Provider discovery。Skia 没有 sdist/musllinux wheel，并要求manylinux_2_28、macOS 11+ 或受支持的 Windows wheel；Linux 还可能需要 OpenGL、`libEGL` 与 fontconfig 运行库。Alpine/musl 或旧 glibc 镜像不要安装 `skia` 或`all` extra；完整平台矩阵与配置见 [Skia 后端](graphics/skia.md)。
+Capability，不进入 Provider discovery。Skia 没有 sdist/musllinux wheel，并要求manylinux_2_28、macOS 11+ 或受支持的 Windows wheel；Linux 还必须提供`libEGL.so.1`、`libGL.so.1` 与 `libexpat.so.1` 等运行库。Alpine/musl 或旧 glibc 镜像不要安装 `skia` 或 `all` extra；完整平台矩阵与安装命令见 [Skia 后端](graphics/skia.md)。
 
 HTMLKit 当前精确锁定 `nonebot-plugin-htmlkit==0.1.0rc5`。它不引入 Playwright 或Pillow，但属于 prerelease，平台 wheel、选项限制和 Fontconfig 生命周期见[HTMLKit 配置](providers/htmlkit.md)。
 
