@@ -1,5 +1,8 @@
+"""ResourceService policy, traversal, publication, and resolution tests."""
+
 from __future__ import annotations
 
+from collections.abc import Mapping
 from io import BytesIO
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -17,6 +20,7 @@ from nonebot_plugin_htmlrender.rendering.errors import (
     InvalidRenderRequest,
     ResourceResolutionError,
 )
+from nonebot_plugin_htmlrender.resources._traversal import ResourceTraversalBudget
 from nonebot_plugin_htmlrender.resources.config import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
@@ -38,6 +42,8 @@ from nonebot_plugin_htmlrender.resources.observation import NoopCacheObserver
 from nonebot_plugin_htmlrender.resources.service import ResourceService
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
     from pytest_mock import MockerFixture
 
 
@@ -143,6 +149,7 @@ class RecordingReader:
 class ConcurrentResolver:
     def __init__(self) -> None:
         self.active = 0
+        self.calls = 0
         self.max_active = 0
         self.lock = anyio.Lock()
 
@@ -153,6 +160,7 @@ class ConcurrentResolver:
         template_base: Path | None = None,
     ) -> str:
         async with self.lock:
+            self.calls += 1
             self.active += 1
             self.max_active = max(self.max_active, self.active)
         await anyio.sleep(0.01)
@@ -185,11 +193,28 @@ class UnhashableResolver:
         return []
 
 
+class DeceptiveMapping(Mapping[str, object]):
+    """Mapping whose length deliberately understates its iterable contents."""
+
+    def __init__(self, values: Mapping[str, object]) -> None:
+        self._values = dict(values)
+
+    def __getitem__(self, key: str) -> object:
+        return self._values[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._values)
+
+    def __len__(self) -> int:
+        return 0
+
+
 def _resources(
     tmp_path: Path,
     *,
     strategy: ResourceStrategy | None = None,
     publisher: RecordingPublisher | None = None,
+    traversal_budget: ResourceTraversalBudget | None = None,
 ) -> ResourceService:
     return ResourceService(
         reader=build_resource_reader(
@@ -204,6 +229,7 @@ def _resources(
         ),
         strategy=strategy or ResourceStrategy(),
         publisher=publisher,
+        traversal_budget=traversal_budget,
     )
 
 
@@ -554,6 +580,111 @@ async def test_custom_resolver_runs_recursively_and_concurrently(
         "paths": [f"resolved:templates:{index}.bin" for index in range(8)]
     }
     assert resolver.max_active > 1
+
+
+@pytest.mark.anyio
+async def test_resource_traversal_concurrency_is_shared_across_calls(
+    tmp_path: Path,
+) -> None:
+    paths = [tmp_path / f"{index}.bin" for index in range(12)]
+    resolver = ConcurrentResolver()
+    resources = _resources(
+        tmp_path,
+        traversal_budget=ResourceTraversalBudget(max_concurrency=2),
+    )
+    results: list[object] = []
+
+    async def resolve(values: list[Path]) -> None:
+        result = await resources.resolve_template_vars(
+            {"paths": values},
+            resolver=resolver,
+        )
+        results.append(result.value)
+
+    async with anyio.create_task_group() as group:
+        group.start_soon(resolve, paths[:6])
+        group.start_soon(resolve, paths[6:])
+
+    assert len(results) == 2
+    assert resolver.calls == len(paths)
+    assert resolver.max_active == 2
+
+
+@pytest.mark.anyio
+async def test_resource_traversal_allows_repeated_non_cyclic_containers(
+    tmp_path: Path,
+) -> None:
+    resolver = ConcurrentResolver()
+    resources = _resources(tmp_path)
+    shared = [tmp_path / "asset.bin"]
+
+    result = await resources.resolve_template_vars(
+        {"left": shared, "right": shared},
+        resolver=resolver,
+    )
+
+    expected = ["resolved:none:asset.bin"]
+    assert result.value == {"left": expected, "right": expected}
+    assert resolver.calls == 2
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("failure", ["nodes", "deceptive", "depth", "cycle"])
+async def test_resource_traversal_rejects_invalid_trees_before_io(
+    tmp_path: Path,
+    failure: str,
+) -> None:
+    resolver = ConcurrentResolver()
+    value: Mapping[str, object]
+    if failure == "nodes":
+        budget = ResourceTraversalBudget(max_nodes=3)
+        value = {"assets": [tmp_path / "one.bin", tmp_path / "two.bin"]}
+        message = "node traversal limit"
+    elif failure == "deceptive":
+        budget = ResourceTraversalBudget(max_nodes=2)
+        value = DeceptiveMapping(
+            {
+                "one": tmp_path / "one.bin",
+                "two": tmp_path / "two.bin",
+            }
+        )
+        message = "node traversal limit"
+    elif failure == "depth":
+        budget = ResourceTraversalBudget(max_depth=1)
+        value = {"assets": [[tmp_path / "asset.bin"]]}
+        message = "depth limit"
+    else:
+        budget = ResourceTraversalBudget()
+        cyclic: list[object] = []
+        cyclic.append(cyclic)
+        value = {"assets": cyclic}
+        message = "contains a cycle"
+    resources = _resources(tmp_path, traversal_budget=budget)
+
+    with pytest.raises(ResourceResolutionError, match=message):
+        await resources.resolve_template_vars(
+            value,
+            resolver=resolver,
+        )
+
+    assert resolver.calls == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "factory"),
+    [
+        ("max_nodes", lambda: ResourceTraversalBudget(max_nodes=0)),
+        ("max_depth", lambda: ResourceTraversalBudget(max_depth=-1)),
+        ("max_concurrency", lambda: ResourceTraversalBudget(max_concurrency=0)),
+        ("max_nodes", lambda: ResourceTraversalBudget(max_nodes=True)),
+    ],
+)
+def test_resource_traversal_budget_rejects_invalid_values(
+    field: str,
+    factory: Callable[[], ResourceTraversalBudget],
+) -> None:
+    with pytest.raises(ValueError, match=field):
+        factory()
 
 
 @pytest.mark.anyio

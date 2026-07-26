@@ -34,6 +34,9 @@ def test_render_settings_defaults() -> None:
     assert settings.resources.cache.max_bytes == 64 * 1024 * 1024
     assert settings.resources.cache.max_resource_bytes == 64 * 1024 * 1024
     assert settings.resources.templates.environment_cache_max_entries == 64
+    assert settings.resources.traversal.max_nodes == 10_000
+    assert settings.resources.traversal.max_depth == 64
+    assert settings.resources.traversal.max_concurrency == 16
     assert settings.resources.local_access.allow_any_path is False
     assert settings.resources.local_access.allowed_paths == []
     assert settings.resources.filehost.cache_ttl_seconds == 300.0
@@ -67,6 +70,11 @@ def test_render_settings_nested_parse() -> None:
                 },
                 "resources": {
                     "cache": {"max_entries": 8},
+                    "traversal": {
+                        "max_nodes": 128,
+                        "max_depth": 8,
+                        "max_concurrency": 2,
+                    },
                     "local_access": {"allowed_paths": "assets"},
                     "filehost": {
                         "cache_ttl_seconds": 30,
@@ -92,6 +100,9 @@ def test_render_settings_nested_parse() -> None:
     assert settings.graphics.max_pixels == 1_000_000
     assert settings.graphics.max_concurrency == 1
     assert settings.resources.cache.max_entries == 8
+    assert settings.resources.traversal.max_nodes == 128
+    assert settings.resources.traversal.max_depth == 8
+    assert settings.resources.traversal.max_concurrency == 2
     assert settings.resources.local_access.allowed_paths == [Path("assets")]
     assert settings.resources.filehost.cache_ttl_seconds == 30
     assert settings.resources.filehost.prewarm_paths == [Path("public")]

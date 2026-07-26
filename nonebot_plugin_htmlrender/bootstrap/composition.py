@@ -36,6 +36,7 @@ from nonebot_plugin_htmlrender.rendering.observers import (
     NoopCacheObserver,
     NoopOperationObserver,
 )
+from nonebot_plugin_htmlrender.resources._traversal import ResourceTraversalBudget
 from nonebot_plugin_htmlrender.resources.config import (
     AssetPublisherSettings,
     LocalLocalResourcePolicy,
@@ -448,6 +449,11 @@ def _build_application_for(runtime: ComposedRuntime) -> Application:
         local_access=local_access,
         strategy=strategy,
         publisher=publisher,
+        traversal_budget=ResourceTraversalBudget(
+            max_nodes=settings.resources.traversal.max_nodes,
+            max_depth=settings.resources.traversal.max_depth,
+            max_concurrency=settings.resources.traversal.max_concurrency,
+        ),
     )
     provider_resources = _ProviderResourceFacade(resources)
     templates = JinjaTemplateCompiler(

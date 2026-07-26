@@ -1,11 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
 from inspect import isawaitable
 from io import BytesIO
 from pathlib import Path
 import re
-from typing import TYPE_CHECKING, Any, TypeAlias, TypeGuard, cast
+from typing import TYPE_CHECKING, Any, TypeAlias, TypeGuard
 from urllib.parse import SplitResult, urlsplit, urlunsplit
 
 import anyio
@@ -13,6 +12,7 @@ from nonebot.log import logger
 
 from nonebot_plugin_htmlrender.errors import InvalidRenderRequest
 
+from ._traversal import ResourceTraversalBudget, VariableResolutionPlan
 from .config import (
     LocalLocalResourcePolicy,
     RemoteLocalResourcePolicy,
@@ -30,6 +30,8 @@ from .models import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from .config import ResourceStrategy
     from .ports import (
         AssetPublisher,
@@ -54,12 +56,17 @@ _EXPLICIT_POLICIES: Mapping[str, TransportPolicy] = {
 }
 
 
+def _is_string_keyed_dict(value: dict[Any, Any]) -> TypeGuard[dict[str, Any]]:
+    return all(isinstance(key, str) for key in value)
+
+
 def _resolve_local_path(value: str | Path, *, label: str) -> Path:
     try:
         return Path(value).expanduser().resolve()
     except (OSError, RuntimeError, ValueError) as error:
         raise ResourceResolutionError(
-            f"Could not normalize {label}: {error}"
+            f"Could not normalize {label}.",
+            source=error,
         ) from error
 
 
@@ -75,7 +82,8 @@ def _split_resource_url(value: str) -> SplitResult:
         return urlsplit(value)
     except ValueError as error:
         raise ResourceResolutionError(
-            f"Invalid resource URL {value!r}: {error}"
+            f"Invalid resource URL {value!r}.",
+            source=error,
         ) from error
 
 
@@ -128,7 +136,8 @@ def _candidate(value: str | Path, template_base: Path | None) -> Path:
         return path.resolve()
     except (OSError, RuntimeError, ValueError) as error:
         raise ResourceResolutionError(
-            f"Could not normalize local resource path: {error}"
+            "Could not normalize local resource path.",
+            source=error,
         ) from error
 
 
@@ -159,19 +168,15 @@ class ResourceService:
         local_access: LocalAccessPolicy,
         strategy: ResourceStrategy,
         publisher: AssetPublisher | None = None,
-        max_scalar_concurrency: int = 16,
+        traversal_budget: ResourceTraversalBudget | None = None,
     ) -> None:
-        if max_scalar_concurrency <= 0:
-            raise ValueError("max_scalar_concurrency must be positive.")
+        budget = traversal_budget or ResourceTraversalBudget()
         self._reader = reader
         self._local_access = local_access
         self._strategy = strategy
         self._publisher = publisher
-        # Deep or wide template variables recursively fan out one task per
-        # element. This limiter caps concurrent leaf resolution (the actual
-        # publish/read/custom-resolver I/O); it is held only in the
-        # non-recursive scalar step, so nested containers cannot deadlock it.
-        self._scalar_limiter = anyio.CapacityLimiter(max_scalar_concurrency)
+        self._traversal_budget = budget
+        self._scalar_slots = anyio.Semaphore(budget.max_concurrency)
 
     @property
     def strategy(self) -> ResourceStrategy:
@@ -187,7 +192,8 @@ class ResourceService:
             raise
         except (OSError, RuntimeError, ValueError) as error:
             raise ResourceResolutionError(
-                f"Could not authorize local resource path: {error}"
+                "Could not authorize a local resource path.",
+                source=error,
             ) from error
 
     async def read_bytes(
@@ -217,7 +223,8 @@ class ResourceService:
             return content.decode(encoding, errors)
         except (LookupError, UnicodeError) as error:
             raise ResourceResolutionError(
-                f"Could not decode resource as {encoding}: {error}"
+                f"Could not decode resource as {encoding}.",
+                source=error,
             ) from error
 
     @staticmethod
@@ -337,7 +344,7 @@ class ResourceService:
             else strict
         )
         try:
-            async with self._scalar_limiter:
+            async with self._scalar_slots:
                 if isinstance(
                     policy, (LocalLocalResourcePolicy, RemoteLocalResourcePolicy)
                 ):
@@ -360,10 +367,16 @@ class ResourceService:
                 if isinstance(error, ResourceResolutionError):
                     raise
                 if isinstance(error, FileNotFoundError):
-                    raise ResourceNotFound(str(error)) from error
+                    raise ResourceNotFound(
+                        "Resource was not found.", source=error
+                    ) from error
                 if isinstance(error, PermissionError):
-                    raise ResourceAccessDenied(str(error)) from error
-                raise ResourceResolutionError(str(error)) from error
+                    raise ResourceAccessDenied(
+                        "Resource access was denied.", source=error
+                    ) from error
+                raise ResourceResolutionError(
+                    "Resource resolution failed.", source=error
+                ) from error
             logger.warning(
                 "Failed to resolve a resource (non-strict policy): {}",
                 type(error).__name__,
@@ -380,106 +393,57 @@ class ResourceService:
         lease_id: str | None,
         request_headers_by_url: RequestHeadersByUrl,
     ) -> object:
-        if _is_scalar(value):
-            return await self._resolve_scalar(
-                value,
-                template_base=template_base,
-                strict=strict,
-                resolver=resolver,
-                lease_id=lease_id,
-                request_headers_by_url=request_headers_by_url,
-            )
-        if isinstance(value, Mapping):
-            items = tuple(value.items())
-            resolved = await self._resolve_many(
-                tuple(item[1] for item in items),
-                template_base=template_base,
-                strict=strict,
-                resolver=resolver,
-                lease_id=lease_id,
-                request_headers_by_url=request_headers_by_url,
-            )
-            return {key: item for (key, _), item in zip(items, resolved, strict=True)}
-        if isinstance(value, tuple):
-            return tuple(
-                await self._resolve_many(
-                    value,
-                    template_base=template_base,
-                    strict=strict,
-                    resolver=resolver,
-                    lease_id=lease_id,
-                    request_headers_by_url=request_headers_by_url,
-                )
-            )
-        if isinstance(value, list):
-            return await self._resolve_many(
-                value,
-                template_base=template_base,
-                strict=strict,
-                resolver=resolver,
-                lease_id=lease_id,
-                request_headers_by_url=request_headers_by_url,
-            )
-        if isinstance(value, set):
-            resolved = await self._resolve_many(
-                tuple(value),
-                template_base=template_base,
-                strict=strict,
-                resolver=resolver,
-                lease_id=lease_id,
-                request_headers_by_url=request_headers_by_url,
-            )
-            try:
-                return set(resolved)
-            except TypeError as error:
-                raise ResourceResolutionError(
-                    "Resolved set items must remain hashable."
-                ) from error
-        if isinstance(value, Sequence) and not isinstance(
-            value, (str, bytes, bytearray)
-        ):
-            return await self._resolve_many(
-                value,
-                template_base=template_base,
-                strict=strict,
-                resolver=resolver,
-                lease_id=lease_id,
-                request_headers_by_url=request_headers_by_url,
-            )
-        return value
+        plan = VariableResolutionPlan.build(
+            value,
+            budget=self._traversal_budget,
+        )
+        jobs = tuple(leaf for leaf in plan.leaves if _is_scalar(leaf.value))
+        if not jobs:
+            return plan.rebuild({})
 
-    async def _resolve_many(
-        self,
-        values: Sequence[object],
-        *,
-        template_base: Path | None,
-        strict: bool | None,
-        resolver: ResolverSpec,
-        lease_id: str | None,
-        request_headers_by_url: RequestHeadersByUrl,
-    ) -> list[object]:
-        results: list[object] = [None] * len(values)
-        errors: list[Exception | None] = [None] * len(values)
+        resolved: dict[int, object] = {}
+        errors: dict[int, Exception] = {}
+        failed = anyio.Event()
+        cursor = 0
+        cursor_lock = anyio.Lock()
 
-        async def resolve_one(index: int, value: object) -> None:
-            try:
-                results[index] = await self._resolve_any(
-                    value,
-                    template_base=template_base,
-                    strict=strict,
-                    resolver=resolver,
-                    lease_id=lease_id,
-                    request_headers_by_url=request_headers_by_url,
-                )
-            except Exception as error:
-                errors[index] = error
+        async def take_job() -> tuple[int, object] | None:
+            nonlocal cursor
+            async with cursor_lock:
+                if failed.is_set() or cursor >= len(jobs):
+                    return None
+                leaf = jobs[cursor]
+                cursor += 1
+                return leaf.node_index, leaf.value
 
+        async def worker() -> None:
+            while (job := await take_job()) is not None:
+                node_index, leaf_value = job
+                try:
+                    resolved[node_index] = await self._resolve_scalar(
+                        leaf_value,
+                        template_base=template_base,
+                        strict=strict,
+                        resolver=resolver,
+                        lease_id=lease_id,
+                        request_headers_by_url=request_headers_by_url,
+                    )
+                except Exception as error:
+                    errors[node_index] = error
+                    failed.set()
+
+        worker_count = min(self._traversal_budget.max_concurrency, len(jobs))
         async with anyio.create_task_group() as group:
-            for index, value in enumerate(values):
-                group.start_soon(resolve_one, index, value)
-        if error := next((error for error in errors if error is not None), None):
-            raise error
-        return results
+            for _ in range(worker_count):
+                group.start_soon(worker)
+
+        if errors:
+            for leaf in jobs:
+                if error := errors.get(leaf.node_index):
+                    raise error
+            raise RuntimeError("Variable resolution failed without a recorded error.")
+
+        return plan.rebuild(resolved)
 
     async def resolve_template_vars(
         self,
@@ -505,8 +469,12 @@ class ResourceService:
             raise ResourceResolutionError(
                 "Resolved template variables must remain a mapping."
             )
+        if not _is_string_keyed_dict(result):
+            raise ResourceResolutionError(
+                "Resolved template variable keys must remain strings."
+            )
         return ResourceResolution(
-            cast("dict[str, Any]", result),
+            result,
             request_headers_by_url,
         )
 

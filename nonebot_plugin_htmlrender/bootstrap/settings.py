@@ -45,6 +45,14 @@ class TemplateSettings(_StrictRenderModel):
     """Compiled-template cache size per Jinja environment; 0 disables it."""
 
 
+class ResourceTraversalSettings(_StrictRenderModel):
+    """Bounds for resolving nested template-variable resources."""
+
+    max_nodes: int = Field(default=10_000, gt=0)
+    max_depth: int = Field(default=64, ge=0)
+    max_concurrency: int = Field(default=16, gt=0)
+
+
 class LocalAccessSettings(_StrictRenderModel):
     """Security policy for local filesystem resource access."""
 
@@ -146,6 +154,9 @@ class ResourceSettings(_StrictRenderModel):
 
     cache: CacheSettings = Field(default_factory=CacheSettings)
     templates: TemplateSettings = Field(default_factory=TemplateSettings)
+    traversal: ResourceTraversalSettings = Field(
+        default_factory=ResourceTraversalSettings
+    )
     local_access: LocalAccessSettings = Field(default_factory=LocalAccessSettings)
     remote_access: RemoteAccessSettings = Field(default_factory=RemoteAccessSettings)
     filehost: FilehostSettings = Field(default_factory=FilehostSettings)
