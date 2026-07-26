@@ -268,7 +268,7 @@ plugin = nonebot.load_plugin("nonebot_plugin_htmlrender")
 check(plugin is not None, "NoneBot could not load nonebot_plugin_htmlrender")
 
 from nonebot_plugin_htmlrender import get_default_application, render_text
-from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import TAKUMI
 
 installed_version = version("nonebot-plugin-htmlrender")
 expected_version = os.environ["HTMLRENDER_EXPECTED_VERSION"]
@@ -289,7 +289,7 @@ async def main() -> None:
     application = get_default_application()
     await application.startup()
     try:
-        capability = application.extensions.require(TAKUMI_CAPABILITIES)
+        capability = application.extensions.require(TAKUMI)
         node = {
             "type": "container",
             "style": {
@@ -298,8 +298,8 @@ async def main() -> None:
                 "backgroundColor": "#ff0000",
             },
         }
-        async with capability.extension() as extension:
-            rendered = await extension.render_node(node, width=8, height=4)
+        async with capability.api() as api:
+            rendered = await api.render_node(node, width=8, height=4)
         check(
             rendered.startswith(b"\x89PNG\r\n\x1a\n"),
             "Takumi node smoke did not produce a PNG",

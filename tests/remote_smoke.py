@@ -286,7 +286,6 @@ async def _main() -> None:
             driver="~fastapi" if policy == "filehost" else "~none",
             host=_FILEHOST_BIND_HOST,
             port=_FILEHOST_BIND_PORT,
-            filehost_host_override=_FILEHOST_PUBLIC_URL,
             log_level="INFO",
             render={
                 "provider": "playwright",
@@ -295,6 +294,7 @@ async def _main() -> None:
                 "resources": {
                     "local_access": {"allowed_paths": [str(fixture_root)]},
                     "filehost": {
+                        "public_base_url": _FILEHOST_PUBLIC_URL,
                         "request_header_name": _FILEHOST_REQUEST_HEADER,
                         "request_header_value": _FILEHOST_REQUEST_TOKEN,
                     },

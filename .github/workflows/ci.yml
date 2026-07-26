@@ -119,6 +119,14 @@ jobs:
           enable-cache: true
           cache-suffix: package-${{ github.event_name }}
 
+      - name: Install Skia runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libegl1 \
+            libexpat1 \
+            libgl1
+
       - name: Build distributions
         run: |
           set -o pipefail

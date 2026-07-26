@@ -57,6 +57,14 @@ jobs:
           enable-cache: true
           cache-suffix: coverage-py${{ matrix.python-version }}-${{ matrix.target.arch }}
 
+      - name: Install Skia runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libegl1 \
+            libexpat1 \
+            libgl1
+
       - name: Show Runner Context
         env:
           EVENT_NAME: ${{ github.event_name }}
