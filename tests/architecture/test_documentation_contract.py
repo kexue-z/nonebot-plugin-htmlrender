@@ -41,6 +41,7 @@ MIGRATION_CONTRACT_ALLOWLIST: Mapping[Path, str] = {
 EXPECTED_PUBLIC_EXPORTS = frozenset(
     {
         "Application",
+        "ApplicationNotInitialized",
         "ErrorCause",
         "RasterOptions",
         "RenderedHtml",

@@ -25,17 +25,21 @@ await app.aclose()
 
 `startup()` 与 `aclose()` 幂等。`aclose()` 先拒绝新的 Renderer、Preparation 与Resource Service 异步操作，等待已经获准的完整操作结束，再清理 Provider 与缓存。即使调用方事先保留了 facade 引用，关闭后也不能重新填充缓存。
 
+`Application.resources` 的 `read_bytes()` / `read_text()` 接受 `refresh=True` 强制刷新单个 resource key，`await app.resources.clear()` 只清理当前 Application 的 Resource Reader。它不等价于 `aclose()`，不会清理 Jinja、filehost 或 Provider runtime cache；选择正确操作见[缓存组件、失效与调优](../guides/cache-lifecycle.md#choose-an-action-by-symptom)。
+
 关闭失败可重试，但一旦进入关闭流程便永久拒绝新操作；需要再次渲染时应创建新的composition。同步资源判断也检查同一个 admission gate。Provider 专属 Capability通过自己的 runtime lease 提供等价的拒绝、drain 与关闭后失效语义。
 
 ## 稳定生命周期错误
 
 | 错误 | 含义 |
 | --- | --- |
-| `ProviderNotConfigured` | 默认 Application 尚未安装 |
+| `ApplicationNotInitialized` | NoneBot 插件或其他宿主尚未安装进程默认 Application |
 | `ProviderNotFound` | 配置的 Provider ID 无法发现 |
 | `ProviderUnavailable` | Provider 存在但当前环境不可运行 |
 | `ProviderLifecycleError` | startup、probe 或关闭失败 |
 | `CapabilityUnavailable` | 当前 composition 未绑定请求的能力 |
+
+`ApplicationNotInitialized` 与 `render.provider: null` 无关。插件已经加载但未选择 Provider 时，默认 Application 仍然存在，并保留 Preparation、Resource Service、`render_template_html` 与显式启用的 Graphics Capability；请求需要 HTML Provider 的位图渲染操作时才会抛出 `CapabilityUnavailable`。
 
 这些类型都继承 `RenderingError`，因此生命周期与 composition 失败同样提供`message`、`message_truncated`、`causes` 和 `causes_truncated`；底层异常仍保留在Python `__cause__` 链中。
 
