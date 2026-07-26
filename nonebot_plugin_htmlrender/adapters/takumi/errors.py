@@ -1,13 +1,22 @@
-class TakumiBackendError(RuntimeError):
+from nonebot_plugin_htmlrender.errors import RenderingError
+
+
+class TakumiBackendError(RenderingError, RuntimeError):
     """Base error raised by the htmlrender Takumi adapter."""
 
 
 class TakumiInputError(TakumiBackendError):
     """A field cannot be represented safely by the native Takumi boundary."""
 
-    def __init__(self, field: str, message: str) -> None:
+    def __init__(
+        self,
+        field: str,
+        message: str,
+        *,
+        source: BaseException | None = None,
+    ) -> None:
         self.field = field
-        super().__init__(f"Invalid Takumi field {field!r}: {message}")
+        super().__init__(f"Invalid Takumi field {field!r}: {message}", source=source)
 
 
 class TakumiRuntimeError(TakumiBackendError):

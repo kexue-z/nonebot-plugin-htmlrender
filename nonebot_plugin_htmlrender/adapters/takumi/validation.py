@@ -19,6 +19,7 @@ def ensure_utf8(value: str, *, field: str) -> str:
             field,
             "must contain valid UTF-8 text "
             f"(unencodable code point at index {error.start})",
+            source=error,
         ) from error
     return value
 

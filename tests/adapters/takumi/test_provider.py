@@ -1,3 +1,5 @@
+"""Takumi provider composition and lifecycle tests."""
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -22,7 +24,7 @@ from nonebot_plugin_htmlrender.adapters.takumi.provider import (
     PROVIDER,
     TakumiProvider,
 )
-from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import TAKUMI
 from nonebot_plugin_htmlrender.preparation import prepare_html
 from nonebot_plugin_htmlrender.preparation.models import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.providers.sdk import (
@@ -57,6 +59,7 @@ class _FakeState:
     def __init__(self) -> None:
         self.closed = False
         self.healthy = True
+        self.renderer = object()
 
     async def aclose(self) -> None:
         self.closed = True
@@ -158,6 +161,40 @@ def test_availability_maps_backend_result(mocker: MockerFixture) -> None:
 
     assert result.available is False
     assert result.reason == "missing"
+
+
+@pytest.mark.parametrize(
+    ("located", "installed_version", "available", "reason"),
+    [
+        (False, "0.2.0", False, "not installed"),
+        (True, "0.1.0", False, "Unsupported"),
+        (True, "0.2.0", True, None),
+    ],
+)
+def test_availability_checks_exact_native_version(
+    mocker: MockerFixture,
+    *,
+    located: bool,
+    installed_version: str,
+    available: bool,
+    reason: str | None,
+) -> None:
+    mocker.patch.object(
+        render_module,
+        "find_spec",
+        return_value=object() if located else None,
+    )
+    mocker.patch.object(
+        render_module,
+        "version",
+        return_value=installed_version,
+    )
+
+    status = render_module.takumi_availability()
+
+    assert status.available is available
+    if reason is not None:
+        assert reason in (status.reason or "")
 
 
 def test_compose_rejects_foreign_settings(
@@ -453,21 +490,56 @@ async def test_typed_extension_holds_an_operation_lease_until_context_exit(
     )
     catalog = bindings.provider_capabilities
     assert catalog is not None
-    capability = catalog.require(TAKUMI_CAPABILITIES)
+    capability = catalog.require(TAKUMI)
 
     async with (
         anyio.create_task_group() as task_group,
-        capability.extension() as extension,
+        capability.api() as api,
     ):
         # Observable contract: the leased runtime stays open for the whole
         # extension context, even while aclose is racing to drain it.
-        del extension
+        del api
         assert created[0].closed is False
         task_group.start_soon(bindings.lifecycle.aclose)
         await checkpoint()
         assert created[0].closed is False
 
     assert created[0].closed is True
+
+
+async def test_native_renderer_holds_lease_and_tracks_access(
+    mocker: MockerFixture,
+    operation_observer: RecordingOperationObserver,
+) -> None:
+    created, _ = _install_runtime_fakes(mocker)
+    mocker.patch.object(
+        capabilities_module,
+        "require_runtime_state",
+        side_effect=lambda state: state,
+    )
+    bindings = TakumiProvider().compose(
+        TakumiConfig(),
+        _dependencies(operation_observer),
+    )
+    catalog = bindings.provider_capabilities
+    assert catalog is not None
+    capability = catalog.require(TAKUMI)
+
+    async with (
+        anyio.create_task_group() as task_group,
+        capability.renderer() as renderer,
+    ):
+        assert renderer is created[0].renderer
+        task_group.start_soon(bindings.lifecycle.aclose)
+        await checkpoint()
+        assert created[0].closed is False
+
+    assert created[0].closed is True
+    assert (
+        "takumi.native.renderer",
+        {"render.backend": "takumi", "render.access": "native"},
+        "success",
+    ) in operation_observer.operations
 
 
 async def test_probe_runs_minimal_render(

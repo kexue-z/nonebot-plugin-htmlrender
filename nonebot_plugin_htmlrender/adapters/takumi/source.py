@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, replace
 from html import unescape
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from nonebot_plugin_htmlrender.preparation import (
     PreparedAsset,
@@ -85,7 +85,7 @@ def normalize_image_input(image: object, *, field: str) -> TakumiImageResource:
     return TakumiImageResource(
         src=src,
         data=data,
-        cache=cast("ImageCacheMode", cache),
+        cache="auto" if cache == "auto" else "none",
     )
 
 
@@ -151,7 +151,10 @@ def _merge_image_candidates(
             base_url=document_base,
         )
     except ValueError as error:
-        raise TakumiResourceError(str(error)) from error
+        raise TakumiResourceError(
+            "Takumi resource indexing failed.",
+            source=error,
+        ) from error
     return asset_index, candidates
 
 
@@ -266,7 +269,10 @@ async def materialize_takumi_document(
             strict=mode is ResourceResolveMode.STRICT,
         )
     except AssetMaterializationError as error:
-        raise TakumiResourceError(str(error)) from error
+        raise TakumiResourceError(
+            "Takumi resource materialization failed.",
+            source=error,
+        ) from error
     return _build_takumi_document(
         materialized,
         snapshot=snapshot,

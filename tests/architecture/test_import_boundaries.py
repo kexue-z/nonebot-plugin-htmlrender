@@ -421,7 +421,7 @@ from typing import TYPE_CHECKING
 import typing
 
 if TYPE_CHECKING:
-    from nonebot_plugin_htmlrender.adapters.takumi.api import TakumiExtension
+    from nonebot_plugin_htmlrender.adapters.takumi.api import TakumiAPIAdapter
 
 if typing.TYPE_CHECKING:
     import sentry_sdk

@@ -10,7 +10,7 @@ from nonebot_plugin_htmlrender.adapters._lease import (
     PreparedHtmlLeaseExecutor,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.capabilities import (
-    TakumiCapabilityAdapter,
+    TakumiAccessAdapter,
 )
 from nonebot_plugin_htmlrender.adapters.takumi.config import TakumiConfig
 from nonebot_plugin_htmlrender.adapters.takumi.errors import (
@@ -27,7 +27,7 @@ from nonebot_plugin_htmlrender.adapters.takumi.render import (
 )
 from nonebot_plugin_htmlrender.adapters.takumi.render import TakumiEngine
 from nonebot_plugin_htmlrender.adapters.takumi.runtime import require_runtime_state
-from nonebot_plugin_htmlrender.capabilities import TAKUMI_CAPABILITIES
+from nonebot_plugin_htmlrender.capabilities import TAKUMI
 from nonebot_plugin_htmlrender.preparation import RasterOptions, prepare_html
 from nonebot_plugin_htmlrender.providers.sdk import (
     TAKUMI_PROVIDER_ID,
@@ -73,18 +73,27 @@ def _translate(
     """Translate native Takumi failures into the stable error model."""
     try:
         yield
+    except TakumiUnsupportedError as error:
+        raise UnsupportedRequirement(
+            "Takumi cannot satisfy the prepared document requirements.",
+            source=error,
+        ) from error
+    except TakumiInputError as error:
+        raise InvalidRenderRequest(
+            "Takumi rejected the prepared render input.",
+            source=error,
+        ) from error
+    except TakumiResourceError as error:
+        raise ResourceResolutionError(
+            "Takumi could not resolve a prepared resource.",
+            source=error,
+        ) from error
+    except TakumiBackendError as error:
+        raise runtime_error(f"Takumi {operation} failed.", source=error) from error
     except RenderingError:
         raise
-    except TakumiUnsupportedError as error:
-        raise UnsupportedRequirement(str(error)) from error
-    except TakumiInputError as error:
-        raise InvalidRenderRequest(str(error)) from error
-    except TakumiResourceError as error:
-        raise ResourceResolutionError(str(error)) from error
-    except TakumiBackendError as error:
-        raise runtime_error(f"Takumi {operation} failed: {error}") from error
     except Exception as error:
-        raise runtime_error(f"Takumi {operation} failed: {error}") from error
+        raise runtime_error(f"Takumi {operation} failed.", source=error) from error
 
 
 async def _rasterize(
@@ -188,10 +197,8 @@ class TakumiProvider:
             operation="takumi.rasterize_html",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
-        capabilities = CapabilityCatalog().with_capability(
-            TAKUMI_CAPABILITIES,
-            TakumiCapabilityAdapter(leases, dependencies.operation_observer),
-        )
+        adapter = TakumiAccessAdapter(leases, dependencies.operation_observer)
+        capabilities = CapabilityCatalog().with_capability(TAKUMI, adapter)
         return EngineBindings(
             lifecycle=leases,
             prepared_html_executor=executor,

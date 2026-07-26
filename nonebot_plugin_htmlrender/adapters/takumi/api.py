@@ -3,11 +3,21 @@ from __future__ import annotations
 # Keep Takumi's public ``format=`` spelling in the typed extension API.
 from dataclasses import dataclass, field
 from functools import wraps
-from typing import TYPE_CHECKING, Awaitable, Callable, ParamSpec, TypeVar, cast
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    Awaitable,
+    Callable,
+    Concatenate,
+    ParamSpec,
+    TypeVar,
+)
 
 from nonebot_plugin_htmlrender.capabilities.takumi import (
     FileCachePolicy,
     TakumiCompiledDocument,
+    _compile_keyframes_signature,
+    _compile_node_signature,
 )
 from nonebot_plugin_htmlrender.preparation import PreparedHtml, prepare_html
 from nonebot_plugin_htmlrender.rendering.observers import (
@@ -34,7 +44,6 @@ if TYPE_CHECKING:
         CompiledNode,
         CompiledStyleSheet,
         FontResourceInput,
-        KeyframesInput,
         MeasuredNode,
         NodeInput,
         RawAnimationFrame,
@@ -59,20 +68,27 @@ R = TypeVar("R")
 
 def _tracked(
     operation: str,
-) -> Callable[[Callable[P, Awaitable[R]]], Callable[P, Awaitable[R]]]:
+) -> Callable[
+    [Callable[Concatenate[TakumiAPIAdapter, P], Awaitable[R]]],
+    Callable[Concatenate[TakumiAPIAdapter, P], Awaitable[R]],
+]:
     def _decorate(
-        func: Callable[P, Awaitable[R]],
-    ) -> Callable[P, Awaitable[R]]:
+        func: Callable[Concatenate[TakumiAPIAdapter, P], Awaitable[R]],
+    ) -> Callable[Concatenate[TakumiAPIAdapter, P], Awaitable[R]]:
         @wraps(func)
-        async def _wrapped(*args: P.args, **kwargs: P.kwargs) -> R:
-            extension = cast("TakumiExtension", args[0])
+        async def _wrapped(
+            api: TakumiAPIAdapter,
+            /,
+            *args: P.args,
+            **kwargs: P.kwargs,
+        ) -> R:
             with observe_operation(
-                extension._observer,
+                api._observer,
                 operation,
                 {"render.backend": "takumi"},
             ):
-                extension._state._ensure_open()
-                return await func(*args, **kwargs)
+                api._state._ensure_open()
+                return await func(api, *args, **kwargs)
 
         return _wrapped
 
@@ -104,7 +120,7 @@ def _static_raster_kwargs(
     *,
     default_height: int | None,
     images: Sequence[ImageInput] | None,
-    include_time: bool = True,
+    time_ms: int | None,
 ) -> dict[str, object]:
     ratio = validate_device_pixel_ratio(options.get("device_pixel_ratio", 1.0))
     native = render_defaults(state, images=images)
@@ -117,8 +133,8 @@ def _static_raster_kwargs(
         draw_debug_border=options.get("draw_debug_border", False),
         dithering=options.get("dithering", "none"),
     )
-    if include_time:
-        native["time_ms"] = cast("TakumiRasterOptions", options).get("time_ms", 0)
+    if time_ms is not None:
+        native["time_ms"] = time_ms
     _apply_present(native, options, ("quality", "lossless", "keyframes", "lang"))
     _apply_font_families(native, options.get("font_families"))
     return native
@@ -210,8 +226,38 @@ def _expect_svg(value: object) -> str:
     return value
 
 
+def _expect_compiled_node(value: object) -> CompiledNode:
+    from takumi_py import CompiledNode  # noqa: PLC0415
+
+    if not isinstance(value, CompiledNode):
+        raise TypeError(
+            f"Takumi returned {type(value).__name__}, expected CompiledNode."
+        )
+    return value
+
+
+def _expect_compiled_stylesheet(value: object) -> CompiledStyleSheet:
+    from takumi_py import CompiledStyleSheet  # noqa: PLC0415
+
+    if not isinstance(value, CompiledStyleSheet):
+        raise TypeError(
+            f"Takumi returned {type(value).__name__}, expected CompiledStyleSheet."
+        )
+    return value
+
+
+def _expect_measured_node(value: object) -> MeasuredNode:
+    from takumi_py import MeasuredNode  # noqa: PLC0415
+
+    if not isinstance(value, MeasuredNode):
+        raise TypeError(
+            f"Takumi returned {type(value).__name__}, expected MeasuredNode."
+        )
+    return value
+
+
 @dataclass(frozen=True, slots=True)
-class TakumiExtension:
+class TakumiAPIAdapter:
     """Strongly typed access to Takumi-specific rendering capabilities.
 
     Raster dimensions use CSS pixels. They are converted to Takumi's device-pixel
@@ -241,7 +287,7 @@ class TakumiExtension:
             return html
         return prepare_html(html, base_url=base_url)
 
-    @_tracked("takumi.extension.compile_html")
+    @_tracked("takumi.api.compile_html")
     async def compile_html(
         self,
         html: str | PreparedHtml,
@@ -261,26 +307,26 @@ class TakumiExtension:
             document.stylesheets,
         )
         return TakumiCompiledDocument(
-            node=cast("CompiledNode", node),
-            stylesheets=cast("tuple[CompiledStyleSheet, ...]", compiled_stylesheets),
+            node=_expect_compiled_node(node),
+            stylesheets=tuple(
+                _expect_compiled_stylesheet(stylesheet)
+                for stylesheet in compiled_stylesheets
+            ),
             images=document.images,
         )
 
-    @_tracked("takumi.extension.compile_node")
-    async def compile_node(
-        self,
-        node: NodeInput,
-        *,
-        validate: bool = False,
-    ) -> CompiledNode:
-        compiled = await self._state.call_renderer(
-            "compile_node",
-            node,
-            validate=validate,
-        )
-        return cast("CompiledNode", compiled)
+    @_tracked("takumi.api.compile_node")
+    @_compile_node_signature
+    async def compile_node(self, *args: Any, **kwargs: Any) -> CompiledNode:
+        from takumi_py import Renderer  # noqa: PLC0415
 
-    @_tracked("takumi.extension.compile_stylesheet")
+        return await self._state.invoke_renderer(
+            Renderer.compile_node,
+            *args,
+            **kwargs,
+        )
+
+    @_tracked("takumi.api.compile_stylesheet")
     async def compile_stylesheet(
         self,
         css: str,
@@ -288,17 +334,24 @@ class TakumiExtension:
         lossy: bool = False,
     ) -> CompiledStyleSheet:
         compiled = await self._state.compile_stylesheet(css, lossy=lossy)
-        return cast("CompiledStyleSheet", compiled)
+        return _expect_compiled_stylesheet(compiled)
 
-    @_tracked("takumi.extension.compile_keyframes")
+    @_tracked("takumi.api.compile_keyframes")
+    @_compile_keyframes_signature
     async def compile_keyframes(
         self,
-        keyframes: KeyframesInput,
+        *args: Any,
+        **kwargs: Any,
     ) -> CompiledStyleSheet:
-        compiled = await self._state.call_renderer("compile_keyframes", keyframes)
-        return cast("CompiledStyleSheet", compiled)
+        from takumi_py import Renderer  # noqa: PLC0415
 
-    @_tracked("takumi.extension.render_html")
+        return await self._state.invoke_renderer(
+            Renderer.compile_keyframes,
+            *args,
+            **kwargs,
+        )
+
+    @_tracked("takumi.api.render_html")
     async def render_html(
         self,
         html: str | PreparedHtml,
@@ -328,7 +381,7 @@ class TakumiExtension:
             keyframes=options.get("keyframes"),
         )
 
-    @_tracked("takumi.extension.render_compiled")
+    @_tracked("takumi.api.render_compiled")
     async def render_compiled(
         self,
         document: TakumiCompiledDocument,
@@ -338,7 +391,8 @@ class TakumiExtension:
             self._state,
             options,
             default_height=None,
-            images=cast("Sequence[ImageInput]", document.images),
+            images=document.images,
+            time_ms=options.get("time_ms", 0),
         )
         rendered = await self._state.call_renderer(
             "render_compiled",
@@ -348,7 +402,7 @@ class TakumiExtension:
         )
         return _expect_bytes(rendered)
 
-    @_tracked("takumi.extension.measure_html")
+    @_tracked("takumi.api.measure_html")
     async def measure_html(
         self,
         html: str | PreparedHtml,
@@ -368,7 +422,7 @@ class TakumiExtension:
             self._state,
             options,
             default_height=None,
-            images=cast("Sequence[ImageInput]", document.images),
+            images=document.images,
         )
         measured = await self._state.call_document(
             "measure_compiled",
@@ -376,9 +430,9 @@ class TakumiExtension:
             document.stylesheets,
             **native,
         )
-        return cast("MeasuredNode", measured)
+        return _expect_measured_node(measured)
 
-    @_tracked("takumi.extension.measure_compiled")
+    @_tracked("takumi.api.measure_compiled")
     async def measure_compiled(
         self,
         document: TakumiCompiledDocument,
@@ -388,7 +442,7 @@ class TakumiExtension:
             self._state,
             options,
             default_height=None,
-            images=cast("Sequence[ImageInput]", document.images),
+            images=document.images,
         )
         measured = await self._state.call_renderer(
             "measure_compiled",
@@ -396,9 +450,9 @@ class TakumiExtension:
             stylesheets=document.stylesheets,
             **native,
         )
-        return cast("MeasuredNode", measured)
+        return _expect_measured_node(measured)
 
-    @_tracked("takumi.extension.render_svg_html")
+    @_tracked("takumi.api.render_svg_html")
     async def render_svg_html(
         self,
         html: str | PreparedHtml,
@@ -417,7 +471,7 @@ class TakumiExtension:
         native = _svg_kwargs(
             self._state,
             options,
-            images=cast("Sequence[ImageInput]", document.images),
+            images=document.images,
         )
         rendered = await self._state.call_document(
             "render_svg_compiled",
@@ -427,7 +481,7 @@ class TakumiExtension:
         )
         return _expect_svg(rendered)
 
-    @_tracked("takumi.extension.render_svg_compiled")
+    @_tracked("takumi.api.render_svg_compiled")
     async def render_svg_compiled(
         self,
         document: TakumiCompiledDocument,
@@ -436,7 +490,7 @@ class TakumiExtension:
         native = _svg_kwargs(
             self._state,
             options,
-            images=cast("Sequence[ImageInput]", document.images),
+            images=document.images,
         )
         rendered = await self._state.call_renderer(
             "render_svg_compiled",
@@ -446,7 +500,7 @@ class TakumiExtension:
         )
         return _expect_svg(rendered)
 
-    @_tracked("takumi.extension.render_node")
+    @_tracked("takumi.api.render_node")
     async def render_node(
         self,
         node: NodeInput,
@@ -461,6 +515,7 @@ class TakumiExtension:
             options,
             default_height=630,
             images=images,
+            time_ms=options.get("time_ms", 0),
         )
         rendered = await self._state.call_renderer(
             "render_node",
@@ -471,7 +526,7 @@ class TakumiExtension:
         )
         return _expect_bytes(rendered)
 
-    @_tracked("takumi.extension.measure_node")
+    @_tracked("takumi.api.measure_node")
     async def measure_node(
         self,
         node: NodeInput,
@@ -494,9 +549,9 @@ class TakumiExtension:
             validate=validate,
             **native,
         )
-        return cast("MeasuredNode", measured)
+        return _expect_measured_node(measured)
 
-    @_tracked("takumi.extension.render_svg_node")
+    @_tracked("takumi.api.render_svg_node")
     async def render_svg_node(
         self,
         node: NodeInput,
@@ -516,7 +571,7 @@ class TakumiExtension:
         )
         return _expect_svg(rendered)
 
-    @_tracked("takumi.extension.render_animation")
+    @_tracked("takumi.api.render_animation")
     async def render_animation(
         self,
         scenes: Sequence[AnimationScene],
@@ -536,7 +591,7 @@ class TakumiExtension:
         )
         return _expect_bytes(rendered)
 
-    @_tracked("takumi.extension.render_sequence")
+    @_tracked("takumi.api.render_sequence")
     async def render_sequence_at_time(
         self,
         scenes: Sequence[AnimationScene],
@@ -552,7 +607,7 @@ class TakumiExtension:
             options,
             default_height=630,
             images=images,
-            include_time=False,
+            time_ms=None,
         )
         rendered = await self._state.call_renderer(
             "render_sequence_at_time",
@@ -564,7 +619,7 @@ class TakumiExtension:
         )
         return _expect_bytes(rendered)
 
-    @_tracked("takumi.extension.encode_frames")
+    @_tracked("takumi.api.encode_frames")
     async def encode_frames(
         self,
         frames: Sequence[RawAnimationFrame],
@@ -577,7 +632,7 @@ class TakumiExtension:
         )
         return _expect_bytes(rendered)
 
-    @_tracked("takumi.extension.register_font")
+    @_tracked("takumi.api.register_font")
     async def register_font(
         self,
         font: FontResourceInput,
@@ -586,7 +641,7 @@ class TakumiExtension:
     ) -> tuple[str, ...]:
         return await self._state.register_font(font, source=source)
 
-    @_tracked("takumi.extension.register_fonts")
+    @_tracked("takumi.api.register_fonts")
     async def register_fonts(
         self,
         fonts: Sequence[FontResourceInput],
@@ -594,11 +649,11 @@ class TakumiExtension:
         sources: Sequence[str | None] | None = None,
     ) -> tuple[str, ...]:
         return await self._state.register_fonts(
-            cast("Sequence[object]", fonts),
+            fonts,
             sources=sources,
         )
 
-    @_tracked("takumi.extension.register_font_file")
+    @_tracked("takumi.api.register_font_file")
     async def register_font_file(
         self,
         path: str | Path,
@@ -622,7 +677,7 @@ class TakumiExtension:
 
 
 __all__ = [
+    "TakumiAPIAdapter",
     "TakumiCompiledDocument",
-    "TakumiExtension",
     "TakumiImageResource",
 ]

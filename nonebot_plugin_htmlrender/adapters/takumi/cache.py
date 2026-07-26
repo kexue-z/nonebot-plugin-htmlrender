@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from dataclasses import dataclass
 import threading
-from typing import TYPE_CHECKING, Generic, TypeVar, cast
+from typing import TYPE_CHECKING, Generic, TypeVar
 
 from nonebot_plugin_htmlrender.resources.observation import record_cache_observation
 
@@ -36,10 +36,15 @@ class _Entry(Generic[V]):
 
 
 @dataclass(slots=True)
+class _InflightResult(Generic[V]):
+    value: V
+
+
+@dataclass(slots=True)
 class _Inflight(Generic[V]):
     event: threading.Event
     epoch: int
-    value: V | None = None
+    result: _InflightResult[V] | None = None
     error: BaseException | None = None
     completed: bool = False
 
@@ -108,7 +113,9 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
                 raise inflight.error
             if not inflight.completed:
                 return self._get_or_insert(key, weight=weight, factory=factory)
-            return cast("V", inflight.value)
+            if inflight.result is None:
+                return self._get_or_insert(key, weight=weight, factory=factory)
+            return inflight.result.value
 
         try:
             value = factory()
@@ -128,7 +135,7 @@ class SyncWeightedSingleflightLRU(Generic[K, V]):
                 self._inflight.pop(key, None)
                 if inflight.epoch == self._epoch:
                     self._store(key, value=value, weight=weight)
-            inflight.value = value
+            inflight.result = _InflightResult(value)
             inflight.completed = True
             inflight.event.set()
         return value

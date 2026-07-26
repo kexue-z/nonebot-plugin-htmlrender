@@ -125,7 +125,7 @@ def _state(
 ) -> TakumiRuntimeState:
     return TakumiRuntimeState(
         renderer=cast("NativeRenderer", renderer),
-        limiter=anyio.CapacityLimiter(2),
+        limiter=anyio.Semaphore(2),
         config=TakumiConfig(
             compiled_cache_max_entries=cache_entries,
             compiled_cache_max_source_bytes=cache_bytes,

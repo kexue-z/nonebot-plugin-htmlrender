@@ -10,9 +10,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import Enum
-from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 from typing_extensions import TypeAlias, TypedDict
 
+from nonebot_plugin_htmlrender._typing import (
+    identity_decorator,
+    project_method_parameters,
+)
 from nonebot_plugin_htmlrender.rendering.capabilities import CapabilityKey
 
 if TYPE_CHECKING:
@@ -32,9 +36,17 @@ if TYPE_CHECKING:
         MeasuredNode,
         NodeInput,
         RawAnimationFrame,
+        Renderer,
     )
 
     from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
+
+if TYPE_CHECKING:
+    _compile_node_signature = project_method_parameters(Renderer.compile_node)
+    _compile_keyframes_signature = project_method_parameters(Renderer.compile_keyframes)
+else:
+    _compile_node_signature = identity_decorator
+    _compile_keyframes_signature = identity_decorator
 
 
 ImageCacheMode: TypeAlias = Literal["auto", "none"]
@@ -96,7 +108,7 @@ class TakumiCompiledDocument:
 
     node: CompiledNode
     stylesheets: tuple[CompiledStyleSheet, ...]
-    images: tuple[object, ...] = ()
+    images: tuple[ImageInput, ...] = ()
 
 
 class TakumiCacheStats(Protocol):
@@ -221,8 +233,8 @@ class TakumiSequenceOptions(TypedDict, total=False):
     lang: str | None
 
 
-class TakumiExtensionContract(Protocol):
-    """Typed native Takumi surface leased for the lifetime of one context."""
+class TakumiAPI(Protocol):
+    """Managed Takumi operations leased for the lifetime of one context."""
 
     @property
     def registered_font_families(self) -> tuple[str, ...]: ...
@@ -239,12 +251,8 @@ class TakumiExtensionContract(Protocol):
         base_url: str | None = None,
     ) -> Awaitable[TakumiCompiledDocument]: ...
 
-    def compile_node(
-        self,
-        node: NodeInput,
-        *,
-        validate: bool = False,
-    ) -> Awaitable[CompiledNode]: ...
+    @_compile_node_signature
+    def compile_node(self, *args: Any, **kwargs: Any) -> Awaitable[CompiledNode]: ...
 
     def compile_stylesheet(
         self,
@@ -253,9 +261,11 @@ class TakumiExtensionContract(Protocol):
         lossy: bool = False,
     ) -> Awaitable[CompiledStyleSheet]: ...
 
+    @_compile_keyframes_signature
     def compile_keyframes(
         self,
-        keyframes: KeyframesInput,
+        *args: Any,
+        **kwargs: Any,
     ) -> Awaitable[CompiledStyleSheet]: ...
 
     def render_html(
@@ -391,30 +401,32 @@ class TakumiExtensionContract(Protocol):
 
 
 @runtime_checkable
-class TakumiCapability(Protocol):
-    """Lease a typed Takumi extension bound to a live native runtime."""
+class TakumiAccess(Protocol):
+    """Lease managed or raw objects from the provider-owned Takumi runtime."""
 
-    def extension(self) -> AbstractAsyncContextManager[TakumiExtensionContract]: ...
+    def api(self) -> AbstractAsyncContextManager[TakumiAPI]: ...
+
+    def renderer(self) -> AbstractAsyncContextManager[Renderer]: ...
 
 
-TAKUMI_CAPABILITIES: CapabilityKey[TakumiCapability] = CapabilityKey(
-    "takumi.capabilities",
-    TakumiCapability,
+TAKUMI: CapabilityKey[TakumiAccess] = CapabilityKey(
+    "takumi",
+    TakumiAccess,
 )
 
 __all__ = [
-    "TAKUMI_CAPABILITIES",
+    "TAKUMI",
     "AnimationImageFormat",
     "FileCachePolicy",
     "GenericFontFamily",
     "ImageCacheMode",
     "ImageInput",
     "StaticImageFormat",
+    "TakumiAPI",
+    "TakumiAccess",
     "TakumiAnimationOptions",
     "TakumiCacheStats",
-    "TakumiCapability",
     "TakumiCompiledDocument",
-    "TakumiExtensionContract",
     "TakumiFrameEncodeOptions",
     "TakumiImageInput",
     "TakumiImageResource",

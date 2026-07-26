@@ -8,7 +8,7 @@ from hashlib import sha256
 import math
 from pathlib import Path
 import threading
-from typing import TYPE_CHECKING, TypeGuard, TypeVar, cast
+from typing import TYPE_CHECKING, ParamSpec, Protocol, TypeGuard, TypeVar
 
 import anyio
 from anyio.to_thread import run_sync
@@ -19,6 +19,7 @@ from .cache import SyncWeightedSingleflightLRU, WeightedCacheStats
 from .config import FileCachePolicy
 from .errors import TakumiInputError, TakumiRuntimeError
 from .source import normalize_image_input
+from .types import TakumiImageResource
 from .validation import (
     ensure_native_identifier,
     ensure_utf8,
@@ -33,9 +34,11 @@ if TYPE_CHECKING:
     from nonebot_plugin_htmlrender.resources.ports import ProviderResources
 
     from .config import GenericFontFamily, TakumiConfig, TakumiFontConfig
-    from .types import NativeCompiledHtml, NativeRenderer, TakumiImageResource
+    from .types import NativeCompiledHtml, NativeRenderer
 
 T = TypeVar("T")
+R_co = TypeVar("R_co", covariant=True)
+P = ParamSpec("P")
 _MISSING = object()
 
 _GENERIC_FONT_FAMILIES = frozenset(
@@ -59,6 +62,19 @@ _GENERIC_FONT_FAMILIES = frozenset(
 
 def _is_generic_font_family(value: str) -> TypeGuard[GenericFontFamily]:
     return value in _GENERIC_FONT_FAMILIES
+
+
+class _RendererMethod(Protocol[P, R_co]):
+    @property
+    def __name__(self) -> str: ...
+
+    def __call__(
+        self,
+        renderer: NativeRenderer,
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> R_co: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -111,6 +127,16 @@ class _FontRegistration:
     digest: str
     options: tuple[object, ...]
     families: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class _CompiledHtmlCacheValue:
+    value: NativeCompiledHtml
+
+
+@dataclass(frozen=True, slots=True)
+class _CompiledStylesheetCacheValue:
+    value: object
 
 
 def _validate_font_spec(spec: _FontSpec, *, field_name: str) -> _FontSpec:
@@ -231,12 +257,15 @@ def _validate_font_registration(
 @dataclass(slots=True)
 class TakumiRuntimeState:
     renderer: NativeRenderer | None
-    limiter: anyio.CapacityLimiter
+    limiter: anyio.Semaphore
     config: TakumiConfig
     resources: ProviderResources
     registered_font_families: tuple[str, ...] = ()
     cache_observer: CacheObserver | None = None
-    _compiled: SyncWeightedSingleflightLRU[tuple[object, ...], object] = field(
+    _compiled: SyncWeightedSingleflightLRU[
+        tuple[object, ...],
+        _CompiledHtmlCacheValue | _CompiledStylesheetCacheValue,
+    ] = field(
         init=False,
         repr=False,
     )
@@ -313,7 +342,11 @@ class TakumiRuntimeState:
             )
 
     async def run(
-        self, func: Callable[..., T], /, *args: object, **kwargs: object
+        self,
+        func: Callable[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
     ) -> T:
         """Run one native call under the concurrency limiter.
 
@@ -323,15 +356,15 @@ class TakumiRuntimeState:
         """
         self._ensure_open()
         operation = getattr(func, "__name__", type(func).__name__)
-        return await run_sync(
-            partial(
-                _invoke_native,
-                operation,
-                partial(func, *args, **kwargs),
-                on_panic=self._mark_poisoned,
-            ),
-            limiter=self.limiter,
-        )
+        async with self.limiter:
+            return await run_sync(
+                partial(
+                    _invoke_native,
+                    operation,
+                    partial(func, *args, **kwargs),
+                    on_panic=self._mark_poisoned,
+                )
+            )
 
     async def call_renderer(
         self, method_name: str, /, *args: object, **kwargs: object
@@ -347,6 +380,33 @@ class TakumiRuntimeState:
             renderer = self._renderer_for_admitted_call()
             method = getattr(renderer, method_name)
             return method(*args, **_to_native_call_kwargs(normalized_kwargs))
+
+        return await self.run(_invoke)
+
+    async def invoke_renderer(
+        self,
+        method: _RendererMethod[P, T],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> T:
+        """Invoke one statically selected native renderer method."""
+        method_name = method.__name__
+        normalized_kwargs = _prepare_call_kwargs(method_name, dict(kwargs))
+        for index, value in enumerate(args):
+            validate_native_strings(
+                value,
+                field=f"{method_name}.args[{index}]",
+            )
+
+        def _invoke() -> T:
+            renderer = self._renderer_for_admitted_call()
+            return _invoke_renderer_method(
+                method,
+                renderer,
+                tuple(args),
+                _to_native_call_kwargs(normalized_kwargs),
+            )
 
         return await self.run(_invoke)
 
@@ -369,30 +429,43 @@ class TakumiRuntimeState:
             options.tailwind_property,
             options.max_depth,
         )
-        compiled_html = cast(
-            "NativeCompiledHtml",
-            self._compiled.get_or_insert(
-                ("html", html, *options_key),
-                weight=utf8_weight(
-                    html,
-                    options.presets,
-                    options.tailwind_property or "",
-                ),
-                factory=lambda: renderer.compile_html(
+        compiled_html_entry = self._compiled.get_or_insert(
+            ("html", html, *options_key),
+            weight=utf8_weight(
+                html,
+                options.presets,
+                options.tailwind_property or "",
+            ),
+            factory=lambda: _CompiledHtmlCacheValue(
+                renderer.compile_html(
                     html,
                     html_options=html_options,
-                ),
+                )
             ),
         )
-        compiled_stylesheets = tuple(
+        if not isinstance(compiled_html_entry, _CompiledHtmlCacheValue):
+            raise TakumiRuntimeError("Compiled cache returned an invalid HTML entry.")
+        compiled_stylesheet_entries = tuple(
             self._compiled.get_or_insert(
                 ("css-lossy", css),
                 weight=utf8_weight(css),
-                factory=lambda css=css: renderer.compile_stylesheet_lossy(css),
+                factory=lambda css=css: _CompiledStylesheetCacheValue(
+                    renderer.compile_stylesheet_lossy(css)
+                ),
             )
             for css in stylesheets
         )
-        return compiled_html.node, compiled_stylesheets
+        if any(
+            not isinstance(entry, _CompiledStylesheetCacheValue)
+            for entry in compiled_stylesheet_entries
+        ):
+            raise TakumiRuntimeError(
+                "Compiled cache returned an invalid stylesheet entry."
+            )
+        return (
+            compiled_html_entry.value.node,
+            tuple(entry.value for entry in compiled_stylesheet_entries),
+        )
 
     async def call_document(
         self,
@@ -457,11 +530,16 @@ class TakumiRuntimeState:
                 if lossy
                 else renderer.compile_stylesheet
             )
-            return self._compiled.get_or_insert(
+            entry = self._compiled.get_or_insert(
                 ("css-lossy" if lossy else "css-strict", css),
                 weight=utf8_weight(css),
-                factory=lambda: method(css),
+                factory=lambda: _CompiledStylesheetCacheValue(method(css)),
             )
+            if not isinstance(entry, _CompiledStylesheetCacheValue):
+                raise TakumiRuntimeError(
+                    "Compiled cache returned an invalid stylesheet entry."
+                )
+            return entry.value
 
         return await self.run(_compile)
 
@@ -620,9 +698,20 @@ def _invoke_native(
             on_panic()
         if _is_native_error(error):
             raise TakumiRuntimeError(
-                f"Takumi native operation {operation!r} failed: {error}"
+                f"Takumi native operation {operation!r} failed.",
+                source=error,
             ) from error
         raise
+
+
+def _invoke_renderer_method(
+    method: Callable[..., T],
+    renderer: NativeRenderer,
+    args: tuple[object, ...],
+    kwargs: dict[str, object],
+) -> T:
+    """Cross the validated dynamic-call boundary without losing the return type."""
+    return method(renderer, *args, **kwargs)
 
 
 async def _load_font_payloads(
@@ -644,9 +733,10 @@ async def _load_font_payloads(
         for index, font in enumerate(fonts):
             task_group.start_soon(_read_one, index, font)
 
-    if any(payload is None for payload in payloads):
+    resolved = tuple(payload for payload in payloads if payload is not None)
+    if len(resolved) != len(payloads):
         raise TakumiRuntimeError("One or more configured fonts could not be loaded.")
-    return cast("tuple[bytes, ...]", tuple(payloads))
+    return resolved
 
 
 def _release_native_renderer(renderer: object) -> None:
@@ -674,6 +764,16 @@ def _normalize_images(
     return tuple(
         normalize_image_input(image, field=f"{field_name}[{index}]")
         for index, image in enumerate(images)
+    )
+
+
+def _is_normalized_images(
+    value: object,
+) -> TypeGuard[Sequence[TakumiImageResource]]:
+    return (
+        not isinstance(value, (str, bytes))
+        and isinstance(value, Sequence)
+        and all(isinstance(resource, TakumiImageResource) for resource in value)
     )
 
 
@@ -726,14 +826,17 @@ def _to_native_call_kwargs(kwargs: dict[str, object]) -> dict[str, object]:
 
     for name in resource_names:
         value = native.get(name)
-        resources = cast("Sequence[TakumiImageResource]", value)
+        if not _is_normalized_images(value):
+            raise TakumiRuntimeError(
+                f"Prepared {name} values lost their normalized image contract."
+            )
         native[name] = [
             ImageResource(
                 resource.src,
                 resource.data,
                 cache=resource.cache,
             )
-            for resource in resources
+            for resource in value
         ]
     return native
 
@@ -763,7 +866,7 @@ async def create_runtime_state(
 ) -> TakumiRuntimeState:
     """Create one renderer and register revalidated font bytes exactly once."""
 
-    limiter = anyio.CapacityLimiter(config.max_concurrency)
+    limiter = anyio.Semaphore(config.max_concurrency)
     fonts = tuple(config.fonts)
     payloads = (
         await _load_font_payloads(fonts, config=config, resources=resources)
@@ -822,12 +925,12 @@ async def create_runtime_state(
             registrations,
         )
 
-    renderer, registered_families, registrations = await run_sync(
-        _invoke_native,
-        "create_runtime",
-        _build,
-        limiter=limiter,
-    )
+    async with limiter:
+        renderer, registered_families, registrations = await run_sync(
+            _invoke_native,
+            "create_runtime",
+            _build,
+        )
     state = TakumiRuntimeState(
         renderer=renderer,
         limiter=limiter,
