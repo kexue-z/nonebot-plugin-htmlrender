@@ -87,7 +87,8 @@ class ConfiguredLocalAccessPolicy:
             raise
         except (OSError, RuntimeError, ValueError) as error:
             raise ResourceResolutionError(
-                f"Could not normalize local resource path: {error}"
+                "Could not normalize local resource path.",
+                source=error,
             ) from error
 
 
@@ -212,14 +213,19 @@ class CompositeResourceReader:
         except ResourceResolutionError:
             raise
         except FileNotFoundError as error:
-            raise ResourceNotFound(str(error)) from error
+            raise ResourceNotFound("Resource was not found.", source=error) from error
         except PermissionError as error:
-            raise ResourceAccessDenied(str(error)) from error
+            raise ResourceAccessDenied(
+                "Resource access was denied.", source=error
+            ) from error
         except OSError as error:
-            raise ResourceResolutionError(str(error)) from error
+            raise ResourceResolutionError(
+                "Resource read failed.", source=error
+            ) from error
         except Exception as error:
             raise ResourceResolutionError(
-                f"Could not read resource {reference!r}: {error}"
+                f"Could not read resource {reference!r}.",
+                source=error,
             ) from error
         raise ResourceResolutionError(f"Unsupported resource reference: {reference!r}")
 
@@ -241,10 +247,13 @@ class CompositeResourceReader:
             except ResourceResolutionError:
                 raise
             except OSError as error:
-                raise ResourceResolutionError(str(error)) from error
+                raise ResourceResolutionError(
+                    "Conditional resource read failed.", source=error
+                ) from error
             except Exception as error:
                 raise ResourceResolutionError(
-                    f"Could not read resource {reference!r}: {error}"
+                    f"Could not read resource {reference!r}.",
+                    source=error,
                 ) from error
         current = await self.revision(reference)
         if current is not None and current == revision:
@@ -256,14 +265,21 @@ class CompositeResourceReader:
             try:
                 return await self._worker.run_sync(_file_revision, reference.path)
             except FileNotFoundError as error:
-                raise ResourceNotFound(str(error)) from error
+                raise ResourceNotFound(
+                    "Resource was not found.", source=error
+                ) from error
             except PermissionError as error:
-                raise ResourceAccessDenied(str(error)) from error
+                raise ResourceAccessDenied(
+                    "Resource access was denied.", source=error
+                ) from error
             except OSError as error:
-                raise ResourceResolutionError(str(error)) from error
+                raise ResourceResolutionError(
+                    "Resource revision inspection failed.", source=error
+                ) from error
             except Exception as error:
                 raise ResourceResolutionError(
-                    f"Could not inspect resource {reference!r}: {error}"
+                    f"Could not inspect resource {reference!r}.",
+                    source=error,
                 ) from error
         if isinstance(reference, PackageResourceRef):
             return ResourceRevision(f"package:{reference.package}:{reference.name}")

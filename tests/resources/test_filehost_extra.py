@@ -228,7 +228,7 @@ async def test_singleflight_broadcasts_errors_and_allows_retry(
     async def publish() -> None:
         with pytest.raises(
             ResourceResolutionError,
-            match="Could not publish resource: upload failed",
+            match=r"Could not publish resource.*RuntimeError: upload failed",
         ) as captured:
             await publisher.publish(b"shared")
         errors.append(str(captured.value))
@@ -241,7 +241,10 @@ async def test_singleflight_broadcasts_errors_and_allows_retry(
         await wait_all_tasks_blocked()
         release_upload.set()
 
-    assert errors == ["Could not publish resource: upload failed"] * 5
+    assert (
+        errors
+        == ["Could not publish resource. Caused by RuntimeError: upload failed"] * 5
+    )
     assert calls == 1
 
     failing = False

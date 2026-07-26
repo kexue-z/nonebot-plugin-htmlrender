@@ -474,7 +474,8 @@ class RemoteTransportExecutor:
                     remaining = len(self._active)
                 raise ProviderLifecycleError(
                     f"Remote transport close timed out with {remaining} "
-                    "in-flight fetches still running; close may be retried."
+                    "in-flight fetches still running; close may be retried.",
+                    source=error,
                 ) from error
         self._pool.shutdown(wait=True)
         with self._mutex:
@@ -602,7 +603,8 @@ def _perform_hop(
         finally:
             connection.close()
     raise ResourceResolutionError(
-        f"Remote host is unreachable at every authorized address: {url}"
+        f"Remote host is unreachable at every authorized address: {url}",
+        source=last_error,
     ) from last_error
 
 
@@ -697,7 +699,8 @@ async def read_remote(
                 return outcome.content
     except TimeoutError as error:
         raise ResourceResolutionError(
-            f"Remote resource fetch exceeded the {request_timeout_seconds}s deadline."
+            f"Remote resource fetch exceeded the {request_timeout_seconds}s deadline.",
+            source=error,
         ) from error
     raise ResourceResolutionError(
         f"Remote resource exceeded {policy.max_redirects} redirects: {reference.url}"

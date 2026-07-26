@@ -162,7 +162,8 @@ class HostedAssetStore:
                 except RequestHeaderConflict as error:
                     raise ResourceResolutionError(
                         "Conflicting request capabilities for one hosted "
-                        "asset identity."
+                        "asset identity.",
+                        source=error,
                     ) from error
                 existing.leases.update(lease_ids)
                 self._entries.move_to_end(key)

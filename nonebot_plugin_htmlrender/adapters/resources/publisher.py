@@ -293,12 +293,18 @@ class FilehostAssetPublisher:
             except ResourceResolutionError:
                 raise
             except FileNotFoundError as error:
-                raise ResourceNotFound(str(error)) from error
+                raise ResourceNotFound(
+                    "Resource to publish was not found.", source=error
+                ) from error
             except PermissionError as error:
-                raise ResourceAccessDenied(str(error)) from error
+                raise ResourceAccessDenied(
+                    "Access to the resource being published was denied.",
+                    source=error,
+                ) from error
             except Exception as error:
                 raise ResourceResolutionError(
-                    f"Could not read resource for publishing: {error}"
+                    "Could not read resource for publishing.",
+                    source=error,
                 ) from error
             suffix = resolved_suffix
         else:
@@ -393,7 +399,8 @@ class FilehostAssetPublisher:
                 error, ResourceResolutionError
             ):
                 published_error = ResourceResolutionError(
-                    f"Could not publish resource: {error}"
+                    "Could not publish resource.",
+                    source=error,
                 )
             with anyio.CancelScope(shield=True):
                 async with self._lock:
