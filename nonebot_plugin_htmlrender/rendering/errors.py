@@ -39,16 +39,16 @@ class CapabilityUnavailable(RenderingError):
         self.capability = capability
 
 
+class ApplicationNotInitialized(RenderingError):
+    """The process-default Application has not been installed by a host."""
+
+
 class UnsupportedRequirement(RenderingError):
     """The prepared document needs something the provider cannot deliver."""
 
 
 class UnsupportedRenderOption(RenderingError):
     """A valid portable raster option is unsupported by the selected provider."""
-
-
-class ProviderNotConfigured(RenderingError):
-    """The default Application has not been installed by a host or caller."""
 
 
 class ProviderNotFound(RenderingError):

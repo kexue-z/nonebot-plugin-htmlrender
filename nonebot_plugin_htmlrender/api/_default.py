@@ -10,7 +10,7 @@ from __future__ import annotations
 import threading
 from typing import TYPE_CHECKING
 
-from nonebot_plugin_htmlrender.rendering.errors import ProviderNotConfigured
+from nonebot_plugin_htmlrender.rendering.errors import ApplicationNotInitialized
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -59,7 +59,7 @@ def get_default_application() -> Application:
         return application
     factory = _default_factory
     if factory is None:
-        raise ProviderNotConfigured(
+        raise ApplicationNotInitialized(
             "htmlrender is not initialized: load the NoneBot plugin or install "
             "a default application via set_default_application()."
         )

@@ -5,13 +5,13 @@ from .artifacts import RenderedHtml as RenderedHtml
 from .artifacts import RenderedImage as RenderedImage
 from .capabilities import CapabilityCatalog as CapabilityCatalog
 from .capabilities import CapabilityKey as CapabilityKey
+from .errors import ApplicationNotInitialized as ApplicationNotInitialized
 from .errors import CapabilityUnavailable as CapabilityUnavailable
 from .errors import ErrorCause as ErrorCause
 from .errors import InvalidRenderRequest as InvalidRenderRequest
 from .errors import PreparationError as PreparationError
 from .errors import ProviderExecutionError as ProviderExecutionError
 from .errors import ProviderLifecycleError as ProviderLifecycleError
-from .errors import ProviderNotConfigured as ProviderNotConfigured
 from .errors import ProviderNotFound as ProviderNotFound
 from .errors import ProviderUnavailable as ProviderUnavailable
 from .errors import RenderingError as RenderingError
@@ -37,6 +37,7 @@ from .requests import ResourcePolicy as ResourcePolicy
 
 __all__ = [
     "ApplicationLifecycle",
+    "ApplicationNotInitialized",
     "CacheObserver",
     "CapabilityCatalog",
     "CapabilityKey",
@@ -51,7 +52,6 @@ __all__ = [
     "PreparedHtmlExecutor",
     "ProviderExecutionError",
     "ProviderLifecycleError",
-    "ProviderNotConfigured",
     "ProviderNotFound",
     "ProviderUnavailable",
     "RasterizeHtmlRequest",

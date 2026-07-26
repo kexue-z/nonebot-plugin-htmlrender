@@ -5,13 +5,13 @@ from __future__ import annotations
 from exceptiongroup import ExceptionGroup
 
 from nonebot_plugin_htmlrender.rendering import (
+    ApplicationNotInitialized,
     CapabilityUnavailable,
     ErrorCause,
     InvalidRenderRequest,
     PreparationError,
     ProviderExecutionError,
     ProviderLifecycleError,
-    ProviderNotConfigured,
     ProviderNotFound,
     ProviderUnavailable,
     RenderingError,
@@ -26,12 +26,12 @@ from nonebot_plugin_htmlrender.rendering import (
 
 def test_error_taxonomy_roots_at_rendering_error() -> None:
     for error_type in (
+        ApplicationNotInitialized,
         InvalidRenderRequest,
         PreparationError,
         CapabilityUnavailable,
         UnsupportedRenderOption,
         UnsupportedRequirement,
-        ProviderNotConfigured,
         ProviderNotFound,
         ProviderUnavailable,
         ProviderExecutionError,

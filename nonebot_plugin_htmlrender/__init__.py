@@ -73,6 +73,9 @@ from nonebot_plugin_htmlrender.raster import (
     RasterImageFormat as RasterImageFormat,
 )
 from nonebot_plugin_htmlrender.rendering import (
+    ApplicationNotInitialized as ApplicationNotInitialized,
+)
+from nonebot_plugin_htmlrender.rendering import (
     CapabilityCatalog as CapabilityCatalog,
 )
 from nonebot_plugin_htmlrender.rendering import (
@@ -93,9 +96,6 @@ from nonebot_plugin_htmlrender.rendering import (
 )
 from nonebot_plugin_htmlrender.rendering import (
     ProviderLifecycleError as ProviderLifecycleError,
-)
-from nonebot_plugin_htmlrender.rendering import (
-    ProviderNotConfigured as ProviderNotConfigured,
 )
 from nonebot_plugin_htmlrender.rendering import (
     ProviderNotFound as ProviderNotFound,
@@ -163,6 +163,7 @@ initialize_plugin()
 
 __all__ = [
     "Application",
+    "ApplicationNotInitialized",
     "CapabilityCatalog",
     "CapabilityKey",
     "CapabilityUnavailable",
@@ -175,7 +176,6 @@ __all__ = [
     "PreparedStylesheet",
     "ProviderExecutionError",
     "ProviderLifecycleError",
-    "ProviderNotConfigured",
     "ProviderNotFound",
     "ProviderUnavailable",
     "RasterImageFormat",
