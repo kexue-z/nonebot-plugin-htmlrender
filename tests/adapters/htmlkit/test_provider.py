@@ -53,7 +53,6 @@ if TYPE_CHECKING:
     from pytest_mock import MockerFixture
 
     from nonebot_plugin_htmlrender.adapters.htmlkit.api import (
-        HtmlkitApi,
         ImageFetcher,
         StylesheetFetcher,
     )
@@ -61,7 +60,7 @@ if TYPE_CHECKING:
     from tests.adapters.conftest import RecordingOperationObserver
 
 
-class _FakeHtmlkitApi:
+class _FakeHtmlkitAPI:
     def __init__(
         self,
         *,
@@ -142,11 +141,11 @@ def _dependencies(
     )
 
 
-def _install_api(mocker: MockerFixture, api: _FakeHtmlkitApi) -> None:
+def _install_api(mocker: MockerFixture, api: _FakeHtmlkitAPI) -> None:
     mocker.patch.object(
         executor_module,
         "load_htmlkit_api",
-        return_value=cast("HtmlkitApi", api),
+        return_value=api,
     )
 
 
@@ -203,7 +202,7 @@ async def test_executor_maps_supported_portable_options(
     mocker: MockerFixture,
     operation_observer: RecordingOperationObserver,
 ) -> None:
-    api = _FakeHtmlkitApi(
+    api = _FakeHtmlkitAPI(
         result=encoded_image("jpeg", width=320, height=44),
     )
     _install_api(mocker, api)
@@ -272,7 +271,7 @@ async def test_executor_translates_upstream_failure_at_stable_boundary(
         del call
         raise RuntimeError("native failure")
 
-    api = _FakeHtmlkitApi(before_result=fail)
+    api = _FakeHtmlkitAPI(before_result=fail)
     _install_api(mocker, api)
     executor = (
         HtmlkitProvider()
@@ -296,7 +295,7 @@ async def test_executor_translates_invalid_upstream_artifact(
     mocker: MockerFixture,
     operation_observer: RecordingOperationObserver,
 ) -> None:
-    api = _FakeHtmlkitApi(result=encoded_image("jpeg"))
+    api = _FakeHtmlkitAPI(result=encoded_image("jpeg"))
     _install_api(mocker, api)
     executor = (
         HtmlkitProvider()
@@ -328,7 +327,7 @@ async def test_executor_rejects_options_rc5_cannot_represent(
     operation_observer: RecordingOperationObserver,
     options: RasterOptions,
 ) -> None:
-    api = _FakeHtmlkitApi()
+    api = _FakeHtmlkitAPI()
     _install_api(mocker, api)
     executor = (
         HtmlkitProvider()
@@ -351,7 +350,7 @@ async def test_executor_rejects_javascript_requirement(
     mocker: MockerFixture,
     operation_observer: RecordingOperationObserver,
 ) -> None:
-    api = _FakeHtmlkitApi()
+    api = _FakeHtmlkitAPI()
     _install_api(mocker, api)
     executor = (
         HtmlkitProvider()
@@ -413,7 +412,7 @@ async def test_cancellation_drains_native_work_and_holds_admission_and_limiter(
                 native_cancelled.set()
                 raise
 
-    api = _FakeHtmlkitApi(before_result=block_first)
+    api = _FakeHtmlkitAPI(before_result=block_first)
     _install_api(mocker, api)
     runtime = prepare_runtime(
         RenderSettings.model_validate(
@@ -470,7 +469,7 @@ async def test_timeout_waits_for_native_drain_before_reporting(
         started.set()
         await release.wait()
 
-    api = _FakeHtmlkitApi(before_result=block)
+    api = _FakeHtmlkitAPI(before_result=block)
     _install_api(mocker, api)
     executor = (
         HtmlkitProvider()

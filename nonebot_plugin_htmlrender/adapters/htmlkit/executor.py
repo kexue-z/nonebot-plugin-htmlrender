@@ -23,7 +23,7 @@ from nonebot_plugin_htmlrender.rendering.requests import (
     effective_resource_resolve_mode,
 )
 
-from .api import HtmlkitApi, load_htmlkit_api
+from .api import HtmlkitAPI, load_htmlkit_api
 from .document import build_htmlkit_document
 
 if TYPE_CHECKING:
@@ -52,7 +52,7 @@ def ensure_htmlkit_asyncio() -> asyncio.AbstractEventLoop:
     try:
         return asyncio.get_running_loop()
     except RuntimeError as error:
-        raise ProviderUnavailable(_ASYNCIO_ONLY_MESSAGE) from error
+        raise ProviderUnavailable(_ASYNCIO_ONLY_MESSAGE, source=error) from error
 
 
 def _validate_options(options: RasterOptions) -> None:
@@ -82,8 +82,10 @@ def _translate(operation: str) -> Iterator[None]:
     except RenderingError:
         raise
     except Exception as error:
-        detail = str(error) or type(error).__name__
-        raise ProviderExecutionError(f"HTMLKit {operation} failed: {detail}") from error
+        raise ProviderExecutionError(
+            f"HTMLKit {operation} failed.",
+            source=error,
+        ) from error
 
 
 async def _await_native(coroutine: Coroutine[object, object, bytes]) -> bytes:
@@ -137,10 +139,10 @@ class HtmlkitExecutor:
         self._config = config.model_copy(deep=True)
         self._resources = resources
         self._observer = observer
-        self._limiter = anyio.CapacityLimiter(config.max_concurrency)
-        self._api: HtmlkitApi | None = None
+        self._slots = anyio.Semaphore(config.max_concurrency)
+        self._api: HtmlkitAPI | None = None
 
-    def _load_api(self) -> HtmlkitApi:
+    def _load_api(self) -> HtmlkitAPI:
         api = self._api
         if api is None:
             api = load_htmlkit_api()
@@ -165,7 +167,8 @@ class HtmlkitExecutor:
                 return await self._execute(prepared, options, resource_policy)
         except TimeoutError as error:
             raise ProviderExecutionError(
-                f"Render operation timed out after {timeout_seconds} seconds."
+                f"Render operation timed out after {timeout_seconds} seconds.",
+                source=error,
             ) from error
 
     async def _execute(
@@ -183,7 +186,7 @@ class HtmlkitExecutor:
             resources=self._resources,
             resolve_mode=resolve_mode,
         )
-        async with self._limiter:
+        async with self._slots:
             with (
                 observe_operation(
                     self._observer,

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from importlib import import_module
-from typing import Protocol, TypeAlias, cast
+from typing import Protocol, TypeAlias, runtime_checkable
 
 from nonebot_plugin_htmlrender.raster import RasterImageFormat  # noqa: TC001
 
@@ -12,7 +12,8 @@ ImageFetcher: TypeAlias = Callable[[str], Awaitable[bytes | None]]
 StylesheetFetcher: TypeAlias = Callable[[str], Awaitable[str | None]]
 
 
-class HtmlkitApi(Protocol):
+@runtime_checkable
+class HtmlkitAPI(Protocol):
     async def html_to_pic(
         self,
         html: str,
@@ -34,13 +35,18 @@ class HtmlkitApi(Protocol):
     ) -> bytes: ...
 
 
-def load_htmlkit_api() -> HtmlkitApi:
+def load_htmlkit_api() -> HtmlkitAPI:
     """Load the selected optional backend at the last responsible moment."""
-    return cast("HtmlkitApi", import_module("nonebot_plugin_htmlkit"))
+    api = import_module("nonebot_plugin_htmlkit")
+    if not isinstance(api, HtmlkitAPI):
+        raise TypeError(
+            "nonebot_plugin_htmlkit does not expose the required html_to_pic API."
+        )
+    return api
 
 
 __all__ = [
-    "HtmlkitApi",
+    "HtmlkitAPI",
     "ImageFetcher",
     "StylesheetFetcher",
     "load_htmlkit_api",

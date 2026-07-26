@@ -67,7 +67,8 @@ class HtmlkitResourceBridge:
             error
             if isinstance(error, ResourceResolutionError)
             else ResourceResolutionError(
-                f"Could not fetch HTMLKit resource {url!r}: {error}"
+                f"Could not fetch HTMLKit resource {url!r}.",
+                source=error,
             )
         )
         if self._strict:
