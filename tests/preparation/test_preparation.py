@@ -149,9 +149,14 @@ async def test_prepare_markdown_reads_source_and_marks_math(
     preparer: DefaultHtmlPreparer,
 ) -> None:
     source = tmp_path / "document.md"
-    source.write_text("# Title\n\n$$x^2$$", encoding="utf-8")
+    source.write_text(
+        "# Title\n\n$$x^2$$\n\n<blockquote><p>Thinking</p></blockquote>",
+        encoding="utf-8",
+    )
     prepared = await preparer.prepare_markdown(markdown_path=str(source))
     assert "<h1>Title</h1>" in prepared.html
+    assert "<blockquote><p>Thinking</p></blockquote>" in prepared.html
+    assert "&lt;h1&gt;" not in prepared.html
     assert RenderRequirement.JAVASCRIPT in prepared.requirements
 
 

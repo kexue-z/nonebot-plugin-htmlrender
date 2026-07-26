@@ -20,6 +20,10 @@ text_image = await render_text("Hello", width=800)
 
 函数返回 `RenderedImage`。需要交给消息、HTTP 或文件 API 时调用`bytes(image)`；使用 `image.media_type`、`width` 和 `height` 读取实际编码元数据。
 
+!!! warning "Markdown 中的原始 HTML 会进入页面"
+
+    `render_markdown` 保留原始 HTML，并不负责消毒不可信内容。用户或模型输入应先按业务策略清洗标签、属性和 URL；不需要富文本时使用 `render_text`。完整威胁边界见[安全须知](../configuration/security.md#untrusted-html-and-templates)。
+
 ## Jinja 模板
 
 `examples/template_render` 展示引擎中立的模板渲染：

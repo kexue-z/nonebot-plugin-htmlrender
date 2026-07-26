@@ -16,9 +16,11 @@ HTML 渲染会连接网络、读取资源、执行模板或运行浏览器。Pro
 - 不要把用户提供的任意路径传给模板、Markdown 或资源辅助函数。
 - cache 命中不能绕过授权；策略变更后应创建新的 composition。
 
-## 不可信 HTML 与模板
+## 不可信 HTML 与模板 { #untrusted-html-and-templates }
 
 Jinja autoescape 不能替代模板源码信任。模板源码、filters 与 extensions 只能来自受控代码；用户输入只能作为 `variables` 值。
+
+`render_markdown` 会保留 Markdown 中的原始 HTML，并把转换结果作为 HTML 片段交给 Provider；它不提供 HTML 消毒边界。来自用户或模型的 Markdown 可能携带 `<script>`、事件处理属性和外链资源，其脚本执行与网络访问风险和 `render_html` 相同。若不需要富文本，使用会转义文本内容的 `render_text`；若需要 Markdown，应在渲染前按业务策略对白名单标签、属性和 URL 做清洗。
 
 ```python
 artifact = await render_template(
@@ -28,7 +30,7 @@ artifact = await render_template(
 )
 ```
 
-不要把用户输入拼成 `<script>`、event handler、CSS URL 或 Jinja 表达式。
+不要把用户输入拼成 `<script>`、event handler、CSS URL 或 Jinja 表达式。不要把“内容由模型生成”当作可信来源。
 
 ## 远程导航与 SSRF
 
