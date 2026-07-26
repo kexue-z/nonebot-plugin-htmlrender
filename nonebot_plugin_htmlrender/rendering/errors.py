@@ -7,6 +7,9 @@ native exceptions; the neutral executor boundary translates those failures.
 from __future__ import annotations
 
 from nonebot_plugin_htmlrender.errors import (
+    ErrorCause as ErrorCause,
+)
+from nonebot_plugin_htmlrender.errors import (
     InvalidRenderRequest as InvalidRenderRequest,
 )
 from nonebot_plugin_htmlrender.errors import PreparationError as PreparationError

@@ -81,6 +81,7 @@ from nonebot_plugin_htmlrender.rendering import (
 from nonebot_plugin_htmlrender.rendering import (
     CapabilityUnavailable as CapabilityUnavailable,
 )
+from nonebot_plugin_htmlrender.rendering import ErrorCause as ErrorCause
 from nonebot_plugin_htmlrender.rendering import (
     InvalidRenderRequest as InvalidRenderRequest,
 )
@@ -166,6 +167,7 @@ __all__ = [
     "CapabilityKey",
     "CapabilityUnavailable",
     "DocumentBase",
+    "ErrorCause",
     "InvalidRenderRequest",
     "PreparationError",
     "PreparedAsset",

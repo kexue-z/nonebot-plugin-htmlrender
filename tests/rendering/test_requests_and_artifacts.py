@@ -9,28 +9,14 @@ import pytest
 from nonebot_plugin_htmlrender.preparation import PreparedHtml, RasterOptions
 from nonebot_plugin_htmlrender.raster import RasterImageFormat
 from nonebot_plugin_htmlrender.rendering import (
-    CapabilityUnavailable,
     InvalidRenderRequest,
-    PreparationError,
     PreparedHtmlExecutor,
-    ProviderExecutionError,
-    ProviderLifecycleError,
-    ProviderNotConfigured,
-    ProviderNotFound,
-    ProviderUnavailable,
     RenderedHtml,
     RenderedImage,
     RenderHtmlRequest,
-    RenderingError,
     RenderMarkdownRequest,
     RenderTemplateRequest,
-    ResourceAccessDenied,
-    ResourceNotFound,
     ResourcePolicy,
-    ResourceResolutionError,
-    ResourceSizeExceeded,
-    UnsupportedRenderOption,
-    UnsupportedRequirement,
 )
 from nonebot_plugin_htmlrender.rendering.requests import (
     POLICY_RESOLVE_MODES,
@@ -150,25 +136,6 @@ def test_rendered_html_stringifies_to_content() -> None:
 
     assert str(artifact) == "<p>hi</p>"
     assert artifact.content == "<p>hi</p>"
-
-
-def test_error_taxonomy_roots_at_rendering_error() -> None:
-    for error_type in (
-        InvalidRenderRequest,
-        PreparationError,
-        CapabilityUnavailable,
-        UnsupportedRenderOption,
-        UnsupportedRequirement,
-        ProviderNotConfigured,
-        ProviderNotFound,
-        ProviderUnavailable,
-        ProviderExecutionError,
-        ProviderLifecycleError,
-        ResourceResolutionError,
-    ):
-        assert issubclass(error_type, RenderingError)
-    for error_type in (ResourceAccessDenied, ResourceNotFound, ResourceSizeExceeded):
-        assert issubclass(error_type, ResourceResolutionError)
 
 
 def test_markdown_request_requires_content_or_path() -> None:

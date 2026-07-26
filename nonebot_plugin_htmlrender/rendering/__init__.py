@@ -6,6 +6,7 @@ from .artifacts import RenderedImage as RenderedImage
 from .capabilities import CapabilityCatalog as CapabilityCatalog
 from .capabilities import CapabilityKey as CapabilityKey
 from .errors import CapabilityUnavailable as CapabilityUnavailable
+from .errors import ErrorCause as ErrorCause
 from .errors import InvalidRenderRequest as InvalidRenderRequest
 from .errors import PreparationError as PreparationError
 from .errors import ProviderExecutionError as ProviderExecutionError
@@ -40,6 +41,7 @@ __all__ = [
     "CapabilityCatalog",
     "CapabilityKey",
     "CapabilityUnavailable",
+    "ErrorCause",
     "InvalidRenderRequest",
     "NoopCacheObserver",
     "NoopOperationObserver",
