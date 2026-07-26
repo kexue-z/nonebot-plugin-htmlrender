@@ -43,10 +43,7 @@ EXPECTED_EXTRAS: Final = frozenset(
     }
 )
 OPTIONAL_REQUIREMENTS: Final = {
-    "filehost": (
-        "nonebot-plugin-filehost>=0.2.0",
-        "py-machineid>=0.8.0",
-    ),
+    "filehost": ("py-machineid>=0.8.0",),
     "htmlkit": (f"nonebot-plugin-htmlkit=={HTMLKIT_VERSION}",),
     "pillow": (f"pillow>={PILLOW_MINIMUM_VERSION}",),
     "playwright": ("playwright>=1.60.0",),
