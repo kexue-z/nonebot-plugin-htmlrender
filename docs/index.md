@@ -1,63 +1,114 @@
 ---
 title: nonebot-plugin-htmlrender
-description: 可插拔的 NoneBot HTML 渲染库
+description: 面向 NoneBot 的可插拔图片渲染基础设施
 icon: lucide/image
+hide:
+  - navigation
+  - toc
+  - footer
 ---
 
-# nonebot-plugin-htmlrender
+<div class="htmlrender-home">
 
-插件把输入分成两个阶段：Preparation 将 HTML、Markdown、文本或 Jinja 模板
-转换为中立的 `PreparedHtml`；配置的 Provider 再把它执行为
-`RenderedImage`。Provider 专属操作通过类型化 Capability 暴露，不进入通用
-渲染函数；第一方 Capability 契约从稳定的
-`nonebot_plugin_htmlrender.capabilities` 包导入。
+<section class="htmlrender-hero" aria-labelledby="htmlrender-hero-title">
+  <div class="htmlrender-hero__graphic" aria-hidden="true">
+    <svg viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <filter id="htmlrender-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="5" />
+        </filter>
+      </defs>
+      <g class="htmlrender-tracks htmlrender-tracks--soft">
+        <path d="M-120 682 C210 665 266 258 533 275 S827 654 1114 578 S1313 258 1548 228" />
+        <path d="M-92 710 C238 692 304 294 544 305 S814 621 1088 554 S1302 292 1531 260" />
+        <path d="M-68 736 C257 720 338 331 559 338 S810 591 1065 530 S1290 326 1510 295" />
+        <path d="M192 -68 C246 153 319 212 510 210 S816 97 995 216 S1146 523 1510 472" />
+        <path d="M256 -76 C294 125 354 180 523 184 S804 108 970 228 S1132 492 1502 444" />
+        <path d="M319 -80 C346 99 396 151 538 160 S792 124 944 239 S1113 461 1484 417" />
+      </g>
+      <g class="htmlrender-tracks htmlrender-tracks--bright">
+        <path d="M-96 620 C234 605 286 214 518 236 S826 689 1138 605 S1323 205 1532 178" />
+        <path d="M134 -70 C202 181 295 248 494 238 S831 66 1020 205 S1162 558 1522 506" />
+        <path d="M-42 430 C243 412 338 392 548 414 S842 530 1082 488 S1315 368 1498 362" />
+      </g>
+      <g class="htmlrender-track-nodes">
+        <circle cx="518" cy="236" r="18" filter="url(#htmlrender-glow)" />
+        <circle cx="518" cy="236" r="3.2" />
+        <circle cx="1082" cy="488" r="16" filter="url(#htmlrender-glow)" />
+        <circle cx="1082" cy="488" r="3" />
+        <circle cx="1020" cy="205" r="12" filter="url(#htmlrender-glow)" />
+        <circle cx="1020" cy="205" r="2.6" />
+      </g>
+    </svg>
+  </div>
 
-## 从这里开始
+  <div class="htmlrender-hero__inner">
+    <div class="htmlrender-hero__content">
+      <p class="htmlrender-eyebrow">
+        <span></span>
+        NoneBot rendering infrastructure
+      </p>
+      <h1 id="htmlrender-hero-title">
+        把内容渲染成<strong>图片。</strong>
+      </h1>
+      <p class="htmlrender-hero__lead">
+        一套 API 接收 HTML、Markdown、纯文本与 Jinja 模板；可插拔 Provider 在浏览器与原生后端之间选择，稳定产出类型化图片。
+      </p>
+      <div class="htmlrender-hero__actions">
+        <a class="md-button md-button--primary" href="start/quickstart/">
+          开始第一次渲染
+          <span aria-hidden="true">→</span>
+        </a>
+        <a class="md-button" href="guides/">
+          浏览使用指南
+        </a>
+      </div>
+      <ul class="htmlrender-hero__facts" aria-label="项目能力概览">
+        <li><strong>多种内容</strong> HTML · Markdown · Text · Jinja</li>
+        <li><strong>按需选型</strong> Browser · Native</li>
+        <li><strong>图片就绪</strong> PNG · JPEG · 尺寸信息</li>
+      </ul>
+    </div>
 
-<div class="grid cards" markdown>
-
--   :octicons-rocket-24:{ .lg .middle } __使用渲染 API__
-
-    ---
-
-    安装所需 Provider，完成第一张图片，并理解类型化渲染产物。
-
-    [:octicons-arrow-right-24: 快速开始](users/quickstart.md)
-
--   :octicons-arrow-switch-24:{ .lg .middle } __从 0.7 迁移__
-
-    ---
-
-    按公共 API、配置和资源 transport 的破坏性变化逐项迁移。
-
-    [:octicons-arrow-right-24: v0.8 迁移指南](users/migration-v080.md)
-
--   :octicons-plug-24:{ .lg .middle } __开发 Provider__
-
-    ---
-
-    从依赖方向与 Provider SDK 开始，接入新的 HTML 渲染引擎。
-
-    [:octicons-arrow-right-24: Provider 开发流程](maintainers/architecture/provider-development.md)
+    <div class="htmlrender-preview" aria-hidden="true">
+      <div class="htmlrender-preview__bar">
+        <span class="htmlrender-preview__controls">
+          <i></i><i></i><i></i>
+        </span>
+        <span class="htmlrender-preview__history">
+          <i></i><i></i>
+        </span>
+        <span class="htmlrender-preview__address">
+          <i></i><b></b>
+        </span>
+        <span class="htmlrender-preview__tools">
+          <i></i><i></i>
+        </span>
+      </div>
+      <div class="htmlrender-preview__canvas">
+        <div class="htmlrender-nonebot__nav">
+          <span class="htmlrender-nonebot__brand">
+            <i></i>
+            <b></b>
+          </span>
+          <span class="htmlrender-nonebot__links">
+            <i></i><i></i><i></i>
+          </span>
+        </div>
+        <div class="htmlrender-nonebot__hero">
+          <span class="htmlrender-nonebot__ring"></span>
+          <div class="htmlrender-nonebot__wordmark">
+            <i></i><i></i>
+          </div>
+          <span class="htmlrender-nonebot__tagline"></span>
+          <div class="htmlrender-nonebot__actions">
+            <span><i></i></span>
+            <code><i></i><i></i><i></i></code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
 </div>
-
-## 核心概念
-
-| 概念 | 职责 |
-| --- | --- |
-| `Application` | 持有 `Renderer`、Capability catalog 与组合生命周期 |
-| `Renderer` | 执行类型化 request，不感知具体引擎 |
-| Preparation | 生成可移植的 `PreparedHtml` 与 `PreparedAsset` |
-| Resource Service | 读取、授权、缓存并物化文档资源 |
-| Provider | 校验专属配置，通过窄资源 façade 组合执行器、生命周期和 Capability |
-| Graphics Capability | 通过独立 Pillow/Skia adapter 执行物理像素 `RasterScene` |
-| typed artifact | 用 `RenderedImage` / `RenderedHtml` 保存结果与元数据 |
-
-## 常用入口
-
-- [配置与加载](users/config/core.md)
-- [示例项目](users/examples.md)
-- [最佳实践](users/best-practices.md)
-- [安全须知](users/security.md)
-- [维护者总览](maintainers/index.md)
