@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Protocol, TypeVar
+from typing import TYPE_CHECKING, Any, ParamSpec, Protocol, TypeVar
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Mapping, Sequence
@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from .templating import ExtensionSpec, FilterCallable, TemplateSource
 
 R = TypeVar("R")
+P = ParamSpec("P")
 
 
 class ResourceReader(Protocol):
@@ -111,7 +112,13 @@ class AssetPublisher(Protocol):
 
 
 class WorkerExecutor(Protocol):
-    async def run_sync(self, function: Callable[..., R], *args: object) -> R: ...
+    async def run_sync(
+        self,
+        function: Callable[P, R],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> R: ...
 
 
 class TemplateCompiler(Protocol):

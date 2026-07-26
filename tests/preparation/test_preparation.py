@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 import math
+import threading
 from typing import TYPE_CHECKING, cast
 
 import pytest
@@ -20,8 +21,9 @@ from nonebot_plugin_htmlrender.rendering import (
 
 if TYPE_CHECKING:
     from pathlib import Path
-    from typing import Literal
+    from typing import Any, Literal
 
+    from nonebot_plugin_htmlrender.preparation.models import PreparedHtml
     from nonebot_plugin_htmlrender.preparation.service import DefaultHtmlPreparer
 
 
@@ -151,6 +153,38 @@ async def test_prepare_markdown_reads_source_and_marks_math(
     prepared = await preparer.prepare_markdown(markdown_path=str(source))
     assert "<h1>Title</h1>" in prepared.html
     assert RenderRequirement.JAVASCRIPT in prepared.requirements
+
+
+async def test_cpu_bound_preparation_runs_outside_the_event_loop(
+    preparer: DefaultHtmlPreparer,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from nonebot_plugin_htmlrender.preparation import service  # noqa: PLC0415
+
+    event_loop_thread = threading.get_ident()
+    parser_threads: list[int] = []
+    markdown_threads: list[int] = []
+    original_prepare_html = service.prepare_html
+    original_markdown = service.markdown.markdown
+
+    def recording_prepare_html(*args: Any, **kwargs: Any) -> PreparedHtml:
+        parser_threads.append(threading.get_ident())
+        return original_prepare_html(*args, **kwargs)
+
+    def recording_markdown(*args: Any, **kwargs: Any) -> str:
+        markdown_threads.append(threading.get_ident())
+        return original_markdown(*args, **kwargs)
+
+    monkeypatch.setattr(service, "prepare_html", recording_prepare_html)
+    monkeypatch.setattr(service.markdown, "markdown", recording_markdown)
+
+    await preparer.prepare_html("<p>hello</p>")
+    await preparer.prepare_markdown("# Title")
+
+    assert parser_threads and markdown_threads
+    assert all(
+        thread != event_loop_thread for thread in (*parser_threads, *markdown_threads)
+    )
 
 
 async def test_prepare_markdown_translates_invalid_generated_urls(

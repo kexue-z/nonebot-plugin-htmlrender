@@ -71,6 +71,13 @@ async def test_materialize_strict_and_tolerant_modes(
     ).assets == ()
 
 
+async def test_worker_executor_forwards_keyword_arguments() -> None:
+    def work(value: int, *, suffix: str) -> str:
+        return f"{value}{suffix}"
+
+    assert await AnyioWorkerExecutor().run_sync(work, 12, suffix="px") == "12px"
+
+
 async def test_materialize_enforces_document_root(
     tmp_path: Path,
 ) -> None:

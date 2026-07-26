@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Protocol, final
 
@@ -104,7 +103,7 @@ class DefaultHtmlPreparer:
     async def prepare_html(
         self, html: str, *, base_url: str | None = None
     ) -> PreparedHtml:
-        return prepare_html(html, base_url=base_url)
+        return await self._worker.run_sync(prepare_html, html, base_url=base_url)
 
     async def prepare_text(self, text: str, *, css_path: str = "") -> PreparedHtml:
         css = (
@@ -121,7 +120,8 @@ class DefaultHtmlPreparer:
         stylesheet_base = (
             await self._worker.run_sync(self._path_uri, css_path) if css_path else None
         )
-        return prepare_html(
+        return await self._worker.run_sync(
+            prepare_html,
             html,
             stylesheets=(PreparedStylesheet(css=css, base_url=stylesheet_base),),
         )
@@ -138,7 +138,8 @@ class DefaultHtmlPreparer:
             if not markdown_path:
                 raise InvalidRenderRequest("markdown or markdown_path must be provided")
             markdown_text = await self._resources.read_text(markdown_path)
-        rendered = markdown.markdown(
+        rendered = await self._worker.run_sync(
+            markdown.markdown,
             markdown_text,
             extensions=[
                 "pymdownx.tasklist",
@@ -184,7 +185,8 @@ class DefaultHtmlPreparer:
         stylesheet_base = (
             await self._worker.run_sync(self._path_uri, css_path) if css_path else None
         )
-        prepared = prepare_html(
+        prepared = await self._worker.run_sync(
+            prepare_html,
             html,
             base_url=markup_base,
             stylesheets=(PreparedStylesheet(css=css, base_url=stylesheet_base),),
@@ -210,7 +212,10 @@ class DefaultHtmlPreparer:
     ) -> PreparedHtml:
         if not template_name:
             raise InvalidRenderRequest("template_name must not be empty")
-        template_root = self._resources.authorize_local(Path(template_path))
+        template_root = await self._worker.run_sync(
+            self._resources.authorize_local,
+            Path(template_path),
+        )
         effective_mode = resource_mode or self._resources.strategy.resolve_mode
         if effective_mode is ResourceResolveMode.OFF:
             staged, assets = dict(variables), ()
@@ -229,9 +234,16 @@ class DefaultHtmlPreparer:
             extensions=extensions,
         )
         base = await self._worker.run_sync(
-            partial(self._path_uri, template_root, directory=True),
+            self._path_uri,
+            template_root,
+            directory=True,
         )
-        return prepare_html(html, base_url=base, assets=assets)
+        return await self._worker.run_sync(
+            prepare_html,
+            html,
+            base_url=base,
+            assets=assets,
+        )
 
     async def render_template_html(
         self,
@@ -244,7 +256,10 @@ class DefaultHtmlPreparer:
     ) -> str:
         if not template_name:
             raise InvalidRenderRequest("template_name must not be empty")
-        template_root = self._resources.authorize_local(Path(template_path))
+        template_root = await self._worker.run_sync(
+            self._resources.authorize_local,
+            Path(template_path),
+        )
         return await self._templates.render(
             template_root,
             template_name,

@@ -3,12 +3,13 @@ from __future__ import annotations
 from collections import OrderedDict
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from importlib.resources import files
 import mimetypes
 import os
 from pathlib import Path, PurePosixPath
 import time
-from typing import TYPE_CHECKING, TypeVar, final
+from typing import TYPE_CHECKING, ParamSpec, TypeVar, final
 
 import anyio
 from anyio.to_thread import run_sync
@@ -51,12 +52,19 @@ if TYPE_CHECKING:
     )
 
 R = TypeVar("R")
+P = ParamSpec("P")
 
 
 @final
 class AnyioWorkerExecutor:
-    async def run_sync(self, function: Callable[..., R], *args: object) -> R:
-        return await run_sync(function, *args)
+    async def run_sync(
+        self,
+        function: Callable[P, R],
+        /,
+        *args: P.args,
+        **kwargs: P.kwargs,
+    ) -> R:
+        return await run_sync(partial(function, *args, **kwargs))
 
 
 @final
