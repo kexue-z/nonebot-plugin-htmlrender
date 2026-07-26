@@ -1,20 +1,37 @@
+.DEFAULT_GOAL := prepare
+
+# Commands
 UV ?= uv
-PYTEST ?= $(UV) run pytest
-ZENSICAL ?= $(UV) run zensical
+UV_RUN ?= $(UV) run
+PYTEST ?= $(UV_RUN) pytest
+ZENSICAL ?= $(UV_RUN) zensical
 TWINE ?= $(UV) run --no-project --with twine==6.2.0 twine
 VERIFY_DISTRIBUTION ?= python3 scripts/verify_distribution.py
+DOCKER_COMPOSE ?= docker compose
+
+# Paths
+PYTHON_PATHS := nonebot_plugin_htmlrender tests examples
+RUFF_CHECK_PATHS := $(PYTHON_PATHS) pyproject.toml
+TEST_PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.artifacts/playwright-browsers
+REMOTE_COMPOSE_FILE ?= $(CURDIR)/tests/infra/docker-compose.remote-test.yaml
+DIST_DIR ?= $(CURDIR)/dist
+
+# Options
 DIST_SMOKE_PYTHON ?= 3.12
 PYTEST_PARALLEL ?= -n auto --dist=loadfile
-TEST_PLAYWRIGHT_BROWSERS_PATH ?= $(CURDIR)/.artifacts/playwright-browsers
-DIST_DIR ?= $(CURDIR)/dist
 PLAYWRIGHT_VERSION ?= $(shell $(UV) tree --locked --package playwright --depth 0 2>/dev/null | awk '$$1 == "playwright" { sub(/^v/, "", $$2); print $$2 }')
 
-.DEFAULT_GOAL := prepare
+##@ General
 
 .PHONY: help
 help: ## Show available make targets.
 	@echo "Available make targets:"
-	@awk 'BEGIN { FS = ":.*## " } /^[A-Za-z0-9_.-]+:.*## / { printf "  %-22s %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
+	@awk 'BEGIN { FS = ":.*## " } \
+		/^##@ / { printf "\n%s:\n", substr($$0, 5); next } \
+		/^[A-Za-z0-9_.-]+:.*## / { printf "  %-22s %s\n", $$1, $$2 }' \
+		$(MAKEFILE_LIST)
+
+##@ Environment
 
 .PHONY: ensure-uv
 ensure-uv: ## Ensure uv is available in PATH.
@@ -25,7 +42,7 @@ ensure-uv: ## Ensure uv is available in PATH.
 		exit 1; \
 	}
 
-.PHONY: sync sync-all sync-build download-deps prepare-build
+.PHONY: sync sync-all sync-build
 sync: sync-all ## Alias for sync-all.
 
 sync-all: ensure-uv ## Sync all optional dependencies and dependency groups for development.
@@ -35,10 +52,6 @@ sync-all: ensure-uv ## Sync all optional dependencies and dependency groups for 
 sync-build: ensure-uv ## Sync dependencies for build/release usage without local sources.
 	@echo "==> Syncing build dependencies"
 	@$(UV) sync --locked --all-extras --all-groups --no-sources
-
-download-deps: sync-all ## Deprecated alias for sync-all.
-
-prepare-build: sync-build ## Deprecated alias for sync-build.
 
 .PHONY: install-prek
 install-prek: ensure-uv ## Install prek and git hooks.
@@ -52,10 +65,12 @@ install-prek: ensure-uv ## Install prek and git hooks.
 prepare: sync-all install-prek ## Prepare local dev environment.
 	@echo "==> Environment prepared"
 
+##@ Distribution
+
 .PHONY: clean-dist verify-artifacts build-artifacts
 clean-dist: ## Remove local distribution artifacts.
 	@echo "==> Removing distribution artifacts from $(DIST_DIR)"
-	rm -rf $(DIST_DIR)
+	rm -rf -- "$(DIST_DIR)"
 
 verify-artifacts: ensure-uv ## Verify archive contents and isolated installs.
 	@echo "==> Verifying built distributions"
@@ -64,16 +79,18 @@ verify-artifacts: ensure-uv ## Verify archive contents and isolated installs.
 		--python "$(DIST_SMOKE_PYTHON)" \
 		--uv "$(UV)"
 
-build-artifacts: prepare-build clean-dist ## Build manual release artifacts (wheel + sdist).
+build-artifacts: sync-build clean-dist ## Build manual release artifacts (wheel + sdist).
 	@echo "==> Building wheel and sdist into $(DIST_DIR)"
-	@$(UV) build --no-sources --wheel --sdist --out-dir $(DIST_DIR)
+	@$(UV) build --no-sources --wheel --sdist --out-dir "$(DIST_DIR)"
 	@echo "==> Validating package metadata"
-	@$(TWINE) check $(DIST_DIR)/*
+	@$(TWINE) check "$(DIST_DIR)"/*
 	@$(MAKE) verify-artifacts DIST_DIR="$(DIST_DIR)"
 	@echo "==> Artifacts generated:"
-	@ls -la $(DIST_DIR)
+	@ls -la "$(DIST_DIR)"
 	@echo "==> Artifact checksums:"
-	@sh -c 'if command -v sha256sum >/dev/null 2>&1; then sha256sum $(DIST_DIR)/*; else shasum -a 256 $(DIST_DIR)/*; fi'
+	@sh -c 'if command -v sha256sum >/dev/null 2>&1; then sha256sum "$(DIST_DIR)"/*; else shasum -a 256 "$(DIST_DIR)"/*; fi'
+
+##@ Testing
 
 .PHONY: test test-ci check-browser-install test-local install-browser remote-smoke remote-smoke-build remote-smoke-down
 test: test-ci ## Run CI profile tests in parallel.
@@ -96,51 +113,55 @@ test-local: ensure-uv check-browser-install ## Run local profile tests (serial).
 
 install-browser: ensure-uv ## Install Playwright Chromium with system deps.
 	@echo "==> Installing Playwright Chromium into $(TEST_PLAYWRIGHT_BROWSERS_PATH)"
-	mkdir -p $(TEST_PLAYWRIGHT_BROWSERS_PATH)
-	PLAYWRIGHT_BROWSERS_PATH=$(TEST_PLAYWRIGHT_BROWSERS_PATH) $(UV) run playwright install --with-deps chromium
+	mkdir -p "$(TEST_PLAYWRIGHT_BROWSERS_PATH)"
+	PLAYWRIGHT_BROWSERS_PATH="$(TEST_PLAYWRIGHT_BROWSERS_PATH)" $(UV_RUN) playwright install --with-deps chromium
 
 remote-smoke: ## Run remote browser smoke with cached image and dependencies.
 	@echo "==> Running remote browser smoke"
-	docker compose -f tests/infra/docker-compose.remote-test.yaml up --abort-on-container-exit --exit-code-from render
+	$(DOCKER_COMPOSE) -f "$(REMOTE_COMPOSE_FILE)" up --abort-on-container-exit --exit-code-from render
 
 remote-smoke-build: ## Rebuild image, then run remote browser smoke.
 	@echo "==> Rebuilding and running remote browser smoke"
-	PLAYWRIGHT_VERSION="$(PLAYWRIGHT_VERSION)" docker compose -f tests/infra/docker-compose.remote-test.yaml up --build --abort-on-container-exit --exit-code-from render
+	PLAYWRIGHT_VERSION="$(PLAYWRIGHT_VERSION)" $(DOCKER_COMPOSE) -f "$(REMOTE_COMPOSE_FILE)" up --build --abort-on-container-exit --exit-code-from render
 
 remote-smoke-down: ## Stop remote browser smoke services and remove named volumes.
 	@echo "==> Tearing down remote browser smoke services"
-	docker compose -f tests/infra/docker-compose.remote-test.yaml down -v
+	$(DOCKER_COMPOSE) -f "$(REMOTE_COMPOSE_FILE)" down -v
+
+##@ Code quality
 
 .PHONY: ruff-format ruff-format-check ruff-check lint basedpyright type-completeness ty typecheck check
 ruff-format: ensure-uv ## Format Python files with Ruff.
 	@echo "==> Formatting Python files with Ruff"
-	$(UV) run ruff format nonebot_plugin_htmlrender tests examples
+	$(UV_RUN) ruff format $(PYTHON_PATHS)
 
 ruff-format-check: ensure-uv ## Check Python formatting without modifying files.
 	@echo "==> Checking Python formatting with Ruff"
-	$(UV) run ruff format --check nonebot_plugin_htmlrender tests examples
+	$(UV_RUN) ruff format --check $(PYTHON_PATHS)
 
 ruff-check: ensure-uv ## Run Ruff lint checks.
 	@echo "==> Running Ruff checks"
-	$(UV) run ruff check nonebot_plugin_htmlrender tests examples pyproject.toml
+	$(UV_RUN) ruff check $(RUFF_CHECK_PATHS)
 
 lint: ruff-check ## Alias for ruff-check.
 
 basedpyright: ensure-uv ## Run basedpyright type checking.
 	@echo "==> Running basedpyright"
-	$(UV) run basedpyright . --verbose
+	$(UV_RUN) basedpyright . --verbose
 
 type-completeness: ensure-uv ## Verify the installed package's public type surface.
 	@echo "==> Verifying package type completeness"
-	$(UV) run basedpyright --verifytypes nonebot_plugin_htmlrender --ignoreexternal
+	$(UV_RUN) basedpyright --verifytypes nonebot_plugin_htmlrender --ignoreexternal
 
 ty: ensure-uv ## Run ty type checking.
 	@echo "==> Running ty"
-	$(UV) run ty check nonebot_plugin_htmlrender tests examples
+	$(UV_RUN) ty check $(PYTHON_PATHS)
 
 typecheck: basedpyright type-completeness ## Run source and public API type checks.
 
 check: ruff-format-check ruff-check typecheck ty test ## Run format, lint, type checks, and tests without modifying files.
+
+##@ Documentation
 
 .PHONY: docs-serve docs-build docs-deploy docs-list
 docs-serve: ensure-uv ## Serve docs site locally.
@@ -153,7 +174,14 @@ docs-build: ensure-uv ## Build docs site.
 
 docs-deploy: ensure-uv ## Deploy versioned docs locally (e.g. make docs-deploy VERSION=0.7.0).
 	@echo "==> Deploying docs version $(VERSION)"
-	$(UV) run mike deploy --update-aliases $(VERSION) latest
+	$(UV_RUN) mike deploy --update-aliases $(VERSION) latest
 
 docs-list: ensure-uv ## List all deployed doc versions.
-	$(UV) run mike list
+	$(UV_RUN) mike list
+
+##@ Compatibility
+
+.PHONY: download-deps prepare-build
+download-deps: sync-all ## Deprecated alias for sync-all.
+
+prepare-build: sync-build ## Deprecated alias for sync-build.
