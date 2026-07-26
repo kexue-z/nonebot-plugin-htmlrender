@@ -6,16 +6,12 @@ from functools import partial
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as pkg_version
 import re
-from typing import TYPE_CHECKING, cast
-from typing_extensions import Unpack
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 from urllib.request import Request, urlopen
 
 if TYPE_CHECKING:
-    from .types import (
-        BrowserLaunchKwargs,
-        ProxySettings,
-    )
+    from playwright.async_api import ProxySettings
 
 import anyio
 from anyio import CapacityLimiter
@@ -276,19 +272,28 @@ class PlaywrightEngine:
 
             case _:
                 browser_type = self._get_browser_type(pw, browser_name)
-                options: BrowserLaunchKwargs = {}
-                if cfg.channel:
-                    options["channel"] = cfg.channel.value
-                if cfg.proxy_server:
-                    options["proxy"] = self._build_proxy(
-                        cfg.proxy_server, cfg.proxy_bypass
-                    )
-                if cfg.launch_args:
-                    options["args"] = cfg.launch_args.split()
+                channel = cfg.channel.value if cfg.channel else None
+                proxy = (
+                    self._build_proxy(cfg.proxy_server, cfg.proxy_bypass)
+                    if cfg.proxy_server
+                    else None
+                )
+                args = cfg.launch_args.split() if cfg.launch_args else None
                 if cfg.executable_path:
-                    options["executable_path"] = str(cfg.executable_path)
-                    return await browser_type.launch(**options)
-                return await self._launch_local_browser(pw, **options)
+                    return await browser_type.launch(
+                        executable_path=str(cfg.executable_path),
+                        channel=channel,
+                        proxy=proxy,
+                        args=args,
+                    )
+                if channel is None and proxy is None and args is None:
+                    return await self._launch_local_browser(pw)
+                return await self._launch_local_browser(
+                    pw,
+                    channel=channel,
+                    proxy=proxy,
+                    args=args,
+                )
 
     @staticmethod
     def _build_proxy(
@@ -304,7 +309,7 @@ class PlaywrightEngine:
         Returns:
             BrowserType.launch() 可接受的代理选项字典。
         """
-        proxy = cast("ProxySettings", {"server": server})
+        proxy: ProxySettings = {"server": server}
         if bypass:
             proxy["bypass"] = bypass
         return proxy
@@ -326,7 +331,10 @@ class PlaywrightEngine:
     async def _launch_local_browser(
         self,
         pw: Playwright,
-        **kwargs: Unpack[BrowserLaunchKwargs],
+        *,
+        channel: str | None = None,
+        proxy: ProxySettings | None = None,
+        args: list[str] | None = None,
     ) -> Browser:
         """Launch locally; only a definite install-required failure installs.
 
@@ -336,7 +344,7 @@ class PlaywrightEngine:
         """
         browser_type = self._get_browser_type(pw, self._config.engine.value)
         try:
-            return await browser_type.launch(**kwargs)
+            return await browser_type.launch(channel=channel, proxy=proxy, args=args)
         except Exception as error:
             kind = _classify_local_launch_failure(error)
             self._log_launch_failure(kind, PlaywrightMode.LOCAL, attempt=1)
@@ -356,7 +364,7 @@ class PlaywrightEngine:
                 "install-required launch failure."
             ) from error
         try:
-            return await browser_type.launch(**kwargs)
+            return await browser_type.launch(channel=channel, proxy=proxy, args=args)
         except Exception as error:
             kind = _classify_local_launch_failure(error)
             self._log_launch_failure(kind, PlaywrightMode.LOCAL, attempt=2)

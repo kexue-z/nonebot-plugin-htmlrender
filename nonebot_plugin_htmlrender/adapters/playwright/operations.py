@@ -3,7 +3,7 @@ from __future__ import annotations
 from html import unescape
 import mimetypes
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 from urllib.parse import urldefrag, urlsplit, urlunsplit
 
 from anyio import CancelScope
@@ -30,15 +30,14 @@ from nonebot_plugin_htmlrender.resources.config import (
 )
 
 from ._page import (
+    PageContext,
     _setup_page_logging,
     install_filehost_request_route,
-    open_page_context,
 )
 from .models import (
     ContentConfig,
     JpegScreenshotOptions,
     RenderConfig,
-    _page_context_kwargs,
 )
 from .prepared import (
     BrowserLoadPlan,
@@ -58,11 +57,7 @@ if TYPE_CHECKING:
     )
 
     from .render import PlaywrightLease
-    from .types import GotoKwargs, LocatorScreenshotKwargs, PageContextKwargs
 
-EMPTY_PAGE_CONTEXT_KWARGS: PageContextKwargs = {}
-EMPTY_GOTO_KWARGS: GotoKwargs = {}
-EMPTY_LOCATOR_SCREENSHOT_KWARGS: LocatorScreenshotKwargs = {}
 BUILTIN_TEMPLATES = PackageResourceSource(
     "nonebot_plugin_htmlrender",
     "templates",
@@ -262,16 +257,17 @@ async def _execute_browser_load_plan(
     lease: PlaywrightLease,
     local_resource_policy: LocalLocalResourcePolicy | RemoteLocalResourcePolicy,
     filehost_authorization: Mapping[str, Mapping[str, str]],
-    page_kwargs: PageContextKwargs,
     telemetry_op: str,
 ) -> bytes:
     """Execute a fully resolved load plan in one Playwright page."""
-    async with open_page_context(
-        lease=lease,
-        **cast(
-            "PageContextKwargs",
-            {**_page_context_kwargs(render), **page_kwargs},
-        ),
+    async with PageContext(lease).open(
+        viewport={
+            "width": render.page.viewport.width,
+            "height": render.page.viewport.height,
+        },
+        device_scale_factor=render.screenshot.device_scale_factor,
+        user_agent=render.page.user_agent,
+        extra_http_headers=render.page.extra_http_headers,
     ) as page:
         if local_resource_policy == RemoteLocalResourcePolicy.FILEHOST:
             await install_filehost_request_route(
@@ -312,7 +308,6 @@ async def render_prepared_html(
     lease: PlaywrightLease,
     resources: ProviderResources,
     asset_publisher: AssetPublisher | None,
-    page_kwargs: PageContextKwargs | None = None,
     resolve_mode: ResourceResolveMode | None = None,
     filehost_lease_id: str | None = None,
     telemetry_op: str = "playwright.html_render.render_html",
@@ -392,7 +387,6 @@ async def render_prepared_html(
             lease=lease,
             local_resource_policy=policy,
             filehost_authorization=filehost_authorization,
-            page_kwargs=page_kwargs or EMPTY_PAGE_CONTEXT_KWARGS,
             telemetry_op=telemetry_op,
         )
     finally:
@@ -401,42 +395,4 @@ async def render_prepared_html(
                 await asset_publisher.release(filehost_lease_id)
 
 
-async def capture_html_element(
-    url: str,
-    element: str,
-    page_kwargs: PageContextKwargs | None = None,
-    goto_kwargs: GotoKwargs | None = None,
-    screenshot_kwargs: LocatorScreenshotKwargs | None = None,
-    *,
-    lease: PlaywrightLease,
-) -> bytes:
-    """捕获指定 URL 页面中的 HTML 元素截图。
-
-    Args:
-        url: 目标页面 URL。
-        element: CSS 选择器，指定要捕获的元素。
-        page_kwargs: 页面上下文配置。
-        goto_kwargs: 页面导航配置。
-        screenshot_kwargs: 元素截图配置。
-        session: 浏览器会话。
-
-    Returns:
-        捕获的元素图片字节数据。
-    """
-    page_options = page_kwargs or EMPTY_PAGE_CONTEXT_KWARGS
-    goto_options = goto_kwargs or EMPTY_GOTO_KWARGS
-    screenshot_options = screenshot_kwargs or EMPTY_LOCATOR_SCREENSHOT_KWARGS
-
-    async with open_page_context(lease=lease, **page_options) as page:
-        # Untrusted page content: only stable event fields are logged, never
-        # console text, error messages, URLs or Playwright failure detail.
-        _setup_page_logging(page)
-        await page.goto(url, **goto_options)
-        await log_page_telemetry(page, op="playwright.html_render.capture_html_element")
-        return await page.locator(element).screenshot(**screenshot_options)
-
-
-__all__ = [
-    "capture_html_element",
-    "render_prepared_html",
-]
+__all__ = ["render_prepared_html"]

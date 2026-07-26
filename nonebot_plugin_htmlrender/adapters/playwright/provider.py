@@ -63,7 +63,10 @@ def _translate(
     except RenderingError:
         raise
     except Exception as error:
-        raise runtime_error(f"Playwright {operation} failed: {error}") from error
+        raise runtime_error(
+            f"Playwright {operation} failed.",
+            source=error,
+        ) from error
 
 
 async def _rasterize(
@@ -121,10 +124,10 @@ async def _rasterize(
 
 async def _probe(lease: PlaywrightLease) -> None:
     from nonebot_plugin_htmlrender.adapters.playwright._page import (  # noqa: PLC0415
-        open_page_context,
+        PageContext,
     )
 
-    async with open_page_context(lease=lease):
+    async with PageContext(lease).open():
         return
 
 
@@ -171,14 +174,13 @@ class PlaywrightProvider:
         config = self._narrow(settings)
 
         from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (  # noqa: PLC0415
-            PlaywrightCapabilityAdapter,
+            PlaywrightAccessAdapter,
         )
         from nonebot_plugin_htmlrender.adapters.playwright.render import (  # noqa: PLC0415
             PlaywrightEngine,
         )
         from nonebot_plugin_htmlrender.capabilities import (  # noqa: PLC0415
-            PLAYWRIGHT_CAPTURE,
-            PLAYWRIGHT_PAGE,
+            PLAYWRIGHT,
         )
 
         engine = PlaywrightEngine(
@@ -218,12 +220,11 @@ class PlaywrightProvider:
             operation="playwright.html_render.rasterize_html",
             observation_attributes=_OBSERVATION_ATTRIBUTES,
         )
-        adapter = PlaywrightCapabilityAdapter(leases, dependencies.operation_observer)
-        capabilities = (
-            CapabilityCatalog()
-            .with_capability(PLAYWRIGHT_PAGE, adapter)
-            .with_capability(PLAYWRIGHT_CAPTURE, adapter)
+        adapter = PlaywrightAccessAdapter(
+            leases,
+            dependencies.operation_observer,
         )
+        capabilities = CapabilityCatalog().with_capability(PLAYWRIGHT, adapter)
         return EngineBindings(
             lifecycle=leases,
             prepared_html_executor=executor,

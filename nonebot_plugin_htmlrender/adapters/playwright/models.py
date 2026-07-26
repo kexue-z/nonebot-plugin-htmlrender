@@ -1,14 +1,9 @@
-from typing import TYPE_CHECKING, ClassVar, Literal, cast
+from typing import ClassVar, Literal
 
 from nonebot.compat import field_validator
 from pydantic import BaseModel, ConfigDict, Field
 
 from nonebot_plugin_htmlrender.rendering.errors import InvalidRenderRequest
-
-from .types import PageContextKwargs
-
-if TYPE_CHECKING:
-    from .types import ViewportSize
 
 
 class ViewportConfig(BaseModel):
@@ -223,16 +218,3 @@ def _build_screenshot_config(
             wait_before_screenshot=wait_before_screenshot,
         )
     raise InvalidRenderRequest(f"Unsupported Playwright image format: {image_type!r}")
-
-
-def _page_context_kwargs(render: RenderConfig) -> PageContextKwargs:
-    """从 RenderConfig 提取页面上下文参数。"""
-    kwargs: PageContextKwargs = {
-        "viewport": cast("ViewportSize", render.page.viewport.model_dump()),
-        "device_scale_factor": render.screenshot.device_scale_factor,
-    }
-    if render.page.user_agent is not None:
-        kwargs["user_agent"] = render.page.user_agent
-    if render.page.extra_http_headers:
-        kwargs["extra_http_headers"] = render.page.extra_http_headers
-    return kwargs

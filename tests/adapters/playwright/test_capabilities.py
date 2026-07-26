@@ -2,34 +2,43 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager, contextmanager
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import anyio
 from anyio.lowlevel import checkpoint
-import pytest
+from playwright.async_api import Browser, Page, Playwright
 
 from nonebot_plugin_htmlrender.adapters._lease import ExecutionLeaseProvider
 from nonebot_plugin_htmlrender.adapters.playwright.capabilities import (
-    PlaywrightCapabilityAdapter,
+    PlaywrightAccessAdapter,
 )
-from nonebot_plugin_htmlrender.rendering.errors import (
-    ProviderLifecycleError,
-    RenderingError,
+from nonebot_plugin_htmlrender.adapters.playwright.render import (
+    PlaywrightLease,
+    PlaywrightMode,
 )
-from nonebot_plugin_htmlrender.rendering.observers import NoopOperationObserver
+from nonebot_plugin_htmlrender.capabilities import (
+    PLAYWRIGHT,
+    PlaywrightAccess,
+)
+from tests.adapters.conftest import RecordingOperationObserver
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 
-    from playwright.async_api import Page
     from pytest_mock import MockerFixture
 
-    from nonebot_plugin_htmlrender.adapters.playwright.render import PlaywrightLease
+    from nonebot_plugin_htmlrender.rendering.errors import RenderingError
 
 
 @dataclass(slots=True)
-class _Lease:
+class _LeaseState:
+    lease: PlaywrightLease
     alive: bool = True
+
+
+def test_playwright_capability_key_identity() -> None:
+    assert PLAYWRIGHT.name == "playwright"
+    assert PLAYWRIGHT.interface is PlaywrightAccess
 
 
 @contextmanager
@@ -40,36 +49,46 @@ def _translate(
     try:
         yield
     except Exception as error:
-        raise error_type(f"{operation}: {error}") from error
+        raise error_type(f"{operation} failed.", source=error) from error
 
 
 def _capability(
     *,
-    close: Callable[[_Lease], Awaitable[None]],
+    close: Callable[[PlaywrightLease], Awaitable[None]],
 ) -> tuple[
-    PlaywrightCapabilityAdapter,
-    _Lease,
-    ExecutionLeaseProvider[_Lease],
+    PlaywrightAccessAdapter,
+    _LeaseState,
+    ExecutionLeaseProvider[PlaywrightLease],
+    RecordingOperationObserver,
 ]:
-    lease = _Lease()
+    state = _LeaseState(
+        PlaywrightLease(
+            playwright=object.__new__(Playwright),
+            browser=object.__new__(Browser),
+            mode=PlaywrightMode.LOCAL,
+        )
+    )
 
-    async def create() -> _Lease:
-        return lease
+    async def create() -> PlaywrightLease:
+        return state.lease
 
-    observer = NoopOperationObserver()
+    async def close_lease(lease: PlaywrightLease) -> None:
+        try:
+            await close(lease)
+        finally:
+            state.alive = False
+
+    observer = RecordingOperationObserver()
     leases = ExecutionLeaseProvider(
         create=create,
-        is_alive=lambda value: value.alive,
-        close=close,
+        is_alive=lambda _: state.alive,
+        close=close_lease,
         observer=observer,
         translate=_translate,
         observation_attributes={"render.backend": "playwright"},
     )
-    capability = PlaywrightCapabilityAdapter(
-        cast("ExecutionLeaseProvider[PlaywrightLease]", leases),
-        observer,
-    )
-    return capability, lease, leases
+    capability = PlaywrightAccessAdapter(leases, observer)
+    return capability, state, leases, observer
 
 
 async def test_page_context_holds_runtime_lease_until_page_closes(
@@ -77,23 +96,26 @@ async def test_page_context_holds_runtime_lease_until_page_closes(
 ) -> None:
     order: list[str] = []
 
-    async def close(lease: _Lease) -> None:
-        lease.alive = False
+    async def close(lease: PlaywrightLease) -> None:
+        del lease
         order.append("runtime-close")
 
-    capability, _, leases = _capability(close=close)
-    page = cast("Page", object())
+    capability, _, leases, observer = _capability(close=close)
+    page = object.__new__(Page)
 
     @asynccontextmanager
-    async def open_page_context(**kwargs: object) -> AsyncIterator[Page]:
-        assert "lease" in kwargs
+    async def open_page_context(
+        _context: object,
+        **kwargs: object,
+    ) -> AsyncIterator[Page]:
+        assert kwargs == {}
         try:
             yield page
         finally:
             order.append("page-close")
 
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright._page.open_page_context",
+        "nonebot_plugin_htmlrender.adapters.playwright._page.PageContext.open",
         open_page_context,
     )
     async with anyio.create_task_group() as task_group, capability.page() as opened:
@@ -103,55 +125,28 @@ async def test_page_context_holds_runtime_lease_until_page_closes(
         assert order == []
 
     assert order == ["page-close", "runtime-close"]
+    assert (
+        "playwright.native.page",
+        {"render.backend": "playwright", "render.access": "native"},
+        "success",
+    ) in observer.operations
 
 
-async def test_capture_holds_runtime_lease_and_rejects_after_close(
-    mocker: MockerFixture,
-) -> None:
-    capture_entered = anyio.Event()
-    release_capture = anyio.Event()
-    closed: list[_Lease] = []
+async def test_browser_context_yields_native_instance_and_tracks_lease() -> None:
+    async def close(lease: PlaywrightLease) -> None:
+        del lease
 
-    async def close(lease: _Lease) -> None:
-        lease.alive = False
-        closed.append(lease)
+    capability, state, leases, observer = _capability(close=close)
 
-    capability, lease, leases = _capability(close=close)
-
-    async def capture_html_element(
-        url: str,
-        element: str,
-        **kwargs: object,
-    ) -> bytes:
-        assert (url, element) == ("https://example.test", "#target")
-        assert kwargs["lease"] is lease
-        capture_entered.set()
-        await release_capture.wait()
-        return b"image"
-
-    mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.capture_html_element",
-        capture_html_element,
-    )
-    results: list[bytes] = []
-
-    async def capture() -> None:
-        results.append(
-            await capability.capture_element(
-                "https://example.test",
-                "#target",
-            )
-        )
-
-    async with anyio.create_task_group() as task_group:
-        task_group.start_soon(capture)
-        await capture_entered.wait()
+    async with anyio.create_task_group() as task_group, capability.browser() as browser:
+        assert browser is state.lease.browser
         task_group.start_soon(leases.aclose)
         await checkpoint()
-        assert closed == []
-        release_capture.set()
+        assert state.alive is True
 
-    assert results == [b"image"]
-    assert closed == [lease]
-    with pytest.raises(ProviderLifecycleError, match="closing or closed"):
-        await capability.capture_element("https://example.test", "#target")
+    assert state.alive is False
+    assert (
+        "playwright.native.browser",
+        {"render.backend": "playwright", "render.access": "native"},
+        "success",
+    ) in observer.operations

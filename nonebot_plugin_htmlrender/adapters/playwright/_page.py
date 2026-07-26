@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from typing import TYPE_CHECKING, Protocol
-from typing_extensions import Unpack
+from typing import TYPE_CHECKING, Any, Protocol, final
 from urllib.parse import urlsplit, urlunsplit
 
 import anyio
 from nonebot.log import logger
 from playwright.async_api import Browser, Page, Route
 
+from nonebot_plugin_htmlrender.capabilities.playwright import _page_signature
 from nonebot_plugin_htmlrender.resources.headers import merge_request_headers
 
 from .telemetry import detach_page, instrument_page
@@ -19,7 +19,6 @@ if TYPE_CHECKING:
     from collections.abc import AsyncIterator, Mapping
 
     from .render import PlaywrightLease
-    from .types import PageContextKwargs
 
 
 class _ConsoleEvent(Protocol):
@@ -43,26 +42,29 @@ class _ResponseEvent(Protocol):
     def request(self) -> _RequestEvent: ...
 
 
-@asynccontextmanager
-async def open_page_context(
-    *,
-    lease: PlaywrightLease,
-    **kwargs: Unpack[PageContextKwargs],
-) -> AsyncIterator[Page]:
-    """Open one page from an explicitly leased Playwright browser."""
-    browser = lease.browser
-    if not isinstance(browser, Browser):
-        raise RuntimeError("Playwright lease does not expose a Browser.")
-    page = await browser.new_page(**kwargs)
-    instrument_page(page, page_name="render_context")
-    try:
-        yield page
-    finally:
+@final
+class PageContext:
+    """Open and instrument pages from one injected Playwright lease."""
+
+    def __init__(self, lease: PlaywrightLease) -> None:
+        self._lease = lease
+
+    @_page_signature
+    @asynccontextmanager
+    async def open(self, **kwargs: Any) -> AsyncIterator[Page]:
+        browser = self._lease.browser
+        if not isinstance(browser, Browser):
+            raise RuntimeError("Playwright lease does not expose a Browser.")
+        page = await browser.new_page(**kwargs)
+        instrument_page(page, page_name="render_context")
         try:
-            with anyio.CancelScope(shield=True):
-                await page.close()
+            yield page
         finally:
-            detach_page(page)
+            try:
+                with anyio.CancelScope(shield=True):
+                    await page.close()
+            finally:
+                detach_page(page)
 
 
 def log_console_event(message: _ConsoleEvent) -> None:
@@ -160,6 +162,6 @@ async def install_filehost_request_route(
 
 
 __all__ = [
+    "PageContext",
     "install_filehost_request_route",
-    "open_page_context",
 ]

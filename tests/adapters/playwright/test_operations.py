@@ -167,7 +167,7 @@ async def test_remote_prepared_render_routes_local_assets_without_file_navigatio
     context_manager.__aenter__ = mocker.AsyncMock(return_value=page)
     context_manager.__aexit__ = mocker.AsyncMock(return_value=None)
     mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.open_page_context",
+        "nonebot_plugin_htmlrender.adapters.playwright.operations.PageContext.open",
         return_value=context_manager,
     )
     mocker.patch(
@@ -744,56 +744,7 @@ async def test_install_filehost_request_route_injects_only_on_exact_published_ur
 
 
 @pytest.mark.anyio
-async def test_capture_html_element_uses_direct_operation_api(
-    mocker: MockerFixture,
-) -> None:
-    from nonebot_plugin_htmlrender.adapters.playwright.operations import (  # noqa: PLC0415
-        capture_html_element,
-    )
-
-    page = mocker.AsyncMock()
-    page.on = mocker.MagicMock()
-    locator = mocker.AsyncMock()
-    locator.screenshot.return_value = b"element-image"
-    page.locator = mocker.MagicMock(return_value=locator)
-
-    context_manager = mocker.MagicMock()
-    context_manager.__aenter__ = mocker.AsyncMock(return_value=page)
-    context_manager.__aexit__ = mocker.AsyncMock(return_value=None)
-
-    open_page_context_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.open_page_context",
-        return_value=context_manager,
-    )
-    log_telemetry_mock = mocker.patch(
-        "nonebot_plugin_htmlrender.adapters.playwright.operations.log_page_telemetry",
-        new=mocker.AsyncMock(),
-    )
-
-    result = await capture_html_element(
-        "https://example.com",
-        "#target",
-        page_kwargs={"device_scale_factor": 2.0},
-        goto_kwargs={"timeout": 4_000},
-        screenshot_kwargs={"type": "jpeg", "quality": 80},
-        lease=_lease("local_pw"),
-    )
-
-    assert result == b"element-image"
-    assert open_page_context_mock.call_count == 1
-    assert open_page_context_mock.call_args.kwargs["lease"] is not None
-    assert open_page_context_mock.call_args.kwargs["device_scale_factor"] == 2.0
-    page.goto.assert_awaited_once_with("https://example.com", timeout=4_000)
-    page.locator.assert_called_once_with("#target")
-    locator.screenshot.assert_awaited_once_with(type="jpeg", quality=80)
-    log_telemetry_mock.assert_awaited_once_with(
-        page,
-        op="playwright.html_render.capture_html_element",
-    )
-
-
-@pytest.mark.anyio
-async def test_open_page_context_uses_explicit_lease(
+async def test_page_context_uses_injected_lease(
     mocker: MockerFixture,
 ) -> None:
     from playwright.async_api import Browser  # noqa: PLC0415
@@ -810,8 +761,7 @@ async def test_open_page_context_uses_explicit_lease(
         "nonebot_plugin_htmlrender.adapters.playwright._page.detach_page"
     )
     lease = _lease("local_pw", browser=browser)
-    async with _page.open_page_context(
-        lease=lease,
+    async with _page.PageContext(lease).open(
         viewport={"width": 1, "height": 1},
     ) as page2:
         assert page2 is page
@@ -820,7 +770,7 @@ async def test_open_page_context_uses_explicit_lease(
 
 
 @pytest.mark.anyio
-async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
+async def test_page_context_detaches_telemetry_on_error_and_cancellation(
     mocker: MockerFixture,
 ) -> None:
     from playwright.async_api import Browser  # noqa: PLC0415
@@ -837,7 +787,7 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
     error_lease = _lease("local_pw", browser=error_browser)
 
     with pytest.raises(RuntimeError, match="render failed"):
-        async with _page.open_page_context(lease=error_lease) as opened:
+        async with _page.PageContext(error_lease).open() as opened:
             assert telemetry.get_page_collector(opened) is not None
             raise RuntimeError("render failed")
     assert telemetry.get_page_collector(error_page) is None
@@ -855,7 +805,7 @@ async def test_open_page_context_detaches_telemetry_on_error_and_cancellation(
         nonlocal owner_scope
         with anyio.CancelScope() as scope:
             owner_scope = scope
-            async with _page.open_page_context(lease=cancelled_lease) as opened:
+            async with _page.PageContext(cancelled_lease).open() as opened:
                 assert telemetry.get_page_collector(opened) is not None
                 started.set()
                 await anyio.sleep_forever()
