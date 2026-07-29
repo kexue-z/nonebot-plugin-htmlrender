@@ -11,13 +11,13 @@ icon: lucide/rocket
 本体默认不携带 Playwright、HTMLKit、Takumi、Pillow 或 Skia。仅需要Preparation/模板到 HTML 时可直接安装 core：
 
 ```bash
-uv add "nonebot-plugin-htmlrender>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender>=0.8.0,<0.9"
 ```
 
 浏览器语义最完整，推荐首次接入选择 Playwright。生产部署首选把浏览器放在独立 Docker 服务中，通过 WS 连接；Bot 宿主机只安装 Python client：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0,<0.9"
 ```
 
 Docker 服务的版本匹配、网络隔离和连接配置见[远程 Playwright 部署](../configuration/remote-playwright.md)。直接在 Bot 宿主机运行 Playwright 是第二选项，适合本地开发或无法部署独立服务的环境：
@@ -35,13 +35,13 @@ macOS 或 Windows 本地开发不需要 Linux 系统包，使用 `uv run playwri
 完全静态且不需要 JavaScript 的内容可以选择 Takumi：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0,<0.9"
 ```
 
 也可以试用无需浏览器进程的 HTMLKit；它当前只支持 asyncio，并要求调用时显式使用 `device_pixel_ratio=1.0`、`height=None`：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0,<0.9"
 ```
 
 详见 [HTMLKit 配置与限制](../configuration/providers/htmlkit.md)。

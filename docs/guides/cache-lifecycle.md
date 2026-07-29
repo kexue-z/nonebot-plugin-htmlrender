@@ -85,10 +85,8 @@ Environment key 包含模板源、immutable 模式、extensions，以及每个�
 ```python
 from nonebot_plugin_htmlrender import render_template
 
-
 def format_percent(value: float) -> str:
     return f"{value:.1%}"
-
 
 artifact = await render_template(
     "templates",

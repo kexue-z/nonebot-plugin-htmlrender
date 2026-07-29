@@ -32,10 +32,8 @@ image = await render_template(
 ```python
 from nonebot_plugin_htmlrender import render_template
 
-
 def format_percent(value: float) -> str:
     return f"{value:.1%}"
-
 
 image = await render_template(
     "templates",

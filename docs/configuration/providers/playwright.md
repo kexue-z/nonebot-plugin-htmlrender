@@ -9,7 +9,7 @@ icon: lucide/monitor-cog
 ## 安装与最小配置
 
 ```bash
-uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0,<0.9"
 ```
 
 ```yaml
@@ -115,7 +115,7 @@ uv run playwright install --with-deps chromium
 asset store 提供。可选 `filehost` extra 会安装 `py-machineid`，用于派生默认请求头守卫值：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[playwright,filehost]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright,filehost]>=0.8.0,<0.9"
 ```
 
 不安装该 extra 时 transport 仍可使用内置机器标识回退；对多副本或需要显式轮换的部署，直接配置 secret `render.resources.filehost.request_header_value`，不要依赖自动派生值。

@@ -21,7 +21,7 @@ icon: lucide/activity
 | `all` | 安装上述全部能力，包括具有平台限制的 Skia |
 
 ```bash
-uv add "nonebot-plugin-htmlrender[playwright,sentry,prometheus]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright,sentry,prometheus]>=0.8.0,<0.9"
 ```
 
 HTMLKit/Playwright/Takumi 的引擎库缺失会形成可诊断的 Provider availability；插件不会在 import 时无条件加载所有引擎。选择 HTMLKit 时，bootstrap 会在 NoneBot

@@ -11,7 +11,7 @@ Pillow 后端执行后端中立的 `RasterScene`，适合优先考虑安装兼�
 ## 安装
 
 ```bash
-uv add "nonebot-plugin-htmlrender[pillow]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[pillow]>=0.8.0,<0.9"
 ```
 
 `pillow` extra 安装 Pillow 12 或更高版本。未安装 extra 却启用后端时，composition抛出带安装提示的 `RasterBackendUnavailable`，不会回退到 Skia。

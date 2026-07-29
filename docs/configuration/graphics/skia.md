@@ -12,7 +12,7 @@ renderer。选择它不会改变场景模型，也不保证与 Pillow 产生相�
 ## 安装
 
 ```bash
-uv add "nonebot-plugin-htmlrender[skia]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[skia]>=0.8.0,<0.9"
 ```
 
 `skia` extra 安装 `skia-python>=144.0.post2`。未安装 extra 却启用后端时，composition 抛出带安装提示的 `RasterBackendUnavailable`，不会回退到 Pillow。

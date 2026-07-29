@@ -28,17 +28,17 @@
 本体默认不安装任何位图渲染后端，只提供 Preparation 与模板到 HTML。按需选择一个 HTML 后端（Provider）：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0,<0.9"
 # 或
-uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0,<0.9"
 # 或（实验性、asyncio-only）
-uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0,<0.9"
 ```
 
 Pillow/Skia 是独立的 `RasterScene` Capability，不属于 HTML 后端。按需增加`pillow`、`skia`、`sentry`、`prometheus`；内置 filehost transport 可选增加`filehost` extra，以使用 `py-machineid` 派生默认请求头守卫值。`all` 会安装全部可选能力。
 
 ```bash
-uv add "nonebot-plugin-htmlrender[playwright,filehost,prometheus]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright,filehost,prometheus]>=0.8.0,<0.9"
 ```
 
 ## 快速开始

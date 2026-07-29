@@ -12,7 +12,7 @@
 
 ```bash
 nb create  # 创建 NoneBot 项目并选择 OneBot V11 adapter
-uv add "nonebot-plugin-htmlrender[pillow]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[pillow]>=0.8.0,<0.9"
 uv add nonebot-plugin-alconna
 ```
 
@@ -25,7 +25,7 @@ RENDER={"provider":null,"graphics":{"backends":["pillow"],"max_pixels":16777216,
 ## 同时启用 Skia
 
 ```bash
-uv add "nonebot-plugin-htmlrender[pillow,skia]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[pillow,skia]>=0.8.0,<0.9"
 ```
 
 ```dotenv

@@ -12,7 +12,7 @@ HTMLKit 通过 litehtml、Cairo 与 Fontconfig 在进程内执行 HTML/CSS 排�
 ## 安装与选择
 
 ```bash
-uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0,<0.9"
 ```
 
 ```yaml

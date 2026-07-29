@@ -13,7 +13,7 @@
 
 ```bash
 nb create  # 创建 NoneBot 项目并选择 OneBot V11 adapter
-uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0,<0.9"
 uv add nonebot-plugin-alconna
 ```
 
@@ -28,7 +28,7 @@ RENDER={"provider":"playwright","startup":"probe","resources":{"local_access":{"
 也可以安装并选择 Takumi：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0,<0.9"
 ```
 
 ```dotenv
@@ -38,7 +38,7 @@ RENDER={"provider":"takumi","startup":"probe","resources":{"local_access":{"allo
 或选择实验性的 HTMLKit：
 
 ```bash
-uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[htmlkit]>=0.8.0,<0.9"
 ```
 
 ```dotenv

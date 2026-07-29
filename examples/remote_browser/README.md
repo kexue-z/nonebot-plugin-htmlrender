@@ -16,7 +16,7 @@
 
 ```bash
 nb create  # 创建 NoneBot 项目并选择 OneBot V11 adapter
-uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[playwright]>=0.8.0,<0.9"
 uv add nonebot-plugin-alconna
 ```
 

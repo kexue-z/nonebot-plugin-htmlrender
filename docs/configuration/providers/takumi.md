@@ -11,7 +11,7 @@ Takumi 在进程内执行 Rust 原生排版，不启动浏览器，不执行 Jav
 ## 安装与选择
 
 ```bash
-uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0a1,<0.9"
+uv add "nonebot-plugin-htmlrender[takumi]>=0.8.0,<0.9"
 ```
 
 ```yaml
