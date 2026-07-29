@@ -16,7 +16,7 @@ services:
       - ../..:/app
     environment:
       PLAYWRIGHT_WS_ENDPOINT: ws://playwright:53333/playwright
-      FILEHOST_PUBLIC_URL: http://render:9012/
+      FILEHOST_PUBLIC_URL: http://render:9012/_htmlrender/assets/
       FILEHOST_BIND_PORT: "9012"
     expose:
       - "9012"

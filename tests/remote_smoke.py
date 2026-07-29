@@ -11,6 +11,7 @@ import shutil
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, cast
 from urllib.error import HTTPError
+from urllib.parse import urlsplit
 from urllib.request import urlopen
 
 from fastapi import FastAPI, Request
@@ -44,8 +45,9 @@ _FILEHOST_BIND_HOST = "0.0.0.0"  # noqa: S104 - cross-container smoke server
 _FILEHOST_BIND_PORT = int(os.environ.get("FILEHOST_BIND_PORT", "9012"))
 _FILEHOST_PUBLIC_URL = os.environ.get(
     "FILEHOST_PUBLIC_URL",
-    f"http://render:{_FILEHOST_BIND_PORT}/",
+    f"http://render:{_FILEHOST_BIND_PORT}/_htmlrender/assets/",
 )
+_FILEHOST_PUBLIC_PATH = f"{urlsplit(_FILEHOST_PUBLIC_URL).path.rstrip('/')}/"
 _FILEHOST_REQUEST_HEADER = "X-HTMLRender-Filehost-Request"
 _FILEHOST_REQUEST_TOKEN = "remote-smoke-filehost-token"
 
@@ -192,7 +194,7 @@ def _install_filehost_probe() -> list[_FilehostHit]:
         call_next: RequestResponseEndpoint,
     ) -> Response:
         response = await call_next(request)
-        if request.url.path.startswith("/filehost/"):
+        if request.url.path.startswith(_FILEHOST_PUBLIC_PATH):
             hits.append(
                 _FilehostHit(
                     path=request.url.path,
