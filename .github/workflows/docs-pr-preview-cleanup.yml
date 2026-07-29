@@ -1,0 +1,69 @@
+name: Docs PR Preview Cleanup
+
+on:
+  pull_request_target: # zizmor: ignore[dangerous-triggers] Closed-event cleanup checks out only the trusted base and passes only the numeric PR id to pinned actions.
+    types: [closed]
+    branches: [master]
+
+permissions: {}
+
+concurrency:
+  group: docs-preview-deploy-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    name: Remove docs preview
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write # Remove only this PR's fixed gh-pages preview directory.
+      pages: read # Poll the legacy Pages build until cleanup is live.
+      pull-requests: write # Mark the existing preview comment as removed.
+    steps:
+      - name: Checkout trusted base branch
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+
+      - name: Remove preview
+        uses: rossjrw/pr-preview-action@ffa7509e91a3ec8dfc2e5536c4d5c1acdf7a6de9 # v1.8.1
+        with:
+          source-dir: .
+          preview-branch: gh-pages
+          umbrella-dir: pr-preview
+          pr-number: ${{ github.event.pull_request.number }}
+          action: remove
+          comment: false
+          qr-code: false
+          wait-for-pages-deployment: true
+          remove-commit-message: Remove docs preview for PR #${{ github.event.pull_request.number }}
+
+      - name: Mark preview comment as removed
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          script: |
+            const marker = "<!-- docs-preview -->";
+            const number = Number(process.env.PR_NUMBER);
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: number,
+              per_page: 100,
+            });
+            const existing = comments.find(
+              (comment) =>
+                comment.user?.login === "github-actions[bot]" &&
+                comment.body?.includes(marker),
+            );
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                comment_id: existing.id,
+                body: `${marker}\nDocumentation preview removed because the pull request was closed.`,
+              });
+            }

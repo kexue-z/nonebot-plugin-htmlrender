@@ -17,8 +17,10 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Keep every trusted master SHA alive: Auto Tag joins the exact push runs.
+  # Pull request updates still replace stale checks for the same PR ref.
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   ruff:
@@ -26,14 +28,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
+          version: "0.11.28"
           enable-cache: true
           cache-suffix: lint-type-${{ github.event_name }}
 
@@ -47,21 +50,24 @@ jobs:
         run: uv sync --locked --all-extras --all-groups
 
       - name: Ruff
-        run: uv run ruff check .
+        run: |
+          uv run ruff format --check .
+          uv run ruff check .
 
   ty:
     name: Ty
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
+          version: "0.11.28"
           enable-cache: true
           cache-suffix: ty-${{ github.event_name }}
 
@@ -76,14 +82,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
+          version: "0.11.28"
           enable-cache: true
           cache-suffix: basedpyright-${{ github.event_name }}
 
@@ -91,7 +98,7 @@ jobs:
         run: uv sync --locked --all-extras --all-groups
 
       - name: Basedpyright
-        run: uv run basedpyright .
+        run: make typecheck
 
   package:
     name: Package Build
@@ -100,24 +107,35 @@ jobs:
     env:
       BUILD_LOG: package-build.log
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
+          version: "0.11.28"
           enable-cache: true
           cache-suffix: package-${{ github.event_name }}
+
+      - name: Install Skia runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libegl1 \
+            libexpat1 \
+            libgl1
 
       - name: Build distributions
         run: |
           set -o pipefail
-          uv build 2>&1 | tee "${BUILD_LOG}"
+          uv build --no-sources 2>&1 | tee "${BUILD_LOG}"
 
       - name: Validate distributions
-        run: uv run --no-project --with twine twine check dist/*
+        run: |
+          uvx --from twine==6.2.0 twine check dist/*
+          make verify-artifacts DIST_DIR=dist
 
       - name: Show built distributions
         run: |
@@ -125,21 +143,69 @@ jobs:
           sha256sum dist/* || true
 
       - name: Upload built distributions
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-dist
-          path: dist/
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
           if-no-files-found: error
           retention-days: 14
 
       - name: Upload build logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: package-build-logs
           path: ${{ env.BUILD_LOG }}
           if-no-files-found: warn
           retention-days: 14
+
+  package-wheel-smoke:
+    name: Wheel Smoke (Python ${{ matrix.python-version }})
+    needs: package
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.11", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          python-version: ${{ matrix.python-version }}
+          version: "0.11.28"
+          enable-cache: true
+          cache-suffix: package-wheel-${{ matrix.python-version }}-${{ github.event_name }}
+
+      - name: Install Skia runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends \
+            libegl1 \
+            libexpat1 \
+            libgl1
+
+      - name: Download built distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: package-dist
+          path: dist
+
+      - name: Verify installed wheel
+        env:
+          PYTHON_VERSION: ${{ matrix.python-version }}
+        run: |
+          python3 scripts/verify_distribution.py dist \
+            --expected-version "$(uv version --short)" \
+            --python "${PYTHON_VERSION}" \
+            --uv uv \
+            --wheel-only-smoke
 
   remote-browser-render:
     name: Remote Browser Render Smoke (Docker)
@@ -149,15 +215,15 @@ jobs:
       RENDER_IMAGE: htmlrender-remote-test:ci
       PLAYWRIGHT_IMAGE: htmlrender-playwright:ci
     steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
           persist-credentials: false
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435
+        uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4.2.0
 
       - name: Build remote smoke render image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: tests/infra/dockerfile.remote-test
@@ -167,6 +233,7 @@ jobs:
           cache-to: type=gha,scope=remote-smoke,mode=max
           build-args: |
             PYTHON_BASE_IMAGE=python:3.12-bookworm
+            UV_VERSION=0.11.28
 
       - name: Resolve Playwright version
         id: playwright-version
@@ -213,7 +280,7 @@ jobs:
           echo "Resolved Playwright version: ${PLAYWRIGHT_VERSION}"
 
       - name: Build playwright server image
-        uses: docker/build-push-action@263435318d21b8e681c14492fe198d362a7d2c83
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
         with:
           context: .
           file: tests/infra/dockerfile.playwright-server
@@ -233,7 +300,7 @@ jobs:
 
       - name: Upload remote smoke logs
         if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: remote-smoke-compose-logs
           path: remote-smoke-compose.log
@@ -243,3 +310,62 @@ jobs:
       - name: Teardown compose
         if: always()
         run: docker compose -f tests/infra/docker-compose.remote-test.yaml down -v
+
+  noneload:
+    name: NoneBot Plugin Load
+    uses: BalconyJH/noneload/.github/workflows/load-check.yml@7af465a7f2d2fa2f7c227dc1fd9c065eed674109 # v1.0.1
+    with:
+      python-versions: '["3.10", "3.11", "3.12", "3.13", "3.14"]'
+      module-name: nonebot_plugin_htmlrender
+      project-link: nonebot-plugin-htmlrender
+      package: "."
+      uv-version: "0.11.28"
+      load-dependencies: true
+      check-optional-dependencies: false
+      fail-on-error: true
+      summary: true
+
+  result:
+    name: Required Checks
+    if: always()
+    needs:
+      - ruff
+      - ty
+      - basedpyright
+      - package
+      - package-wheel-smoke
+      - remote-browser-render
+      - noneload
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - name: Require every CI layer
+        shell: bash
+        env:
+          BASEDPYRIGHT_RESULT: ${{ needs.basedpyright.result }}
+          NONELOAD_RESULT: ${{ needs.noneload.result }}
+          PACKAGE_RESULT: ${{ needs.package.result }}
+          PACKAGE_WHEEL_SMOKE_RESULT: ${{ needs.package-wheel-smoke.result }}
+          REMOTE_BROWSER_RESULT: ${{ needs.remote-browser-render.result }}
+          RUFF_RESULT: ${{ needs.ruff.result }}
+          TY_RESULT: ${{ needs.ty.result }}
+        run: |
+          failed=false
+          for result in \
+            "${RUFF_RESULT}" \
+            "${TY_RESULT}" \
+            "${BASEDPYRIGHT_RESULT}" \
+            "${PACKAGE_RESULT}" \
+            "${PACKAGE_WHEEL_SMOKE_RESULT}" \
+            "${REMOTE_BROWSER_RESULT}" \
+            "${NONELOAD_RESULT}"; do
+            if [[ "${result}" != "success" ]]; then
+              failed=true
+            fi
+          done
+          if [[ "${failed}" == "true" ]]; then
+            echo "::error::At least one required CI layer did not succeed."
+            exit 1
+          fi
+          echo "All required CI layers succeeded."

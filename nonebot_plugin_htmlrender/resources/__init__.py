@@ -1,34 +1,56 @@
-"""Resource resolution and template processing facade.
+"""Resource domain models, ports, policies, and composition-owned service."""
 
-All external consumers import from here; implementation lives in
-``resolve`` (resource resolution engine) and ``template`` (HTML/CSS/template
-variable processing).
-"""
-
-from .resolve import (
-    ResourceResolveError as ResourceResolveError,
+from .errors import ResourceAccessDenied as ResourceAccessDenied
+from .errors import ResourceNotFound as ResourceNotFound
+from .errors import ResourceResolutionError as ResourceResolutionError
+from .errors import ResourceSizeExceeded as ResourceSizeExceeded
+from .models import (
+    FileResourceRef,
+    InlineResourceRef,
+    NotModified,
+    PackageResourceRef,
+    PublishedResource,
+    RemoteResourceRef,
+    ResourceContent,
+    ResourceRef,
+    ResourceResolution,
+    ResourceRevision,
 )
-from .resolve import (
-    ResourceResolver as ResourceResolver,
+from .ports import (
+    AssetPublisher,
+    LocalAccessPolicy,
+    ProviderResources,
+    ResourceReader,
+    ResourceResolver,
+    TemplateCompiler,
+    WorkerExecutor,
 )
-from .resolve import (
-    is_remote_playwright_mode as is_remote_playwright_mode,
-)
-from .template import (
-    resolve_html_resources as resolve_html_resources,
-)
-from .template import (
-    resolve_template_vars as resolve_template_vars,
-)
-from .template import (
-    to_resource_url as to_resource_url,
-)
+from .service import ResourceService
+from .source import FilesystemResourceSource, PackageResourceSource
 
 __all__ = [
-    "ResourceResolveError",
+    "AssetPublisher",
+    "FileResourceRef",
+    "FilesystemResourceSource",
+    "InlineResourceRef",
+    "LocalAccessPolicy",
+    "NotModified",
+    "PackageResourceRef",
+    "PackageResourceSource",
+    "ProviderResources",
+    "PublishedResource",
+    "RemoteResourceRef",
+    "ResourceAccessDenied",
+    "ResourceContent",
+    "ResourceNotFound",
+    "ResourceReader",
+    "ResourceRef",
+    "ResourceResolution",
+    "ResourceResolutionError",
     "ResourceResolver",
-    "is_remote_playwright_mode",
-    "resolve_html_resources",
-    "resolve_template_vars",
-    "to_resource_url",
+    "ResourceRevision",
+    "ResourceService",
+    "ResourceSizeExceeded",
+    "TemplateCompiler",
+    "WorkerExecutor",
 ]

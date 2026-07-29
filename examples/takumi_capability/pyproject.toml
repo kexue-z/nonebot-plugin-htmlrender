@@ -1,0 +1,18 @@
+[project]
+name = "example-takumi-capability"
+version = "0.1.0"
+description = "Takumi typed capability example using nonebot-plugin-htmlrender"
+requires-python = ">=3.10"
+dependencies = [
+    "nonebot-adapter-onebot>=2.4.6",
+    "nonebot-plugin-alconna>=0.54.0",
+    "nonebot-plugin-htmlrender[takumi]>=0.8.0,<0.9",
+    "nonebot2[fastapi]>=2.5.0",
+]
+
+[tool.nonebot]
+adapters = [
+    { name = "OneBot V11", module_name = "nonebot.adapters.onebot.v11" },
+]
+plugins = ["nonebot_plugin_alconna"]
+plugin_dirs = ["plugins"]

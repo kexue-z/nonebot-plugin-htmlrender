@@ -2,17 +2,11 @@ from nonebot import require
 
 require("nonebot_plugin_htmlrender")
 
-from typing import TYPE_CHECKING
-
 from arclet.alconna import Alconna, Args
 from nonebot_plugin_alconna import Image, UniMessage, on_alconna
 
-if TYPE_CHECKING:
-    from playwright.async_api import Page
-
 from nonebot_plugin_htmlrender import (
-    get_render_context,
-    list_render_backend_statuses,
+    get_default_application,
     render_markdown,
 )
 
@@ -21,9 +15,10 @@ status = on_alconna(Alconna("render_status"))
 
 @status.handle()
 async def _() -> None:
-    statuses = list_render_backend_statuses()
-    text = "\n".join(str(s) for s in statuses)
-    await status.finish(text or "No backends registered.")
+    app = get_default_application()
+    await app.probe()
+    names = ", ".join(sorted(app.extensions.names())) or "none"
+    await status.finish(f"Provider is ready. Capabilities: {names}")
 
 
 remote_screenshot = on_alconna(Alconna("rshot", Args["url?", str]))
@@ -31,10 +26,10 @@ remote_screenshot = on_alconna(Alconna("rshot", Args["url?", str]))
 
 @remote_screenshot.handle()
 async def _(url: str = "https://github.com") -> None:
-    async with get_render_context(
+    playwright = get_default_application().extensions.playwright
+    async with playwright.page(
         viewport={"width": 1280, "height": 800},
-    ) as context:
-        page: Page = context  # type: ignore[assignment]  # ty: ignore[invalid-assignment]
+    ) as page:
         await page.goto(url, wait_until="networkidle", timeout=30000)
         img = await page.screenshot(full_page=True, type="png")
 
@@ -46,5 +41,5 @@ remote_md = on_alconna(Alconna("rmd", Args["text", str]))
 
 @remote_md.handle()
 async def _(text: str) -> None:
-    img = await render_markdown(text, width=720)
-    await remote_md.finish(UniMessage(Image(raw=img)))
+    artifact = await render_markdown(text, width=720)
+    await remote_md.finish(UniMessage(Image(raw=bytes(artifact))))

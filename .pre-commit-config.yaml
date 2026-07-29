@@ -3,6 +3,7 @@ fail_fast: false
 exclude: |
   (?x)^(
     nonebot_plugin_htmlrender/templates/.*
+    | docs/assets/javascripts/mermaid-.*\.min\.js
   )$
 
 repos:
@@ -46,6 +47,7 @@ repos:
     rev: v1.24.1
     hooks:
       - id: zizmor
+        args: [--pedantic]
         priority: 0
 
   - repo: https://github.com/python-jsonschema/check-jsonschema

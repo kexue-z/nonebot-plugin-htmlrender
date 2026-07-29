@@ -1,137 +1,114 @@
 ---
-title: 概览
-description: 面向用户与维护者的统一文档入口
-icon: lucide/book-open
-status: new
-tags:
-  - Guide
-  - Overview
+title: nonebot-plugin-htmlrender
+description: 面向 NoneBot 的可插拔图片渲染基础设施
+icon: lucide/image
+hide:
+  - navigation
+  - toc
+  - footer
 ---
 
-# nonebot-plugin-htmlrender 文档
+<div class="htmlrender-home">
 
-`nonebot-plugin-htmlrender` 是一个面向 NoneBot 生态的库型渲染插件。  
-它基于浏览器语义提供统一渲染能力，把文本、Markdown、HTML 和模板页面渲染为图片，适合消息卡片、海报、榜单、报告图和模板化内容生成等场景。
+<section class="htmlrender-hero" aria-labelledby="htmlrender-hero-title">
+  <div class="htmlrender-hero__graphic" aria-hidden="true">
+    <svg viewBox="0 0 1440 760" preserveAspectRatio="xMidYMid slice">
+      <defs>
+        <filter id="htmlrender-glow" x="-100%" y="-100%" width="300%" height="300%">
+          <feGaussianBlur stdDeviation="5" />
+        </filter>
+      </defs>
+      <g class="htmlrender-tracks htmlrender-tracks--soft">
+        <path d="M-120 682 C210 665 266 258 533 275 S827 654 1114 578 S1313 258 1548 228" />
+        <path d="M-92 710 C238 692 304 294 544 305 S814 621 1088 554 S1302 292 1531 260" />
+        <path d="M-68 736 C257 720 338 331 559 338 S810 591 1065 530 S1290 326 1510 295" />
+        <path d="M192 -68 C246 153 319 212 510 210 S816 97 995 216 S1146 523 1510 472" />
+        <path d="M256 -76 C294 125 354 180 523 184 S804 108 970 228 S1132 492 1502 444" />
+        <path d="M319 -80 C346 99 396 151 538 160 S792 124 944 239 S1113 461 1484 417" />
+      </g>
+      <g class="htmlrender-tracks htmlrender-tracks--bright">
+        <path d="M-96 620 C234 605 286 214 518 236 S826 689 1138 605 S1323 205 1532 178" />
+        <path d="M134 -70 C202 181 295 248 494 238 S831 66 1020 205 S1162 558 1522 506" />
+        <path d="M-42 430 C243 412 338 392 548 414 S842 530 1082 488 S1315 368 1498 362" />
+      </g>
+      <g class="htmlrender-track-nodes">
+        <circle cx="518" cy="236" r="18" filter="url(#htmlrender-glow)" />
+        <circle cx="518" cy="236" r="3.2" />
+        <circle cx="1082" cy="488" r="16" filter="url(#htmlrender-glow)" />
+        <circle cx="1082" cy="488" r="3" />
+        <circle cx="1020" cy="205" r="12" filter="url(#htmlrender-glow)" />
+        <circle cx="1020" cy="205" r="2.6" />
+      </g>
+    </svg>
+  </div>
 
-它的定位不是“开箱即用的业务插件”，而是“渲染能力库”：
+  <div class="htmlrender-hero__inner">
+    <div class="htmlrender-hero__content">
+      <p class="htmlrender-eyebrow">
+        <span></span>
+        NoneBot rendering infrastructure
+      </p>
+      <h1 id="htmlrender-hero-title">
+        把内容渲染成<strong>图片。</strong>
+      </h1>
+      <p class="htmlrender-hero__lead">
+        一套 API 接收 HTML、Markdown、纯文本与 Jinja 模板；可插拔 Provider 在浏览器与原生后端之间选择，稳定产出类型化图片。
+      </p>
+      <div class="htmlrender-hero__actions">
+        <a class="md-button md-button--primary" href="start/quickstart/">
+          开始第一次渲染
+          <span aria-hidden="true">→</span>
+        </a>
+        <a class="md-button" href="guides/">
+          浏览使用指南
+        </a>
+      </div>
+      <ul class="htmlrender-hero__facts" aria-label="项目能力概览">
+        <li><strong>多种内容</strong> HTML · Markdown · Text · Jinja</li>
+        <li><strong>按需选型</strong> Browser · Native</li>
+        <li><strong>图片就绪</strong> PNG · JPEG · 尺寸信息</li>
+      </ul>
+    </div>
 
-- 不内置可直接触发的 matcher
-- 由业务插件或应用代码负责接收事件或命令
-- 由本插件负责生成图片或提供底层页面上下文
-
-如果你只关心怎么接入，请走用户文档。  
-如果你要继续维护这个仓库、排查底层行为或参与重构，请走开发者文档。
-
-<div class="grid cards" markdown>
-
--   **面向用户**
-
-    ---
-
-    从安装、配置、调用到排障与迁移，覆盖把渲染能力接进业务插件的路径。
-
-    [进入用户文档](users/index.md)
-
--   **面向开发者**
-
-    ---
-
-    面向维护者解释架构边界、backend 扩展、资源解析、测试矩阵与发布流程。
-
-    [进入开发者文档](maintainers/index.md)
-
--   **排障与运维**
-
-    ---
-
-    按启动失败、浏览器不可用、远程资源不可达、安全边界等场景定位问题。
-
-    [查看故障排查](users/troubleshooting.md)
-
--   **后端扩展**
-
-    ---
-
-    理解 `Render` / `Backend` / `Runtime` / `Session` 的职责，并落地新的渲染后端。
-
-    [查看渲染后端开发](maintainers/architecture/render-backend-development.md)
+    <div class="htmlrender-preview" aria-hidden="true">
+      <div class="htmlrender-preview__bar">
+        <span class="htmlrender-preview__controls">
+          <i></i><i></i><i></i>
+        </span>
+        <span class="htmlrender-preview__history">
+          <i></i><i></i>
+        </span>
+        <span class="htmlrender-preview__address">
+          <i></i><b></b>
+        </span>
+        <span class="htmlrender-preview__tools">
+          <i></i><i></i>
+        </span>
+      </div>
+      <div class="htmlrender-preview__canvas">
+        <div class="htmlrender-nonebot__nav">
+          <span class="htmlrender-nonebot__brand">
+            <i></i>
+            <b></b>
+          </span>
+          <span class="htmlrender-nonebot__links">
+            <i></i><i></i><i></i>
+          </span>
+        </div>
+        <div class="htmlrender-nonebot__hero">
+          <span class="htmlrender-nonebot__ring"></span>
+          <div class="htmlrender-nonebot__wordmark">
+            <i></i><i></i>
+          </div>
+          <span class="htmlrender-nonebot__tagline"></span>
+          <div class="htmlrender-nonebot__actions">
+            <span><i></i></span>
+            <code><i></i><i></i><i></i></code>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
 
 </div>
-
-## 你可以在这里找到什么
-
-核心能力：
-
-- 统一渲染 API：`render_text`、`render_markdown`、`render_html`、`render_template`
-- 远程能力支持：远程 Playwright / 远程浏览器两种接入模式
-- 资源解析链路：可选接入 filehost 解决远程浏览器读取本地资源问题
-- 观测能力扩展：可选接入 sentry / prometheus 观察渲染链路指标与异常
-- 兼容层过渡：保留旧接口用于迁移，但新项目推荐直接使用新 API
-
-文档结构：
-
-- 面向用户：接入、配置、调用、排障、迁移
-- 面向开发者：架构、协作流程、测试矩阵、CI 与版本发布
-
-## 阅读路径
-
-=== "我是调用方"
-
-    推荐顺序：
-
-    1. [快速开始](users/quickstart.md)
-    2. [API 与兼容层](users/api.md)
-    3. [配置总览](users/config/index.md)
-    4. [远程 Playwright 与 Filehost](users/remote-playwright.md)
-    5. [故障排查](users/troubleshooting.md)
-    6. [常见问题](users/faq.md)
-    7. [安全须知](users/security.md)
-    8. [旧版本迁移指南](users/migration.md)
-
-=== "我是维护者"
-
-    推荐顺序：
-
-    1. [开发者概览](maintainers/index.md)
-    2. [分层架构](maintainers/architecture/architecture.md)
-    3. [渲染后端开发指南](maintainers/architecture/render-backend-development.md)
-    4. [Filehost 资源解析方案](maintainers/architecture/filehost-resource-resolution.md)
-    5. [工程协作与规范](maintainers/contributing/engineering-guide.md)
-    6. [测试矩阵](maintainers/quality/testing-matrix.md)
-
-## 用户文档
-
-- [用户概览](users/index.md)
-- [快速开始](users/quickstart.md)
-- [API 与兼容层](users/api.md)
-- [配置总览](users/config/index.md)
-- [基础配置与加载](users/config/core.md)
-- [Playwright 配置](users/config/playwright.md)
-- [依赖扩展与观测](users/config/integrations.md)
-- [示例项目](users/examples.md)
-- [最佳实践](users/best-practices.md)
-- [远程 Playwright 与 Filehost](users/remote-playwright.md)
-- [故障排查](users/troubleshooting.md)
-- [常见问题](users/faq.md)
-- [安全须知](users/security.md)
-- [旧版本迁移指南](users/migration.md)
-
-## 开发者文档
-
-- [开发者概览](maintainers/index.md)
-- [分层架构](maintainers/architecture/architecture.md)
-- [自定义 Backend 指南](maintainers/architecture/custom-backends.md)
-- [渲染后端开发指南](maintainers/architecture/render-backend-development.md)
-- [Filehost 资源解析方案](maintainers/architecture/filehost-resource-resolution.md)
-- [工程协作与规范](maintainers/contributing/engineering-guide.md)
-- [贡献指南](maintainers/contributing/contributing.md)
-- [提交消息指南](maintainers/contributing/commit-message.md)
-- [编码规范](maintainers/contributing/coding-standards.md)
-- [测试矩阵](maintainers/quality/testing-matrix.md)
-- [CI Actions](maintainers/quality/ci-actions.md)
-- [文档版本管理](maintainers/quality/versioning.md)
-
-## 仓库外部入口
-
-- [GitHub 仓库](https://github.com/kexue-z/nonebot-plugin-htmlrender)
-- [PyPI 页面](https://pypi.org/project/nonebot-plugin-htmlrender/)

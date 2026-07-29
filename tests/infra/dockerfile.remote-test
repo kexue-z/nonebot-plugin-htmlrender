@@ -2,6 +2,8 @@
 ARG PYTHON_BASE_IMAGE=python:3.12-bookworm
 FROM ${PYTHON_BASE_IMAGE}
 
+ARG UV_VERSION=0.11.28
+
 ENV TZ=Asia/Shanghai \
     DEBIAN_FRONTEND=noninteractive \
     UV_COMPILE_BYTECODE=1 \
@@ -12,12 +14,11 @@ RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates fontconfig \
     && rm -rf /var/lib/apt/lists/*
 
-RUN python -m pip install --no-cache-dir --upgrade pip \
-    && python -m pip install --no-cache-dir uv
+RUN python -m pip install --no-cache-dir "uv==${UV_VERSION}"
 
 WORKDIR /tmp/remote-smoke
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-install-project --no-default-groups --extra filehost --group remote-smoke
+    uv sync --locked --no-install-project --no-default-groups --group remote-smoke
 
 WORKDIR /app

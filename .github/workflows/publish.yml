@@ -1,231 +1,492 @@
 name: Publish
 
 on:
-  push:
-    tags:
-      - "*"
   workflow_dispatch:
     inputs:
+      release_tag:
+        description: Existing v* tag to publish (for example, v0.7.1)
+        required: true
+        type: string
       debug_enabled:
-        description: Enable extra debug diagnostics
+        description: Enable extra build diagnostics
         required: false
         default: false
         type: boolean
-      release_tag:
-        description: Tag to publish as GitHub Release when manually triggered (e.g. v0.7.0)
-        required: false
-        default: ""
-        type: string
+
+permissions: {}
+
+concurrency:
+  group: publish-${{ inputs.release_tag }}
+  cancel-in-progress: false
 
 jobs:
-  pypi-publish:
-    name: Upload release to PyPI
+  release-guard:
+    name: Gate release source
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-    outputs:
-      release_tag: ${{ steps.release_tag.outputs.tag }}
-    environment: release
+    timeout-minutes: 10
     permissions:
-      # IMPORTANT: this permission is mandatory for trusted publishing
-      id-token: write
-      contents: write
-    env:
-      BUILD_LOG: publish-build.log
+      contents: read
+    outputs:
+      release_tag: ${{ steps.release-ref.outputs.tag }}
+      publishable: ${{ steps.guard.outputs.publishable }}
     steps:
-      - name: Resolve Release Tag
-        id: release_tag
+      - name: Resolve the release tag
+        id: release-ref
         shell: bash
         env:
-          RELEASE_TAG_INPUT: ${{ github.event.inputs.release_tag }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          RELEASE_TAG_INPUT: ${{ inputs.release_tag }}
         run: |
-          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
-            TAG="${GITHUB_REF_NAME}"
-          elif [[ -n "${RELEASE_TAG_INPUT}" ]]; then
-            TAG="${RELEASE_TAG_INPUT}"
+          set -euo pipefail
+          TAG="${RELEASE_TAG_INPUT}"
+          if [[ "${REF_TYPE}" == "tag" ]]; then
+            if [[ "${REF_NAME}" != "${TAG}" ]]; then
+              echo "::error::Dispatch ref ${REF_NAME} does not match release_tag ${TAG}."
+              exit 1
+            fi
+          elif [[ "${REF_TYPE}" == "branch" ]]; then
+            if [[ "${REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
+              echo "::error::Manual release recovery must run from ${DEFAULT_BRANCH} or the matching tag, not ${REF_NAME}."
+              exit 1
+            fi
           else
-            echo "::error::No release tag found. Use a tag push or provide workflow_dispatch input 'release_tag'."
+            echo "::error::Unsupported workflow_dispatch ref type: ${REF_TYPE}."
+            exit 1
+          fi
+          if [[ "${TAG}" != v* ]] || \
+            ! git check-ref-format "refs/tags/${TAG}"; then
+            echo "::error::Release tag must be a valid v* tag, got: ${TAG}"
             exit 1
           fi
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "Resolved release tag: ${TAG}"
 
-      - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Checkout the release tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: refs/tags/${{ steps.release_tag.outputs.tag }}
+          ref: ${{ steps.release-ref.outputs.tag }}
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
-      - name: Verify tagged commit is on master
+      - name: Gate on master ancestry
+        id: guard
         shell: bash
         env:
-          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+          RELEASE_TAG: ${{ steps.release-ref.outputs.tag }}
         run: |
-          git fetch --no-tags origin master:refs/remotes/origin/master
-          TAG_COMMIT=$(git rev-list -n 1 "${RELEASE_TAG}")
-          if [[ "$(git rev-parse HEAD)" != "${TAG_COMMIT}" ]]; then
-            echo "::error::Checkout does not match ${RELEASE_TAG}. Refusing to publish."
+          set -euo pipefail
+          git fetch --no-tags origin \
+            "+refs/heads/master:refs/remotes/origin/master"
+          TAG_SHA=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "${HEAD_SHA}" != "${TAG_SHA}" ]]; then
+            echo "::error::Checkout ${HEAD_SHA} does not match ${RELEASE_TAG} at ${TAG_SHA}."
             exit 1
           fi
-          if ! git merge-base --is-ancestor "${TAG_COMMIT}" origin/master; then
-            echo "::error::Tagged commit ${TAG_COMMIT} is not an ancestor of master. Refusing to publish."
-            exit 1
+          # Tags that are not on master (for example, a recovery dispatch for a
+          # release-branch tag) are not errors: skip the whole publish chain.
+          if ! git merge-base --is-ancestor "${TAG_SHA}" origin/master; then
+            echo "::notice::Tag ${RELEASE_TAG} (${TAG_SHA}) is not on master; skipping publish."
+            echo "publishable=false" >> "${GITHUB_OUTPUT}"
+            exit 0
           fi
-          echo "Tagged commit ${TAG_COMMIT} is on master."
+          echo "Tag ${RELEASE_TAG} (${TAG_SHA}) is on master."
+          echo "publishable=true" >> "${GITHUB_OUTPUT}"
 
-      - name: Install the latest version of uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+  build:
+    name: Verify source & build distributions
+    needs: release-guard
+    if: needs.release-guard.outputs.publishable == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+    outputs:
+      release_tag: ${{ steps.verify.outputs.release_tag }}
+      source_sha: ${{ steps.verify.outputs.source_sha }}
+      version: ${{ steps.verify.outputs.version }}
+    env:
+      BUILD_LOG: publish-build.log
+    steps:
+      - name: Checkout the release tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
+          ref: ${{ needs.release-guard.outputs.release_tag }}
+          fetch-depth: 0
+          fetch-tags: true
+          persist-credentials: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
+        with:
+          version: "0.11.28"
           enable-cache: false
 
-      - name: Set up Python
-        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
-        with:
-          python-version-file: ".python-version"
-
-      - name: Show Runner Context
-        run: |
-          echo "Runner: $RUNNER_NAME ($RUNNER_OS/$RUNNER_ARCH)"
-          python --version
-          uv --version
-
-      - name: Verify tag matches package version
+      - name: Verify tag, source commit, version, and lockfile
+        id: verify
         shell: bash
         env:
-          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+          RELEASE_TAG: ${{ needs.release-guard.outputs.release_tag }}
         run: |
-          VERSION=$(uv version --short)
-          EXPECTED_TAG="v${VERSION}"
-          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
-            echo "::error::Release tag ${RELEASE_TAG} does not match package version ${VERSION}. Expected ${EXPECTED_TAG}."
+          set -euo pipefail
+          TAG_SHA=$(git rev-parse --verify "refs/tags/${RELEASE_TAG}^{commit}")
+          HEAD_SHA=$(git rev-parse HEAD)
+          if [[ "${HEAD_SHA}" != "${TAG_SHA}" ]]; then
+            echo "::error::Checkout ${HEAD_SHA} does not match ${RELEASE_TAG} at ${TAG_SHA}."
             exit 1
           fi
-          echo "Release tag ${RELEASE_TAG} matches package version ${VERSION}."
+          VERSION=$(uv version --short)
+          uvx --from packaging==26.2 python - "${VERSION}" <<'PY'
+          import sys
 
-      - name: Sync deps
-        run: uv sync
+          from packaging.version import InvalidVersion, Version
+
+          raw = sys.argv[1]
+          try:
+              version = Version(raw)
+          except InvalidVersion as error:
+              raise SystemExit(f"::error::Invalid PEP 440 project version: {error}") from error
+          if str(version) != raw:
+              raise SystemExit(
+                  f"::error::Project version must use canonical PEP 440 spelling: {raw!r} -> {version}.",
+              )
+          if version.local is not None:
+              raise SystemExit("::error::PyPI releases cannot use a local version segment.")
+          PY
+          EXPECTED_TAG="v${VERSION}"
+          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
+            echo "::error::Tag ${RELEASE_TAG} does not match project version ${VERSION}."
+            exit 1
+          fi
+          uv lock --check
+          echo "release_tag=${RELEASE_TAG}" >> "${GITHUB_OUTPUT}"
+          echo "source_sha=${TAG_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+          echo "Verified ${RELEASE_TAG} at ${TAG_SHA}."
+
+      - name: Show build context
         shell: bash
-
-      - name: Debug Dependency Snapshot
-        if: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.debug_enabled == 'true' }}
         run: |
-          uv pip list
-          uv tree
+          set -euo pipefail
+          echo "Runner: ${RUNNER_NAME} (${RUNNER_OS}/${RUNNER_ARCH})"
+          uv --version
 
-      - name: Build Package
+      - name: Show dependency snapshot
+        if: inputs.debug_enabled
+        shell: bash
+        run: uv tree --locked
+
+      - name: Build wheel and source distribution
+        shell: bash
         run: |
           set -o pipefail
-          uv build 2>&1 | tee "${BUILD_LOG}"
+          uv build --no-sources --wheel --sdist 2>&1 | tee "${BUILD_LOG}"
 
-      - name: Show built distributions
+      - name: Validate distributions
+        shell: bash
         run: |
-          ls -la dist
-          sha256sum dist/* || true
+          set -euo pipefail
+          uvx --from twine==6.2.0 twine check dist/*
+          make verify-artifacts DIST_DIR=dist
+          sha256sum dist/*
 
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Upload release distributions
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: artifact
-          path: dist/
+          name: release-distributions
+          path: |
+            dist/*.whl
+            dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
 
-      - name: Upload build logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: publish-build-logs
+          name: publish-build-log
           path: ${{ env.BUILD_LOG }}
           if-no-files-found: warn
           retention-days: 14
 
-      - name: pypi-publish
-        uses: pypa/gh-action-pypi-publish@ed0c53931b1dc9bd32cbe73a98c7f6766f8a527e
+  publish-pypi:
+    name: Upload release to PyPI
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: release
+    permissions:
+      id-token: write # Exchange OIDC for a short-lived PyPI credential.
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-distributions
+          path: dist/
 
-      - name: Publish GitHub Release
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b # v1.14.0
+        with:
+          skip-existing: true
+
+  verify-pypi:
+    name: Verify PyPI distribution hashes
+    needs: [build, publish-pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions: {}
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-distributions
+          path: dist/
+
+      - name: Match PyPI filenames and SHA-256 digests
+        shell: bash
+        run: |
+          set -euo pipefail
+          metadata="${RUNNER_TEMP}/pypi-release.json"
+          package_url="https://pypi.org/pypi/nonebot-plugin-htmlrender/${VERSION}/json"
+
+          for attempt in $(seq 1 12); do
+            if ! curl --fail --silent --show-error --location \
+              --output "${metadata}" "${package_url}"; then
+              status=2
+            else
+              set +e
+              python3 - "${metadata}" dist <<'PY'
+          from hashlib import sha256
+          import json
+          from pathlib import Path
+          import sys
+
+          metadata_path = Path(sys.argv[1])
+          dist_path = Path(sys.argv[2])
+          local = {
+              path.name: sha256(path.read_bytes()).hexdigest()
+              for path in dist_path.iterdir()
+              if path.name.endswith((".whl", ".tar.gz"))
+          }
+          remote_payload = json.loads(metadata_path.read_text())
+          remote = {
+              entry["filename"]: entry["digests"]["sha256"]
+              for entry in remote_payload["urls"]
+          }
+
+          if local == remote:
+              print(f"Verified {len(local)} PyPI distribution digest(s).")
+              raise SystemExit(0)
+
+          mismatched = {
+              filename
+              for filename in local.keys() & remote.keys()
+              if local[filename] != remote[filename]
+          }
+          unexpected = remote.keys() - local.keys()
+          if mismatched or unexpected:
+              print(
+                  "::error::PyPI contains mismatched or unexpected release files: "
+                  f"mismatched={sorted(mismatched)}, unexpected={sorted(unexpected)}",
+              )
+              raise SystemExit(3)
+
+          missing = local.keys() - remote.keys()
+          print(f"PyPI metadata is not complete yet; missing={sorted(missing)}")
+          raise SystemExit(2)
+          PY
+              status=$?
+              set -e
+            fi
+
+            if [[ "${status}" == "0" ]]; then
+              exit 0
+            fi
+            if [[ "${status}" == "3" ]]; then
+              exit 1
+            fi
+            if [[ "${status}" != "2" ]]; then
+              echo "::error::Unexpected PyPI verification failure (exit ${status})."
+              exit 1
+            fi
+            if [[ "${attempt}" == "12" ]]; then
+              echo "::error::PyPI metadata did not expose the complete verified release in time."
+              exit 1
+            fi
+            sleep 5
+          done
+
+  github-release:
+    name: Publish GitHub Release
+    needs: [build, verify-pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # Create a release and attach verified distributions.
+    steps:
+      - name: Download verified distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-distributions
+          path: dist/
+
+      - name: Create or update the GitHub Release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ steps.release_tag.outputs.tag }}
+          RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+          SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
         run: |
-          gh release create "${RELEASE_TAG}" \
-            dist/*.whl \
-            dist/*.tar.gz \
-            --title "${RELEASE_TAG}" \
-            --generate-notes
+          set -euo pipefail
+          if gh release view "${RELEASE_TAG}" \
+            --repo "${GITHUB_REPOSITORY}" >/dev/null 2>&1; then
+            gh release upload "${RELEASE_TAG}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --clobber
+          else
+            gh release create "${RELEASE_TAG}" dist/* \
+              --repo "${GITHUB_REPOSITORY}" \
+              --verify-tag \
+              --target "${SOURCE_SHA}" \
+              --title "${RELEASE_TAG}" \
+              --generate-notes
+          fi
 
-  docs-deploy:
-    name: Deploy versioned docs
-    needs: pypi-publish
+  docs-release:
+    name: Publish versioned documentation
+    needs: [build, github-release]
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     permissions:
-      contents: write
+      contents: write # Commit the released tag's generated docs to gh-pages.
     env:
-      DOCS_LOG: docs-build.log
-      RELEASE_TAG: ${{ needs.pypi-publish.outputs.release_tag }}
+      DEPLOY_LOG: release-docs-deploy.log
+      DOCS_LOG: release-docs-build.log
+      RELEASE_TAG: ${{ needs.build.outputs.release_tag }}
+      VERSION: ${{ needs.build.outputs.version }}
     steps:
-      - name: Checkout release tag
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+      - name: Checkout the verified release tag
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
-          ref: refs/tags/${{ needs.pypi-publish.outputs.release_tag }}
+          ref: ${{ needs.build.outputs.release_tag }}
           fetch-depth: 0
+          fetch-tags: true
           persist-credentials: false
 
       - name: Set up uv
-        uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78
+        uses: astral-sh/setup-uv@11f9893b081a58869d3b5fccaea48c9e9e46f990 # v8.3.2
         with:
           python-version: "3.12"
+          version: "0.11.28"
           enable-cache: false
 
-      - name: Sync docs deps
-        run: uv sync --locked --group docs
+      - name: Sync docs dependencies
+        run: uv sync --locked --group docs --no-default-groups
 
-      - name: Verify docs version
-        id: version
+      - name: Build released docs strictly
         shell: bash
-        run: |
-          VERSION=$(uv version --short)
-          EXPECTED_TAG="v${VERSION}"
-          if [[ "${RELEASE_TAG}" != "${EXPECTED_TAG}" ]]; then
-            echo "::error::Release tag ${RELEASE_TAG} does not match docs version ${VERSION}."
-            exit 1
-          fi
-          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
-
-      - name: Build docs
         run: |
           set -o pipefail
           uv run zensical build --strict 2>&1 | tee "${DOCS_LOG}"
 
-      - name: Upload docs build logs
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+      - name: Upload released docs build log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: release-docs-build-logs
+          name: release-docs-build-log
           path: ${{ env.DOCS_LOG }}
           if-no-files-found: warn
           retention-days: 14
 
-      - name: Configure git
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-      - name: Configure authenticated origin
+      - name: Configure deployment identity
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git remote set-url origin "https://x-access-token:${GITHUB_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
 
-      - name: Deploy versioned docs
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
+      - name: Deploy released docs with conflict retry
+        shell: bash
         run: |
-          uv run mike deploy --push --update-aliases "${VERSION}" latest
-          uv run mike set-default --push latest
+          set -euo pipefail
+          : > "${DEPLOY_LOG}"
 
-      - name: Show docs URL
+          for attempt in 1 2 3; do
+            echo "Deployment attempt ${attempt}/3" | tee -a "${DEPLOY_LOG}"
+            git branch --delete --force gh-pages 2>/dev/null || true
+            if git ls-remote --exit-code --heads origin gh-pages >/dev/null; then
+              git fetch --force origin gh-pages:gh-pages
+            fi
+
+            versions_file="${RUNNER_TEMP}/mike-versions.json"
+            if ! git show gh-pages:versions.json > "${versions_file}" 2>/dev/null; then
+              echo '[]' > "${versions_file}"
+            fi
+            update_latest=$(uvx --from packaging==26.2 python - \
+              "${VERSION}" "${versions_file}" <<'PY'
+          import json
+          from pathlib import Path
+          import sys
+
+          from packaging.version import Version
+
+          target = Version(sys.argv[1])
+          deployed = [
+              Version(item["version"])
+              for item in json.loads(Path(sys.argv[2]).read_text())
+          ]
+          newest = max(deployed) if deployed else None
+          should_update = newest is None or target >= newest
+          print(
+              f"Target docs version={target}; newest deployed={newest}; "
+              f"update latest={should_update}.",
+              file=sys.stderr,
+          )
+          print("true" if should_update else "false")
+          PY
+            )
+
+            deploy_succeeded=false
+            if [[ "${update_latest}" == "true" ]]; then
+              if uv run mike deploy --update-aliases "${VERSION}" latest 2>&1 | tee -a "${DEPLOY_LOG}" \
+                && uv run mike set-default latest 2>&1 | tee -a "${DEPLOY_LOG}"; then
+                deploy_succeeded=true
+              fi
+            elif uv run mike deploy "${VERSION}" 2>&1 | tee -a "${DEPLOY_LOG}"; then
+              deploy_succeeded=true
+            fi
+
+            if [[ "${deploy_succeeded}" == "true" ]] \
+              && git push origin gh-pages:gh-pages 2>&1 | tee -a "${DEPLOY_LOG}"; then
+              exit 0
+            fi
+
+            if [[ "${attempt}" == "3" ]]; then
+              echo "::error::Failed to deploy released docs after ${attempt} attempts."
+              exit 1
+            fi
+            sleep "$((attempt * 2))"
+          done
+
+      - name: Upload released docs deployment log
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-docs-deploy-log
+          path: ${{ env.DEPLOY_LOG }}
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Show released docs URL
         env:
           DOCS_OWNER: ${{ github.repository_owner }}
           DOCS_REPO: ${{ github.event.repository.name }}
-          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          echo "Docs deployed: https://${DOCS_OWNER}.github.io/${DOCS_REPO}/${VERSION}/"
+          docs_url="https://${DOCS_OWNER}.github.io/${DOCS_REPO}/${VERSION}/"
+          echo "Docs deployed from ${RELEASE_TAG}: ${docs_url}"
+          echo "### [Open released documentation](${docs_url})" >> "${GITHUB_STEP_SUMMARY}"

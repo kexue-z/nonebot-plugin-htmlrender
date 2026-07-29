@@ -1,7 +1,7 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.7.2"
-description = "通过浏览器渲染图片"
+version = "0.8.0"
+description = "提供 HTML、Markdown、模板渲染与独立栅格场景能力"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
 requires-python = ">=3.10,<4.0"
@@ -13,17 +13,40 @@ dependencies = [
     "markdown>=3.10.0",
     "nonebot-plugin-localstore>=0.7.4",
     "nonebot2>=2.5.0",
-    "playwright>=1.60.0",
     "pygments>=2.10.0",
-    "pymdown-extensions>=10.21.2",
+    "pymdown-extensions>=11.0",
     "python-markdown-math>=0.8",
-    "tenacity>=9.1.2",
     "typing-extensions>=4.15.0",
 ]
 [project.optional-dependencies]
-filehost = ["nonebot-plugin-filehost>=0.2.0", "py-machineid>=0.8.0"]
+filehost = [
+ "py-machineid>=0.8.0",
+]
 sentry = ["nonebot-plugin-sentry>=2.0.0"]
 prometheus = ["nonebot-plugin-prometheus>=0.4.0"]
+takumi = ["takumi-py==0.2.0"]
+playwright = [
+    "playwright>=1.60.0",
+]
+all = [
+    "nonebot-plugin-htmlkit==0.1.0rc5",
+    "nonebot-plugin-prometheus>=0.4.0",
+    "nonebot-plugin-sentry>=2.0.0",
+    "pillow>=12.0.0",
+    "playwright>=1.60.0",
+    "py-machineid>=0.8.0",
+    "skia-python>=144.0.post2",
+    "takumi-py==0.2.0",
+]
+pillow = [
+    "pillow>=12.0.0",
+]
+skia = [
+    "skia-python>=144.0.post2",
+]
+htmlkit = [
+    "nonebot-plugin-htmlkit==0.1.0rc5",
+]
 
 [project.urls]
 "Homepage" = "https://github.com/kexue-z/nonebot-plugin-htmlrender"
@@ -38,15 +61,15 @@ dev = [
     "ty>=0.0.34",
 ]
 docs = [
-    "zensical>=0.0.41",
+    "zensical>=0.0.51",
     "mike @ git+https://github.com/squidfunk/mike.git",
-    "mdformat>=1.0.0",
-    "mdformat-mkdocs>=4.4.2",
     "mkdocstrings-python>=2.0.1",
 ]
 remote-smoke = [
     "nonebot2[fastapi]>=2.5.0",
     "pillow>=12.0.0",
+    "playwright>=1.60.0",
+    "py-machineid>=0.8.0",
 ]
 test = [
     "nonebug>=0.4.4",
@@ -66,31 +89,16 @@ markers = [
     "anyio: run async tests via anyio backend",
     "requires_browser: test needs a real Playwright browser",
 ]
-# In-house deprecation noise from compat shells (`_compat.*`, deprecated
-# data_source re-exports). Tests intentionally exercise these legacy paths.
-filterwarnings = [
-    "ignore:`.+` is deprecated\\. Use `.+` instead\\.:DeprecationWarning",
-    "ignore:Importing Playwright helpers from .+\\.data_source.+ is deprecated\\..+:DeprecationWarning",
-]
 
 [tool.coverage.run]
 omit = [
-    # Telemetry / observability
-    "nonebot_plugin_htmlrender/utils/telemetry/*",
-    "nonebot_plugin_htmlrender/backend/playwright/telemetry.py",
-    # Signal & process management
-    "nonebot_plugin_htmlrender/utils/signal.py",
-    "nonebot_plugin_htmlrender/utils/process.py",
+    # Signal & process management (host OS integration, exercised by the
+    # install smoke matrix rather than unit coverage)
+    "nonebot_plugin_htmlrender/adapters/playwright/_support/signal.py",
+    "nonebot_plugin_htmlrender/adapters/playwright/_support/process.py",
     # Installation helpers
-    "nonebot_plugin_htmlrender/utils/install.py",
-    "nonebot_plugin_htmlrender/backend/playwright/install.py",
-    # Backward compat re-export shells
-    "nonebot_plugin_htmlrender/_compat.py",
-    "nonebot_plugin_htmlrender/browser.py",
-    "nonebot_plugin_htmlrender/data_source.py",
-    "nonebot_plugin_htmlrender/backend/playwright/data_source.py",
-    # Bootstrap hacks
-    "nonebot_plugin_htmlrender/_bootstrap.py",
+    "nonebot_plugin_htmlrender/adapters/playwright/_support/install.py",
+    "nonebot_plugin_htmlrender/adapters/playwright/install.py",
 ]
 
 [tool.coverage.report]
@@ -248,12 +256,13 @@ mark-parentheses = false
 keep-runtime-typing = true
 
 [tool.basedpyright]
-pythonVersion = "3.11"
+pythonVersion = "3.10"
 pythonPlatform = "All"
 typeCheckingMode = "standard"
-include = ["nonebot_plugin_htmlrender", "tests"]
+include = ["nonebot_plugin_htmlrender", "tests", "examples"]
 executionEnvironments = [
     { root = "./tests", extraPaths = ["./"] },
+    { root = "./examples", extraPaths = ["./"] },
     { root = "./" },
 ]
 exclude = [
