@@ -22,9 +22,9 @@ tags:
 | Docs PR Preview Build | `.github/workflows/docs-pr-preview.yml` | 检测文档相关变更，以只读权限严格构建静态站 | PR open/sync/reopen |
 | Docs PR Preview Deploy | `.github/workflows/docs-pr-preview-deploy.yml` | 校验并发布 build artifact，更新 PR 预览评论 | preview build 完成 |
 | Docs PR Preview Cleanup | `.github/workflows/docs-pr-preview-cleanup.yml` | 删除已关闭 PR 的 Pages 预览 | PR closed |
-| Docs | `.github/workflows/docs.yml` | 对待发布源码执行严格文档构建，不写 Pages | push `master` 的文档相关路径、手动 |
+| Docs | `.github/workflows/docs.yml` | 对每个可能成为 release source 的 `master` SHA 执行严格文档构建，不写 Pages | push `master`、手动 |
 | Publish (TestPyPI) | `.github/workflows/publish-test.yml` | 构建唯一 dev version 并 trusted publish 到 TestPyPI | **仅手动** |
-| Auto Tag on Version Change | `.github/workflows/auto-tag.yml` | 汇合同一 master SHA 的 CI/Coverage/Docs/Prek，验证版本递增后 tag 并 dispatch `Publish` | 四条 required workflow 完成 |
+| Auto Tag on Version Change | `.github/workflows/auto-tag.yml` | 汇合同一 master SHA 的 CI/Coverage/Docs/Prek，验证版本递增后 tag 并 dispatch `Publish`；也提供受同等门禁约束的 pre-tag recovery | 四条 required workflow 完成、受约束的手动恢复 |
 | Publish | `.github/workflows/publish.yml` | 校验 tag/source/version，发布并回读 PyPI、创建 GitHub Release，最后部署对应 tag 的版本文档 | `v*` tag、受约束的手动恢复 |
 
 ## PR 必需质量层

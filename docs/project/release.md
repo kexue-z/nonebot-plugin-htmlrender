@@ -78,6 +78,8 @@ flowchart LR
 
 普通 PR、只修改依赖配置的 PR 或未改变 `project.version` 的 master commit 都不会创建 tag。版本更新必须位于最终 squash/merge commit，确保第一父提交与 gated source 的版本差异可审计。
 
+如果 Auto Tag 的构建 preflight 因 workflow 基础设施缺陷失败且尚未创建 tag，先通过 PR 修复基础设施，并等待修复后当前 `master` SHA 的 CI、Coverage、Docs、Prek 全部成功。随后从默认分支手动运行 `Auto Tag on Version Change`，输入该完整 `source_sha`。恢复入口只接受当前 `master` tip、重新汇合该精确 SHA 的四条门禁、要求目标 tag 尚不存在，并再次执行完整 package preflight；它不能用于已有 tag 的发布恢复，也不能选择历史 commit。已有 tag 应直接按下文重跑 `Publish`。
+
 由 `GITHUB_TOKEN` push 产生的事件不会再次触发普通 downstream workflow；显式 `workflow_dispatch` 是发布契约的一部分，也使同一 tag 的恢复可重复执行。
 
 ### Publish 的不可逆操作前校验
@@ -106,7 +108,7 @@ TestPyPI 用于安装行为或包元数据的人工验收，不是 PR 必需 che
 
 ## 文档是独立发布链路
 
-`Docs` 监听 `master` 上的文档、文档配置和文档工作流相关路径。版本字段位于 `pyproject.toml`，因此版本 PR 必然触发严格构建；其成功结果也是自动创建 tag 的精确 SHA 门禁之一，但它不写正式 Pages 版本。
+`Docs` 覆盖每个 `master` push，使正常 release cut 和 pre-tag recovery 选择的任意当前 `master` SHA 都具备可汇合的精确 SHA 门禁。它执行严格构建，但不写正式 Pages 版本。
 
 `Publish versioned documentation` 位于不可逆软件发布之后：它重新检出经过验证的 tag、再次 strict build，并在 PyPI hash 回读与 GitHub Release 均成功后才通过 `mike` 创建 `/<version>/` 和更新 `latest`。
 
@@ -125,6 +127,7 @@ TestPyPI 用于安装行为或包元数据的人工验收，不是 PR 必需 che
 
 | 状态                                         | 恢复方式                                                                                                                                      |
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| Auto Tag package preflight 失败，尚未创建 tag | 基础设施缺陷先通过 PR 修复；四条 required workflow 在修复后的当前 `master` SHA 全部成功后，以该完整 SHA 手动运行 `Auto Tag on Version Change`；产物或 metadata 缺陷则提升版本并走新的版本 PR |
 | tag/source/version 不变量校验失败            | 停止发布并核对 tag 来源；代码或版本确有错误时发起新的版本 PR。除非维护者确认 tag 从未对外发布且明确承担历史变更风险，否则不要移动或重建原 tag |
 | build / `twine check` 失败，尚未上传 PyPI    | 基础设施瞬时故障可对同一 tag 重跑；产物或 metadata 确有错误时提升版本并走新的版本 PR                                                          |
 | 校验和构建成功，PyPI 因临时故障失败          | 对同一已验证 tag 重新运行 `Publish`                                                                                                           |
