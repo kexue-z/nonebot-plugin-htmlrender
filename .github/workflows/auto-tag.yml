@@ -11,29 +11,56 @@ on:
       - completed
     branches:
       - master
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: Exact current master SHA whose untagged version should be recovered
+        required: true
+        type: string
 
 permissions: {}
 
 # Each required workflow emits a completion event. Serialize events for the same
 # source commit so only one run can create its tag or dispatch its publication.
 concurrency:
-  group: auto-tag-${{ github.event.workflow_run.head_sha }}
+  group: auto-tag-${{ github.event.workflow_run.head_sha || inputs.source_sha }}
   cancel-in-progress: false
 
 jobs:
   tag-and-dispatch:
     name: Gate source, tag version change & dispatch publish
     if: >-
-      github.event.workflow_run.event == 'push' &&
-      github.event.workflow_run.head_branch == 'master'
+      (github.event_name == 'workflow_run' &&
+       github.event.workflow_run.event == 'push' &&
+       github.event.workflow_run.head_branch == 'master') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
       actions: write # Read source workflow runs and dispatch publish.yml.
       contents: write # Create the tag at the verified master commit.
     env:
-      SOURCE_SHA: ${{ github.event.workflow_run.head_sha }}
+      RECOVERY_MODE: ${{ github.event_name == 'workflow_dispatch' }}
+      SOURCE_SHA: ${{ github.event.workflow_run.head_sha || inputs.source_sha }}
     steps:
+      - name: Validate recovery request
+        if: env.RECOVERY_MODE == 'true'
+        shell: bash
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+        run: |
+          set -euo pipefail
+          if [[ "${REF_TYPE}" != "branch" || "${REF_NAME}" != "${DEFAULT_BRANCH}" ]]; then
+            echo "::error::Pre-tag recovery must use the default branch workflow definition."
+            exit 1
+          fi
+          if [[ ! "${SOURCE_SHA}" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::source_sha must be a full lowercase commit SHA."
+            exit 1
+          fi
+
       - name: Require all release workflows for the exact source SHA
         id: gates
         shell: bash
@@ -115,7 +142,7 @@ jobs:
           version: "0.11.28"
           enable-cache: false
 
-      - name: Verify source and detect a version change
+      - name: Verify source and select the release version
         if: steps.gates.outputs.ready == 'true'
         id: version
         shell: bash
@@ -132,6 +159,11 @@ jobs:
             echo "::error::Gated source ${SOURCE_SHA} is not on master."
             exit 1
           fi
+          MASTER_SHA=$(git rev-parse origin/master)
+          if [[ "${RECOVERY_MODE}" == "true" && "${SOURCE_SHA}" != "${MASTER_SHA}" ]]; then
+            echo "::error::Pre-tag recovery requires current master ${MASTER_SHA}, got ${SOURCE_SHA}."
+            exit 1
+          fi
 
           if ! PARENT_SHA=$(git rev-parse --verify "${SOURCE_SHA}^1"); then
             echo "changed=false" >> "${GITHUB_OUTPUT}"
@@ -146,18 +178,20 @@ jobs:
           PREVIOUS_VERSION=$(git show "${PARENT_SHA}:pyproject.toml" | python3 -c \
             'import sys, tomllib; print(tomllib.load(sys.stdin.buffer)["project"]["version"])')
           VERSION=$(uv version --short)
-          if [[ "${VERSION}" == "${PREVIOUS_VERSION}" ]]; then
+          if [[ "${VERSION}" == "${PREVIOUS_VERSION}" && "${RECOVERY_MODE}" != "true" ]]; then
             echo "changed=false" >> "${GITHUB_OUTPUT}"
             echo "Project version remains ${VERSION}; no release tag is needed."
             exit 0
           fi
 
-          uvx --from packaging==26.2 python - "${PREVIOUS_VERSION}" "${VERSION}" <<'PY'
+          uvx --from packaging==26.2 python - \
+            "${PREVIOUS_VERSION}" "${VERSION}" "${RECOVERY_MODE}" <<'PY'
           import sys
 
           from packaging.version import InvalidVersion, Version
 
-          previous_raw, current_raw = sys.argv[1:]
+          previous_raw, current_raw, recovery_raw = sys.argv[1:]
+          recovery = recovery_raw == "true"
           try:
               previous = Version(previous_raw)
               current = Version(current_raw)
@@ -171,7 +205,7 @@ jobs:
               )
           if current.local is not None:
               raise SystemExit("::error::PyPI releases cannot use a local version segment.")
-          if current <= previous:
+          if current < previous or (current == previous and not recovery):
               raise SystemExit(
                   f"::error::Automatic releases must increase the version: {previous} -> {current}.",
               )
@@ -188,13 +222,18 @@ jobs:
           echo "previous_version=${PREVIOUS_VERSION}" >> "${GITHUB_OUTPUT}"
           echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
           echo "tag=${TAG}" >> "${GITHUB_OUTPUT}"
-          echo "Detected version change ${PREVIOUS_VERSION} -> ${VERSION}."
+          if [[ "${VERSION}" == "${PREVIOUS_VERSION}" ]]; then
+            echo "Recovering untagged version ${VERSION} from current master ${SOURCE_SHA}."
+          else
+            echo "Detected version change ${PREVIOUS_VERSION} -> ${VERSION}."
+          fi
 
       - name: Decide whether to create or reuse the tag
         if: steps.version.outputs.changed == 'true'
         id: tag
         shell: bash
         env:
+          RECOVERY_MODE: ${{ env.RECOVERY_MODE }}
           TAG: ${{ steps.version.outputs.tag }}
         run: |
           set -euo pipefail
@@ -207,11 +246,19 @@ jobs:
               echo "::error::Tag ${TAG} already points to ${TAG_SHA}, not ${SOURCE_SHA}."
               exit 1
             fi
+            if [[ "${RECOVERY_MODE}" == "true" ]]; then
+              echo "::error::Tag ${TAG} already exists; recover with Publish instead."
+              exit 1
+            fi
             echo "create=false" >> "${GITHUB_OUTPUT}"
             echo "Tag ${TAG} already points to ${SOURCE_SHA}; reusing it."
           else
             echo "create=true" >> "${GITHUB_OUTPUT}"
           fi
+
+      - name: Install Skia runtime libraries
+        if: steps.version.outputs.changed == 'true' && steps.tag.outputs.create == 'true'
+        uses: ./.github/actions/setup-skia-runtime
 
       - name: Build and validate release candidates before tagging
         if: steps.version.outputs.changed == 'true' && steps.tag.outputs.create == 'true'

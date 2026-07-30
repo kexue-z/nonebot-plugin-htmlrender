@@ -124,6 +124,9 @@ jobs:
           version: "0.11.28"
           enable-cache: false
 
+      - name: Install Skia runtime libraries
+        uses: ./.github/actions/setup-skia-runtime
+
       - name: Verify tag, source commit, version, and lockfile
         id: verify
         shell: bash
