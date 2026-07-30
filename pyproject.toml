@@ -1,6 +1,6 @@
 [project]
 name = "nonebot-plugin-htmlrender"
-version = "0.8.0"
+version = "0.8.1"
 description = "提供 HTML、Markdown、模板渲染与独立栅格场景能力"
 readme = "README.md"
 authors = [{ name = "kexue", email = "x@kexue-cloud.cn" }]
