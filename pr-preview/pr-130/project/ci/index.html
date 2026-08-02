@@ -3770,8 +3770,8 @@
 <tr>
 <td>Docs</td>
 <td><code>.github/workflows/docs.yml</code></td>
-<td>对待发布源码执行严格文档构建，不写 Pages</td>
-<td>push <code>master</code> 的文档相关路径、手动</td>
+<td>对每个可能成为 release source 的 <code>master</code> SHA 执行严格文档构建，不写 Pages</td>
+<td>push <code>master</code>、手动</td>
 </tr>
 <tr>
 <td>Publish (TestPyPI)</td>
@@ -3782,8 +3782,8 @@
 <tr>
 <td>Auto Tag on Version Change</td>
 <td><code>.github/workflows/auto-tag.yml</code></td>
-<td>汇合同一 master SHA 的 CI/Coverage/Docs/Prek，验证版本递增后 tag 并 dispatch <code>Publish</code></td>
-<td>四条 required workflow 完成</td>
+<td>汇合同一 master SHA 的 CI/Coverage/Docs/Prek，验证版本递增后 tag 并 dispatch <code>Publish</code>；也提供受同等门禁约束的 pre-tag recovery</td>
+<td>四条 required workflow 完成、受约束的手动恢复</td>
 </tr>
 <tr>
 <td>Publish</td>
