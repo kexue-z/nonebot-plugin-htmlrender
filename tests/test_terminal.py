@@ -6,7 +6,20 @@ import os
 import pty
 import termios
 
+import pytest
+
 from nonebot_plugin_htmlrender import terminal
+
+
+@pytest.fixture(autouse=True)
+def _reset_state():
+    """Keep the module-level snapshot holder isolated between tests."""
+    yield
+    terminal._state.saved = None
+
+
+def _raise_termios_error(_fd: int) -> None:
+    raise termios.error("boom")
 
 
 def test_snapshot_skips_non_tty(monkeypatch):
@@ -69,3 +82,38 @@ def test_restore_keeps_unchanged_terminal(monkeypatch):
     finally:
         os.close(master)
         os.close(slave)
+
+
+def test_snapshot_swallows_termios_error(monkeypatch):
+    monkeypatch.setattr(os, "isatty", lambda _fd: True)
+    monkeypatch.setattr(termios, "tcgetattr", _raise_termios_error)
+    assert terminal._take_snapshot() is None
+
+
+def test_restore_skips_when_fd_not_a_tty(monkeypatch):
+    def _fail(*_args, **_kwargs):
+        raise AssertionError("tcgetattr/tcsetattr must not be called")
+
+    master, slave = pty.openpty()
+    try:
+        terminal.save_terminal_state(slave)
+        monkeypatch.setattr(os, "isatty", lambda _fd: False)
+        monkeypatch.setattr(termios, "tcgetattr", _fail)
+        monkeypatch.setattr(termios, "tcsetattr", _fail)
+        terminal.restore_terminal_state(slave)
+    finally:
+        os.close(master)
+        os.close(slave)
+
+
+def test_restore_swallows_termios_error(monkeypatch):
+    master, slave = pty.openpty()
+    try:
+        terminal._state.saved = termios.tcgetattr(slave)
+    finally:
+        os.close(master)
+        os.close(slave)
+
+    monkeypatch.setattr(os, "isatty", lambda _fd: True)
+    monkeypatch.setattr(termios, "tcgetattr", _raise_termios_error)
+    terminal.restore_terminal_state()
